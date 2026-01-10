@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynare-python"
+version = "0.1.0"
+description = "A minimal Dynare-style perfect foresight solver in Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["economics", "macroeconomics", "dynare", "perfect-foresight"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0",
+    "sympy>=1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "matplotlib>=3.3.0",
+    "pytest>=6.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/DynareByPython"
+Repository = "https://github.com/yourusername/DynareByPython"
