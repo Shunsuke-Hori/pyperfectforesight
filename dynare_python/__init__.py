@@ -16,6 +16,10 @@ from dynare_python.core import (
     local_blocks,
     process_model,
 
+    # Auxiliary variables
+    solve_auxiliary_nested,
+    compute_auxiliary_variables,
+
     # Steady state
     compute_steady_state_numerical,
 
@@ -38,6 +42,9 @@ __all__ = [
     "eliminate_static",
     "local_blocks",
     "process_model",
+    # Auxiliary variables
+    "solve_auxiliary_nested",
+    "compute_auxiliary_variables",
     # Steady state
     "compute_steady_state_numerical",
     # Solver components
