@@ -516,8 +516,9 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                                 'func': sp.lambdify(expr_syms, expr, "numpy"),
                                 'syms': expr_syms
                             }
-                # Remove auxiliary equations from system
-                equations = remaining_eqs
+                # Substitute aux solutions into remaining equations (handles any
+                # aux variable that may appear in a non-aux equation)
+                equations = [eq.subs(aux_sols) for eq in remaining_eqs]
                 aux_method_used = 'analytical'
             else:
                 # Analytical solve failed
@@ -784,11 +785,16 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
                     args = []
                     for sym in syms:
                         sym_name = sym.name
-                        # Parse symbol name: varname_lag
+                        # Parse symbol name: varname_lag (lag is an integer)
                         if '_' in sym_name:
                             parts = sym_name.rsplit('_', 1)
-                            var = parts[0]
-                            lag = int(parts[1])
+                            try:
+                                lag = int(parts[1])
+                                var = parts[0]
+                            except ValueError:
+                                # Not a time-indexed variable (e.g. param named rho_g)
+                                var = sym_name
+                                lag = 0
                         else:
                             var = sym_name
                             lag = 0
@@ -869,6 +875,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     x = x0.copy()
     nrm = np.inf
     nfev = 0
+    it = -1
     success = False
     msg = f"Did not converge after {max_iter} iterations"
 
@@ -939,7 +946,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         If None, treats all variables as stock (backward compatible).
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
     method : str
-        Solver method: 'hybr' (default), 'lm', 'krylov', etc.
+        Deprecated. Previously selected the scipy.optimize.root method ('hybr',
+        'lm', 'krylov', etc.). The solver now always uses the sparse Newton
+        method (_sparse_newton) regardless of this parameter. Kept for backward
+        compatibility.
     use_terminal_conditions : bool
         Whether to enforce terminal steady-state conditions (default: True)
     solver_options : dict

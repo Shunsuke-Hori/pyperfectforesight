@@ -2,7 +2,7 @@
 
 ## Overview
 
-The package now supports **three methods** for handling static/auxiliary variables, with smart defaults that balance speed and robustness.
+The package now supports **four methods** for handling static/auxiliary variables, with smart defaults that balance speed and robustness.
 
 ## Methods
 
@@ -58,8 +58,9 @@ process_model(..., aux_method='nested')
 
 **Behavior:**
 - Skips analytical attempt entirely
-- Solves auxiliary equations numerically at each solver iteration
-- Uses scipy.optimize.root with warm starting
+- After `solve_perfect_foresight` returns, solves auxiliary equations numerically
+  for each time period in sequence (post-solve, not inline at each Newton iteration)
+- Uses scipy.optimize.root with warm starting across periods
 
 **When to use:**
 - Complex auxiliary equations (implicit, transcendental, coupled)
@@ -165,19 +166,16 @@ i_path = X_aux[:, 0]  # Computed automatically!
 
 ### How 'nested' Works at Runtime
 
-During each perfect foresight solver iteration:
+After `solve_perfect_foresight` converges on the dynamic variables, auxiliary
+variables are solved in a separate post-processing pass:
 
 ```python
-# Outer loop: solve for [c, k] paths
-for iteration in solver:
-    # For each time period t:
-    for t in range(T):
-        # Given current guess for c[t], k[t]
-        # Solve: find i[t] such that y[t] - c[t] - i[t] - g[t] = 0
-        i[t] = scipy.optimize.root(aux_residual, guess)
-
-    # Evaluate dynamic residuals using [c, k, i]
-    # Update [c, k] guess
+# After solver converges on [c, k] paths:
+for t in range(T):
+    # Given converged c[t], k[t]
+    # Solve: find i[t] such that y[t] - c[t] - i[t] - g[t] = 0
+    i[t] = scipy.optimize.root(aux_residual, guess)
+    guess = i[t]  # Warm start next period
 ```
 
 Uses warm starting: `i[t]` as initial guess for `i[t+1]`

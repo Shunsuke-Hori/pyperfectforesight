@@ -1,12 +1,12 @@
 """
-rbc_with_government.py
-RBC model with government spending as an exogenous variable
+rbc_with_investment.py
+RBC model with investment as an auxiliary (static) variable
 
 This demo shows:
-1. Defining a model with both endogenous and exogenous variables
-2. Specifying a path for exogenous variables (government spending shock)
-3. Solving the transition path with exogenous variables
-4. Visualizing the response to government spending shocks
+1. Defining auxiliary variables that are derived from dynamic and exogenous variables
+2. Using process_model with vars_aux to enable automatic auxiliary-variable handling
+3. Solving the transition path and accessing the computed auxiliary-variable path
+4. Visualizing the response to a government spending shock including investment
 """
 
 import sympy as sp
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     X0 = np.tile(ss_dyn, (T, 1))
 
     # Define exogenous path: government spending shock
-    # Shock: increase government spending by 10% for 20 periods, then return to baseline
+    # Shock: increase government spending by 1% for 20 periods, then return to baseline
     exog_path = np.zeros((T, 1))  # 1 exogenous variable (g)
     exog_path[:, 0] = g_baseline  # Baseline
 
