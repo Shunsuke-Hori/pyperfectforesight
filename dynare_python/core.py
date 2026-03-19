@@ -838,7 +838,11 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
                                     found = True
                                     break
                             if not found:
-                                args.append(0)  # Unknown, use 0
+                                raise ValueError(
+                                    f"Symbol '{sym_name}' in auxiliary expression for "
+                                    f"'{var_name}' could not be resolved. "
+                                    f"Ensure all symbols are in vars_dyn, vars_exo, or params_dict."
+                                )
 
                     # Compute auxiliary variable value
                     X_aux[t, i] = func(*args)
@@ -933,8 +937,16 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
         x = x + alpha * delta
 
         if xtol is not None and np.linalg.norm(alpha * delta) < xtol:
-            success = True
-            msg = f"Converged at iteration {it} (xtol), ||F|| = {nrm:.2e}"
+            # Small step — re-evaluate F to check whether residuals are also small.
+            # A tiny step can indicate stagnation (e.g. near-singular Jacobian), not convergence.
+            F_new = F_func(x)
+            nfev += 1
+            nrm_new = np.linalg.norm(F_new)
+            if nrm_new < tol:
+                success = True
+                msg = f"Converged at iteration {it}, ||F|| = {nrm_new:.2e}"
+            else:
+                msg = f"Stagnated at iteration {it} (xtol), ||F|| = {nrm_new:.2e}"
             break
 
     return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=njev)
