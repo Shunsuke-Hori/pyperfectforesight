@@ -1126,13 +1126,11 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         def F_full(x):
             X = x.reshape(T, -1)
             F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-            for i in range(n):
-                F = np.append(F, X[0, i] - ss_initial[i])
+            initial_resid = X[0, :] - ss_initial
             if use_terminal_conditions:
-                # Append terminal conditions directly — avoids building the Jacobian
-                for i in range(n):
-                    F = np.append(F, X[-1, i] - ss[i])
-            return F
+                terminal_resid = X[-1, :] - ss
+                return np.concatenate([F, initial_resid, terminal_resid])
+            return np.concatenate([F, initial_resid])
 
         def J_full(x):
             from scipy.sparse import lil_matrix, vstack
