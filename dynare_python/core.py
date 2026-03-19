@@ -563,10 +563,23 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                 aux_eqs_funcs = [sp.lambdify(aux_eqs_syms, eq, "numpy") for eq in aux_eqs]
 
             # Remove auxiliary equations from dynamic system.
-            # Aux variables must not appear in the remaining dynamic equations —
-            # they have no values during Newton iterations in nested mode.
-            aux_var_syms_set = {v(name, 0) for name in (vars_aux or [])}
-            leaking = [s for eq in remaining_eqs for s in eq.free_symbols if s in aux_var_syms_set]
+            # Aux variables must not appear in the remaining dynamic equations at any
+            # lead/lag — they have no values during Newton iterations in nested mode.
+            aux_var_names = set(vars_aux or [])
+
+            def _is_aux_sym(s):
+                """Return True if symbol s references an auxiliary variable at any lag."""
+                name = s.name
+                if '_' in name:
+                    parts = name.rsplit('_', 1)
+                    try:
+                        int(parts[1])
+                        return parts[0] in aux_var_names
+                    except ValueError:
+                        pass
+                return name in aux_var_names
+
+            leaking = [s for eq in remaining_eqs for s in eq.free_symbols if _is_aux_sym(s)]
             if leaking:
                 raise ValueError(
                     f"Auxiliary variable(s) {[s.name for s in set(leaking)]} appear in "
@@ -966,11 +979,11 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             msg = f"Line search failed at iteration {it}, ||F|| = {nrm:.2e}"
             break
 
+        x = x + alpha * delta
+
         if max_nfev is not None and nfev >= max_nfev:
             msg = f"Reached maxfev={max_nfev} function evaluations at iteration {it}, ||F|| = {nrm:.2e}"
             break
-
-        x = x + alpha * delta
 
         if xtol is not None and np.linalg.norm(alpha * delta) < xtol:
             # Small step — re-evaluate F to check whether residuals are also small.
