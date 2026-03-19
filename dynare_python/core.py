@@ -886,7 +886,8 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     from scipy.optimize import OptimizeResult
 
     if solver_options:
-        max_iter = solver_options.get('maxiter', max_iter)
+        # 'maxfev' is a backward-compatible alias for 'maxiter' (scipy.optimize.root convention)
+        max_iter = solver_options.get('maxiter', solver_options.get('maxfev', max_iter))
         tol = solver_options.get('ftol', tol)   # f-norm convergence tolerance
         xtol = solver_options.get('xtol', None)  # x-step tolerance (scipy convention)
     else:
@@ -917,6 +918,10 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             delta, *_ = lsmr(J, -F)
         else:
             delta = spsolve(J, -F)
+
+        if not np.isfinite(delta).all():
+            msg = f"Linear solve produced non-finite delta at iteration {it} (singular/ill-conditioned Jacobian), ||F|| = {nrm:.2e}"
+            break
 
         # Backtracking line search
         alpha = 1.0
@@ -1043,6 +1048,17 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         # New behavior: distinguish stock (predetermined) and jump variables
         # Stock variables: fixed at t=0, free at t=T-1
         # Jump variables: free at t=0, fixed at t=T-1
+        if len(initial_state) != len(stock_var_indices):
+            raise ValueError(
+                f"initial_state has {len(initial_state)} elements but stock_var_indices "
+                f"has {len(stock_var_indices)} entries. They must match."
+            )
+        if len(set(stock_var_indices)) != len(stock_var_indices):
+            raise ValueError("stock_var_indices contains duplicate indices.")
+        if any(i < 0 or i >= n for i in stock_var_indices):
+            raise ValueError(
+                f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
+            )
         stock_indices = set(stock_var_indices)
         jump_indices = set(range(n)) - stock_indices
 
