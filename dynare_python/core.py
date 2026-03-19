@@ -1010,6 +1010,28 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
 
+    if X0.shape[1] != n:
+        raise ValueError(
+            f"X0 has {X0.shape[1]} columns but the model has {n} dynamic variables "
+            f"({vars_dyn}). If process_model fell back to aux_method='dynamic', "
+            f"vars_dyn was extended to include auxiliary variables. "
+            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+        )
+    if ss.shape[0] != n:
+        raise ValueError(
+            f"ss has {ss.shape[0]} elements but the model has {n} dynamic variables "
+            f"({vars_dyn}). Reconstruct ss using model_funcs['vars_dyn']."
+        )
+
+    if method != 'hybr':
+        import warnings
+        warnings.warn(
+            f"The 'method' parameter is deprecated and ignored. The solver always uses "
+            f"the sparse Newton method regardless of method={method!r}.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
     if solver_options is None:
         solver_options = {}
 
