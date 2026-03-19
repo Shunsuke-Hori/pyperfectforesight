@@ -703,9 +703,12 @@ def solve_auxiliary_nested(X_dyn_t, params_dict, model_funcs, vars_dyn, exog_t=N
             elif var in model_funcs['vars_aux']:
                 var_idx = model_funcs['vars_aux'].index(var)
                 args.append(x_aux[var_idx])
-            elif exog_t is not None and var in model_funcs.get('vars_exo', []):
-                var_idx = model_funcs['vars_exo'].index(var)
-                args.append(exog_t[var_idx])
+            elif var in model_funcs.get('vars_exo', []):
+                if exog_t is not None:
+                    var_idx = model_funcs['vars_exo'].index(var)
+                    args.append(exog_t[var_idx])
+                else:
+                    args.append(0.0)  # Match residual() behaviour: missing exog_path → 0
             elif sym in params_dict:
                 args.append(params_dict[sym])
             else:
@@ -820,13 +823,13 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
                                 args.append(X_dyn[time_idx, var_idx])
                             else:
                                 args.append(0)  # Out of bounds, use 0
-                        elif exog_path is not None and var in model_funcs.get('vars_exo', []):
-                            var_idx = model_funcs['vars_exo'].index(var)
-                            time_idx = t + lag
-                            if 0 <= time_idx < T:
-                                args.append(exog_path[time_idx, var_idx])
+                        elif var in model_funcs.get('vars_exo', []):
+                            if exog_path is not None:
+                                var_idx = model_funcs['vars_exo'].index(var)
+                                time_idx = t + lag
+                                args.append(exog_path[time_idx, var_idx] if 0 <= time_idx < T else 0.0)
                             else:
-                                args.append(0)
+                                args.append(0.0)  # Match residual() behaviour: missing exog_path → 0
                         elif sym in params_dict:
                             args.append(params_dict[sym])
                         else:
@@ -886,11 +889,13 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     from scipy.optimize import OptimizeResult
 
     if solver_options:
-        # 'maxfev' is a backward-compatible alias for 'maxiter' (scipy.optimize.root convention)
-        max_iter = solver_options.get('maxiter', solver_options.get('maxfev', max_iter))
+        max_iter = solver_options.get('maxiter', max_iter)
+        # 'maxfev' caps total F evaluations (scipy convention); separate from iteration count
+        max_nfev = solver_options.get('maxfev', None)
         tol = solver_options.get('ftol', tol)   # f-norm convergence tolerance
         xtol = solver_options.get('xtol', None)  # x-step tolerance (scipy convention)
     else:
+        max_nfev = None
         xtol = None
 
     x = x0.copy()
@@ -914,10 +919,14 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
         J = J_sparse_func(x)
         njev += 1
 
-        if overdetermined:
-            delta, *_ = lsmr(J, -F)
-        else:
-            delta = spsolve(J, -F)
+        try:
+            if overdetermined:
+                delta, *_ = lsmr(J, -F)
+            else:
+                delta = spsolve(J, -F)
+        except Exception as e:
+            msg = f"Linear solve failed at iteration {it}: {e}, ||F|| = {nrm:.2e}"
+            break
 
         if not np.isfinite(delta).all():
             msg = f"Linear solve produced non-finite delta at iteration {it} (singular/ill-conditioned Jacobian), ||F|| = {nrm:.2e}"
@@ -937,6 +946,10 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
 
         if not improved:
             msg = f"Line search failed at iteration {it}, ||F|| = {nrm:.2e}"
+            break
+
+        if max_nfev is not None and nfev >= max_nfev:
+            msg = f"Reached maxfev={max_nfev} function evaluations at iteration {it}, ||F|| = {nrm:.2e}"
             break
 
         x = x + alpha * delta
