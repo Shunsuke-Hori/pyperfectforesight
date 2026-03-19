@@ -19,6 +19,20 @@ def v(name, lag):
     """Time-indexed symbolic variable"""
     return sp.Symbol(f"{name}_{lag}")
 
+def _parse_time_symbol(sym_name):
+    """Parse a time-indexed symbol name like 'c_0' or 'k_-1'.
+
+    Returns (var_name, lag) for time-indexed symbols, or None for plain names
+    and parameters that happen to contain underscores (e.g. 'rho_g').
+    """
+    if "_" not in sym_name:
+        return None
+    parts = sym_name.rsplit("_", 1)
+    try:
+        return parts[0], int(parts[1])
+    except ValueError:
+        return None
+
 # ============================================================
 # 2. Lead / lag detection (Dynare lead_lag_incidence)
 # ============================================================
@@ -39,14 +53,11 @@ def lead_lag_incidence(equations):
     inc = {}
     for eq in equations:
         for s in eq.free_symbols:
-            if "_" not in s.name:
+            parsed = _parse_time_symbol(s.name)
+            if parsed is None:
                 continue
-            parts = s.name.rsplit("_", 1)
-            try:
-                lag = int(parts[1])
-            except ValueError:
-                continue  # Parameter with underscore (e.g. rho_g) — not time-indexed
-            inc.setdefault(parts[0], set()).add(lag)
+            var_name, lag = parsed
+            inc.setdefault(var_name, set()).add(lag)
     return inc
 
 # ============================================================
@@ -124,10 +135,9 @@ def local_blocks(equations, variables):
     all_lags = set()
     for eq in equations:
         for s in eq.free_symbols:
-            if "_" in s.name:
-                name, lag = s.name.split("_")
-                if name in variables:
-                    all_lags.add(int(lag))
+            parsed = _parse_time_symbol(s.name)
+            if parsed is not None and parsed[0] in variables:
+                all_lags.add(parsed[1])
 
     blocks = {}
     for lag in sorted(all_lags):
@@ -342,13 +352,9 @@ def compute_steady_state_numerical(equations, vars_dyn, params_dict, initial_gue
     all_lags = set()
     for eq in equations:
         for s in eq.free_symbols:
-            if "_" in s.name:
-                try:
-                    name, lag = s.name.split("_")
-                    if name in vars_dyn:
-                        all_lags.add(int(lag))
-                except:
-                    pass
+            parsed = _parse_time_symbol(s.name)
+            if parsed is not None and parsed[0] in vars_dyn:
+                all_lags.add(parsed[1])
 
     # Map all time-indexed variables to steady state
     for var, ss_sym in zip(vars_dyn, ss_syms):
@@ -847,17 +853,22 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
 
                         # Get value from appropriate source
                         if var in vars_dyn:
+                            if lag != 0:
+                                raise ValueError(
+                                    f"Auxiliary expressions must be static (lag=0), but '{sym_name}' "
+                                    f"has lag={lag}. Check your auxiliary equation definitions."
+                                )
                             var_idx = vars_dyn.index(var)
-                            time_idx = t + lag
-                            if 0 <= time_idx < T:
-                                args.append(X_dyn[time_idx, var_idx])
-                            else:
-                                args.append(0)  # Out of bounds, use 0
+                            args.append(X_dyn[t, var_idx])
                         elif var in model_funcs.get('vars_exo', []):
+                            if lag != 0:
+                                raise ValueError(
+                                    f"Auxiliary expressions must be static (lag=0), but '{sym_name}' "
+                                    f"has lag={lag}. Check your auxiliary equation definitions."
+                                )
                             if exog_path is not None:
                                 var_idx = model_funcs['vars_exo'].index(var)
-                                time_idx = t + lag
-                                args.append(exog_path[time_idx, var_idx] if 0 <= time_idx < T else 0.0)
+                                args.append(exog_path[t, var_idx])
                             else:
                                 args.append(0.0)  # Match residual() behaviour: missing exog_path → 0
                         elif sym in params_dict:
