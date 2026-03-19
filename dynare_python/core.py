@@ -891,6 +891,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     x = x0.copy()
     nrm = np.inf
     nfev = 0
+    njev = 0
     it = -1
     success = False
     msg = f"Did not converge after {max_iter} iterations"
@@ -906,6 +907,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             break
 
         J = J_sparse_func(x)
+        njev += 1
 
         if overdetermined:
             delta, *_ = lsmr(J, -F)
@@ -935,7 +937,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             msg = f"Converged at iteration {it} (xtol), ||F|| = {nrm:.2e}"
             break
 
-    return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=it + 1)
+    return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=njev)
 
 
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
@@ -992,6 +994,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     block_funcs = model_funcs['block_funcs']
     dynamic_eqs = model_funcs['dynamic_eqs']
     vars_exo = model_funcs.get('vars_exo', [])
+    # Use vars_dyn from model_funcs — process_model may have extended it (e.g. dynamic fallback)
+    vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
 
     if solver_options is None:
@@ -1044,30 +1048,18 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
             return F
 
+        # Precompute column indices for unknown variables (constant across iterations)
+        col_indices = [
+            t * n + i
+            for i in range(n)
+            for t in range(T)
+            if (i in stock_indices and t > 0) or (i not in stock_indices and t < T - 1)
+        ]
+
         def J_full(x):
             X = reconstruct_full_path(x)
             J_all = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-
-            # J_all has shape ((T-1)*n, T*n)
-            # We need to extract columns corresponding to unknowns only
-            # Build column mask for unknowns in VARIABLE-MAJOR order (same as build_solution_vector)
-            col_indices = []
-            for i in range(n):
-                for t in range(T):
-                    # Is X[t,i] an unknown?
-                    if i in stock_indices:
-                        # Stock: unknown if t > 0
-                        is_unknown = (t > 0)
-                    else:
-                        # Jump: unknown if t < T-1
-                        is_unknown = (t < T-1)
-
-                    if is_unknown:
-                        # Column index in J_all is t*n + i
-                        col_indices.append(t * n + i)
-
-            J = J_all[:, col_indices]
-            return J  # sparse matrix — no .toarray()
+            return J_all[:, col_indices]
 
         # Initial guess
         x0_solve = build_solution_vector(X0)
