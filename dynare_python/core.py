@@ -9,6 +9,7 @@ models. For usage examples, see demo.py.
 import sympy as sp
 import numpy as np
 from scipy.sparse import lil_matrix, vstack
+from scipy.sparse.linalg import spsolve, lsmr
 
 # ============================================================
 # 1. Utilities
@@ -833,6 +834,76 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
 # 10. Perfect foresight solver
 # ============================================================
 
+def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
+                   overdetermined=False, solver_options=None):
+    """
+    Sparse Newton-Raphson solver with backtracking line search.
+
+    Uses spsolve for square systems (overdetermined=False) and lsmr for
+    overdetermined systems. Both avoid forming dense matrices, making this
+    feasible for large T (e.g. T=2000 with n=6 → 12000x12000 system).
+
+    Parameters
+    ----------
+    F_func : callable
+        Returns residual vector F(x).
+    J_sparse_func : callable
+        Returns sparse Jacobian J(x) as a scipy sparse matrix.
+    x0 : ndarray
+        Initial guess.
+    tol : float
+        Convergence tolerance on ||F||.
+    max_iter : int
+        Maximum Newton iterations.
+    overdetermined : bool
+        If True, uses lsmr (least-squares); else uses spsolve (direct).
+    solver_options : dict, optional
+        May contain 'maxiter' (overrides max_iter) and 'ftol'/'xtol' (overrides tol).
+    """
+    from scipy.optimize import OptimizeResult
+
+    if solver_options:
+        max_iter = solver_options.get('maxiter', max_iter)
+        tol = solver_options.get('ftol', solver_options.get('xtol', tol))
+
+    x = x0.copy()
+    nrm = np.inf
+    nfev = 0
+    success = False
+    msg = f"Did not converge after {max_iter} iterations"
+
+    for it in range(max_iter):
+        F = F_func(x)
+        nfev += 1
+        nrm = np.linalg.norm(F)
+
+        if nrm < tol:
+            success = True
+            msg = f"Converged at iteration {it}, ||F|| = {nrm:.2e}"
+            break
+
+        J = J_sparse_func(x)
+
+        if overdetermined:
+            delta, *_ = lsmr(J, -F)
+        else:
+            delta = spsolve(J, -F)
+
+        # Backtracking line search
+        alpha = 1.0
+        for _ in range(30):
+            x_try = x + alpha * delta
+            F_try = F_func(x_try)
+            nfev += 1
+            if np.linalg.norm(F_try) < nrm:
+                break
+            alpha *= 0.5
+
+        x = x + alpha * delta
+
+    return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=it + 1)
+
+
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None,
@@ -872,13 +943,12 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     use_terminal_conditions : bool
         Whether to enforce terminal steady-state conditions (default: True)
     solver_options : dict
-        Additional options to pass to scipy.optimize.root
+        Additional options to pass to the solver (supports 'maxiter', 'ftol', 'xtol').
 
     Returns:
     --------
-    OptimizeResult : Solution from scipy.optimize.root, with full path including X[0]
+    OptimizeResult : Solution with full path including X[0]
     """
-    from scipy.optimize import root
 
     all_syms = model_funcs['all_syms']
     residual_funcs = model_funcs['residual_funcs']
@@ -960,17 +1030,14 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                         col_indices.append(t * n + i)
 
             J = J_all[:, col_indices]
-            return J.toarray()
+            return J  # sparse matrix — no .toarray()
 
         # Initial guess
         x0_solve = build_solution_vector(X0)
 
-        sol = root(
-            F_full,
-            x0_solve,
-            jac=J_full,
-            method=method,
-            options=solver_options
+        sol = _sparse_newton(
+            F_full, J_full, x0_solve,
+            solver_options=solver_options
         )
 
         # Reconstruct full solution
@@ -1009,17 +1076,15 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             # Drop last n columns (X[T-1], which is fixed at ss)
             J = J[:, n:-n]
 
-            return J.toarray()
+            return J  # sparse matrix — no .toarray()
 
         # Initial guess for X[1:T-1]
         x0_solve = X0[1:-1, :].ravel()
 
-        sol = root(
-            F_full,
-            x0_solve,
-            jac=J_full,
-            method=method,
-            options=solver_options
+        sol = _sparse_newton(
+            F_full, J_full, x0_solve,
+            overdetermined=True,
+            solver_options=solver_options
         )
 
         # Reconstruct full solution: X[0] + X[1:T-1] + X[T-1]
@@ -1058,14 +1123,12 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 for i in range(n):
                     F = np.append(F, X[0, i] - ss_initial[i])
                 F, J = append_terminal_conditions(F, J, X, ss)
-            return J.toarray()
+            return J  # sparse matrix — no .toarray()
 
-        sol = root(
-            F_full,
-            X0.ravel(),
-            jac=J_full,
-            method=method,
-            options=solver_options
+        sol = _sparse_newton(
+            F_full, J_full, X0.ravel(),
+            overdetermined=use_terminal_conditions,
+            solver_options=solver_options
         )
 
     # Compute auxiliary variables if they exist
