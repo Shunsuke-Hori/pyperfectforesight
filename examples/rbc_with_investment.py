@@ -13,7 +13,7 @@ import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
 
-from dynare_python import v, process_model, solve_perfect_foresight, compute_steady_state_numerical
+from dynare_python import v, process_model, solve_perfect_foresight
 
 # ============================================================
 # 1. Model declaration (RBC with government spending)

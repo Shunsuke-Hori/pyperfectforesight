@@ -443,7 +443,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
 
     The analytical method solves equations symbolically then evaluates (fastest).
     The dynamic method includes auxiliary equations in main system (Dynare-style).
-    The nested method solves numerically at each iteration (specialized use).
+    The nested method solves auxiliary variables post-solve, period-by-period.
     """
     if vars_exo is None:
         vars_exo = []
@@ -883,7 +883,10 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
 
     if solver_options:
         max_iter = solver_options.get('maxiter', max_iter)
-        tol = solver_options.get('ftol', solver_options.get('xtol', tol))
+        tol = solver_options.get('ftol', tol)   # f-norm convergence tolerance
+        xtol = solver_options.get('xtol', None)  # x-step tolerance (scipy convention)
+    else:
+        xtol = None
 
     x = x0.copy()
     nrm = np.inf
@@ -911,15 +914,26 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
 
         # Backtracking line search
         alpha = 1.0
+        improved = False
         for _ in range(30):
             x_try = x + alpha * delta
             F_try = F_func(x_try)
             nfev += 1
             if np.linalg.norm(F_try) < nrm:
+                improved = True
                 break
             alpha *= 0.5
 
+        if not improved:
+            msg = f"Line search failed at iteration {it}, ||F|| = {nrm:.2e}"
+            break
+
         x = x + alpha * delta
+
+        if xtol is not None and np.linalg.norm(alpha * delta) < xtol:
+            success = True
+            msg = f"Converged at iteration {it} (xtol), ||F|| = {nrm:.2e}"
+            break
 
     return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=it + 1)
 
