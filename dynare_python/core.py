@@ -40,9 +40,13 @@ def lead_lag_incidence(equations):
     for eq in equations:
         for s in eq.free_symbols:
             if "_" not in s.name:
-                continue  # Skip parameters without time index
-            name, lag = s.name.split("_")
-            inc.setdefault(name, set()).add(int(lag))
+                continue
+            parts = s.name.rsplit("_", 1)
+            try:
+                lag = int(parts[1])
+            except ValueError:
+                continue  # Parameter with underscore (e.g. rho_g) — not time-indexed
+            inc.setdefault(parts[0], set()).add(lag)
     return inc
 
 # ============================================================
@@ -692,8 +696,10 @@ def solve_auxiliary_nested(X_dyn_t, params_dict, model_funcs, vars_dyn, exog_t=N
                 var = sym_name
                 lag = 0
 
-            # Only lag=0 is valid for static equations
-            if lag != 0:
+            # Only lag=0 is valid for known variables in static equations.
+            # Parameters may have numeric suffixes (e.g. rho_1) — don't reject them.
+            known_vars = set(vars_dyn) | set(model_funcs.get('vars_aux', [])) | set(model_funcs.get('vars_exo', []))
+            if var in known_vars and lag != 0:
                 raise ValueError(f"Auxiliary equations should be static (no leads/lags), but found {sym_name}")
 
             # Get value
@@ -801,14 +807,21 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
                     args = []
                     for sym in syms:
                         sym_name = sym.name
-                        # Parse symbol name: varname_lag (lag is an integer)
+                        # Parse symbol name: varname_lag (lag is an integer).
+                        # Only treat as time-indexed if the base name is a known variable;
+                        # otherwise the whole name is a parameter (e.g. phi_1, rho_g).
+                        known_vars = set(vars_dyn) | set(model_funcs.get('vars_exo', [])) | set(model_funcs.get('vars_aux', []))
                         if '_' in sym_name:
                             parts = sym_name.rsplit('_', 1)
                             try:
                                 lag = int(parts[1])
-                                var = parts[0]
+                                base = parts[0]
+                                if base in known_vars:
+                                    var = base
+                                else:
+                                    var = sym_name  # treat whole name as parameter
+                                    lag = 0
                             except ValueError:
-                                # Not a time-indexed variable (e.g. param named rho_g)
                                 var = sym_name
                                 lag = 0
                         else:
@@ -909,6 +922,11 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     for it in range(max_iter):
         F = F_func(x)
         nfev += 1
+
+        if not np.isfinite(F).all():
+            msg = f"Residual F contains non-finite values at iteration {it}"
+            break
+
         nrm = np.linalg.norm(F)
 
         if nrm < tol:
@@ -1012,7 +1030,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     use_terminal_conditions : bool
         Whether to enforce terminal steady-state conditions (default: True)
     solver_options : dict
-        Additional options to pass to the solver (supports 'maxiter', 'ftol', 'xtol').
+        Options forwarded to _sparse_newton. Supported keys:
+        'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
+        'xtol' (x-step tolerance), 'maxfev' (max function evaluations budget).
 
     Returns:
     --------
@@ -1217,7 +1237,11 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             solver_options=solver_options
         )
 
-    # Compute auxiliary variables if they exist
+    # Compute auxiliary variables if they exist.
+    # Note: vars_aux is empty when aux_method='dynamic' (auxiliary variables were
+    # merged into vars_dyn by process_model), so x_aux will be None in that case.
+    # Users can access those variables via sol.x.reshape(T, -1) using the extended
+    # vars_dyn from model_funcs['vars_dyn'].
     if model_funcs.get('vars_aux'):
         # Extract solution path for dynamic variables
         # At this point, sol.x is always the full (raveled) solution
