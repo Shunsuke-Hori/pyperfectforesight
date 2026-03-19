@@ -205,7 +205,7 @@ Auxiliary variables treated as dynamic variables (Dynare-style):
 # No nested optimization, single Jacobian, but higher dimensional
 ```
 
-**Key difference from nested**: Dynamic method solves one large system, nested solves inner loops at each iteration.
+**Key difference from nested**: Dynamic method solves one large system alongside the main Newton iterations; nested solves auxiliary variables in a separate post-processing pass after the main solver has converged.
 
 ---
 

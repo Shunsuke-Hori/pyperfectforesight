@@ -64,7 +64,7 @@ def lead_lag_incidence(equations):
 # 3. Static equation detection & elimination
 # ============================================================
 
-def is_static(eq):
+def is_static(eq, known_vars=None):
     """
     Check if an equation contains only current period variables
 
@@ -72,13 +72,26 @@ def is_static(eq):
     -----------
     eq : sympy expression
         Equation to check
+    known_vars : set, optional
+        Set of known variable base names (vars_dyn + vars_exo + vars_aux).
+        When provided, only symbols whose base name is in known_vars are
+        considered time-indexed, avoiding false positives for parameters
+        that happen to end in an integer (e.g. ``rho_1``).
+        When None, any symbol matching ``*_1`` or ``*_-1`` is treated as
+        a lead/lag (legacy behaviour).
 
     Returns:
     --------
     bool : True if equation is static (no leads/lags)
     """
     for s in eq.free_symbols:
-        if s.name.endswith("_1") or s.name.endswith("_-1"):
+        parsed = _parse_time_symbol(s.name)
+        if parsed is None:
+            continue
+        var_name, lag = parsed
+        if lag == 0:
+            continue
+        if known_vars is None or var_name in known_vars:
             return False
     return True
 
@@ -437,6 +450,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         - 'aux_method': Method used for auxiliary variables
         - 'aux_eqs': Symbolic auxiliary equations
         - 'aux_eqs_funcs': Compiled residual functions for auxiliary equations (nested method)
+        - 'aux_eqs_syms': Ordered list of free symbols for each auxiliary equation (nested method)
         - 'aux_sols': Analytical solutions for auxiliary variables (analytical method)
         - 'aux_funcs': Compiled evaluation functions (analytical method)
 
@@ -481,10 +495,11 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         aux_eqs = []
         remaining_eqs = []
 
+        known_vars = set(vars_dyn) | set(vars_exo) | set(vars_aux)
         for eq in equations:
             eq_vars = eq.free_symbols
             # Check if this equation defines an auxiliary variable
-            if any(aux_var in eq_vars for aux_var in aux_var_syms) and is_static(eq):
+            if any(aux_var in eq_vars for aux_var in aux_var_syms) and is_static(eq, known_vars):
                 aux_eqs.append(eq)
             else:
                 remaining_eqs.append(eq)
@@ -946,9 +961,11 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     it = -1
     success = False
     msg = f"Did not converge after {max_iter} iterations"
+    fun = None  # residual vector at the final x
 
     for it in range(max_iter):
         F = F_func(x)
+        fun = F
         nfev += 1
 
         if not np.isfinite(F).all():
@@ -1006,6 +1023,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             # Small step — re-evaluate F to check whether residuals are also small.
             # A tiny step can indicate stagnation (e.g. near-singular Jacobian), not convergence.
             F_new = F_func(x)
+            fun = F_new
             nfev += 1
             nrm_new = np.linalg.norm(F_new)
             if nrm_new < tol:
@@ -1015,7 +1033,8 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                 msg = f"Stagnated at iteration {it} (xtol), ||F|| = {nrm_new:.2e}"
             break
 
-    return OptimizeResult(x=x, success=success, message=msg, nfev=nfev, njev=njev)
+    return OptimizeResult(x=x, fun=fun, success=success, message=msg,
+                          status=1 if success else 0, nfev=nfev, njev=njev)
 
 
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
