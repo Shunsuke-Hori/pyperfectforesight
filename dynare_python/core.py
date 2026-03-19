@@ -639,6 +639,10 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     else:
         raise ValueError(f"Unsupported compiler: {compiler}")
 
+    # Recompute incidence from the final dynamic equations so it reflects any
+    # auxiliary-variable substitutions / removals that happened during processing.
+    incidence = lead_lag_incidence(dynamic_eqs)
+
     return {
         'dynamic_eqs': dynamic_eqs,
         'blocks': blocks,
@@ -967,6 +971,8 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
         alpha = 1.0
         improved = False
         for _ in range(30):
+            if max_nfev is not None and nfev >= max_nfev:
+                break
             x_try = x + alpha * delta
             F_try = F_func(x_try)
             nfev += 1
