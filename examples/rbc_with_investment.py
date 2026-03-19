@@ -169,7 +169,7 @@ if __name__ == "__main__":
                                   exog_path=exog_path,
                                   initial_state=initial_stock,
                                   stock_var_indices=[1],
-                                  method='hybr')
+                                  )
 
     print(f"\nSolver Status:")
     print(f"  Converged: {sol.success}")

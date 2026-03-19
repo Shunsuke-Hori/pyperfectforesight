@@ -22,7 +22,6 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="Shunsuke Hori",
-    author_email="your.email@example.com",
     url="https://github.com/Shunsuke-Hori/pyperfectforesight",
     packages=find_packages(),
     python_requires=">=3.8",

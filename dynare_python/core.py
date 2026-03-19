@@ -399,8 +399,11 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                  (Similar to Dynare: eliminate if possible, else keep in system)
         - 'analytical': Force analytical method only. Faster but will fail if
                        SymPy cannot solve the auxiliary equations symbolically.
-        - 'nested': Force nested root finding at each solver iteration. Always
-                   works but slower. Use when you specifically want this approach.
+        - 'nested': Force post-solve numerical solving of auxiliary equations.
+                   After the main solver converges, auxiliary variables are
+                   solved period-by-period using scipy.optimize.root with warm
+                   starting. Use when analytical solve fails and you prefer
+                   explicit numerical solving over treating aux vars as dynamic.
         - 'dynamic': Treat auxiliary variables as dynamic. Auxiliary equations
                     included in main system. Single optimization, higher dimension.
 
@@ -555,7 +558,17 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                 # Compile each auxiliary equation as a residual function
                 aux_eqs_funcs = [sp.lambdify(aux_eqs_syms, eq, "numpy") for eq in aux_eqs]
 
-            # Remove auxiliary equations from dynamic system
+            # Remove auxiliary equations from dynamic system.
+            # Aux variables must not appear in the remaining dynamic equations —
+            # they have no values during Newton iterations in nested mode.
+            aux_var_syms_set = {v(name, 0) for name in (vars_aux or [])}
+            leaking = [s for eq in remaining_eqs for s in eq.free_symbols if s in aux_var_syms_set]
+            if leaking:
+                raise ValueError(
+                    f"Auxiliary variable(s) {[s.name for s in set(leaking)]} appear in "
+                    f"non-auxiliary equations, which is unsupported in nested mode. "
+                    f"Auxiliary variables must only appear in their defining aux equations."
+                )
             equations = remaining_eqs
 
     # Track which equations were auxiliary (so we don't eliminate them in dynamic mode)
@@ -1002,7 +1015,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             for i in range(n):
                 if i in stock_indices:
                     # Stock variable: X[0,i] fixed, X[1:T,i] from solution
-                    X_full[0, i] = initial_state[list(stock_indices).index(i)]
+                    X_full[0, i] = initial_state[stock_var_indices.index(i)]
                     X_full[1:, i] = x[idx:idx+T-1]
                     idx += T-1
                 else:
@@ -1107,33 +1120,29 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         def F_full(x):
             X = x.reshape(T, -1)
             F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-
-            # Add initial conditions
             for i in range(n):
                 F = np.append(F, X[0, i] - ss_initial[i])
-
             if use_terminal_conditions:
-                J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-                F, J = append_terminal_conditions(F, J, X, ss)
+                # Append terminal conditions directly — avoids building the Jacobian
+                for i in range(n):
+                    F = np.append(F, X[-1, i] - ss[i])
             return F
 
         def J_full(x):
             from scipy.sparse import lil_matrix, vstack
             X = x.reshape(T, -1)
             J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-
-            # Add initial condition Jacobian rows: d(X[0,i] - ss_initial[i])/dX
             initial_rows = lil_matrix((n, n*T))
             for i in range(n):
-                initial_rows[i, i] = 1.0  # Derivative of X[0,i] w.r.t. X[0,i]
+                initial_rows[i, i] = 1.0
             J = vstack([J, initial_rows.tocsr()])
-
             if use_terminal_conditions:
-                F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
+                # Append terminal condition rows directly — avoids recomputing F
+                terminal_rows = lil_matrix((n, n*T))
                 for i in range(n):
-                    F = np.append(F, X[0, i] - ss_initial[i])
-                F, J = append_terminal_conditions(F, J, X, ss)
-            return J  # sparse matrix — no .toarray()
+                    terminal_rows[i, n*(T-1) + i] = 1.0
+                J = vstack([J, terminal_rows.tocsr()])
+            return J
 
         sol = _sparse_newton(
             F_full, J_full, X0.ravel(),
