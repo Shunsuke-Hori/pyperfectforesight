@@ -1357,3 +1357,158 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         sol.vars_aux = []
 
     return sol
+
+
+# ============================================================
+# 11. Homotopy solver
+# ============================================================
+
+def solve_perfect_foresight_homotopy(
+    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    exog_path=None, initial_state=None, ss_initial=None,
+    stock_var_indices=None,
+    use_terminal_conditions=True, solver_options=None,
+    n_steps=10, verbose=False, exog_ss=None,
+):
+    """
+    Solve a perfect foresight model using homotopy (parameter continuation).
+
+    When the Newton solver fails to converge from a direct initial guess --
+    typically because the shock is large and the model is nonlinear -- homotopy
+    gradually scales the shock from zero to its full size, using each
+    intermediate solution as a warm start for the next step.
+
+    The homotopy scales two sources of perturbation simultaneously:
+
+    * ``initial_state`` deviation from ``ss_initial``
+      (``initial_state_lam = ss_initial + lam * (initial_state - ss_initial)``)
+    * ``exog_path`` deviation from ``exog_ss``
+      (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
+
+    At lam=0 the system is at steady state (trivially solved). At lam=1 it
+    is the original problem. At least one of ``initial_state`` or
+    ``exog_path`` must be provided, otherwise there is nothing to scale.
+
+    Parameters
+    ----------
+    T : int
+        Number of periods.
+    X0 : ndarray (T, n_dyn)
+        Initial guess shape reference; the actual warm start for step 1 is
+        the steady-state path.
+    params_dict : dict
+        Parameter values.
+    ss : ndarray (n_dyn,)
+        Terminal steady-state values.
+    model_funcs : dict
+        Output of ``process_model()``.
+    vars_dyn : list
+        Dynamic variable names.
+    exog_path : ndarray (T, n_exo), optional
+        Full-shock exogenous path (lam=1 value).
+    initial_state : ndarray, optional
+        Full-shock initial state (lam=1 value).
+    ss_initial : ndarray, optional
+        Initial steady state. Defaults to ``ss``.
+    stock_var_indices : list of int, optional
+        Indices of stock (predetermined) variables.
+    use_terminal_conditions : bool
+        Enforce terminal steady-state conditions (default True).
+    solver_options : dict, optional
+        Options forwarded to ``_sparse_newton`` at each homotopy step.
+    n_steps : int
+        Number of homotopy steps (default 10). Larger values help for very
+        nonlinear models but increase total compute time.
+    verbose : bool
+        If True, print convergence status at each step.
+    exog_ss : ndarray (T, n_exo) or (n_exo,), optional
+        Steady-state exogenous path (lam=0 value). Defaults to zeros, which
+        is appropriate when ``exog_path`` represents deviations from a
+        zero-shock baseline.
+
+    Returns
+    -------
+    OptimizeResult
+        Solution object from the final (lam=1) step, identical in structure
+        to the output of ``solve_perfect_foresight``.
+
+    Raises
+    ------
+    ValueError
+        If neither ``initial_state`` nor ``exog_path`` is provided.
+    RuntimeError
+        If the solver fails to converge at any homotopy step, with the step's
+        lam value and solver message included.
+    """
+    if initial_state is None and exog_path is None:
+        raise ValueError(
+            "Homotopy requires at least one of 'initial_state' or 'exog_path' "
+            "to scale. Both are None -- there is nothing to homotopy on."
+        )
+
+    if ss_initial is None:
+        ss_initial = ss
+
+    vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
+    n = len(vars_dyn_eff)
+
+    # Steady-state exogenous baseline (lam=0 value)
+    if exog_path is not None:
+        if exog_ss is None:
+            exog_ss = np.zeros_like(exog_path)
+        else:
+            exog_ss = np.broadcast_to(
+                np.asarray(exog_ss, dtype=float), exog_path.shape
+            ).copy()
+
+    # Warm start for the first step: full steady-state path
+    X_warm = np.tile(ss_initial, (T, 1))
+
+    # Baseline (lam=0) for initial_state interpolation.
+    # When stock_var_indices is provided, initial_state contains only stock
+    # variable values, so we extract the matching slice of ss_initial.
+    if initial_state is not None:
+        if stock_var_indices is not None:
+            ss_initial_stock = ss_initial[stock_var_indices]
+        else:
+            ss_initial_stock = ss_initial
+
+    lambdas = np.linspace(0.0, 1.0, n_steps + 1)[1:]  # skip lam=0 (trivial)
+
+    sol = None
+    for step, lam in enumerate(lambdas, start=1):
+        # Scale perturbations
+        initial_state_lam = (
+            ss_initial_stock + lam * (initial_state - ss_initial_stock)
+            if initial_state is not None else None
+        )
+        exog_path_lam = (
+            exog_ss + lam * (exog_path - exog_ss)
+            if exog_path is not None else None
+        )
+
+        sol = solve_perfect_foresight(
+            T, X_warm, params_dict, ss, model_funcs, vars_dyn,
+            exog_path=exog_path_lam,
+            initial_state=initial_state_lam,
+            ss_initial=ss_initial,
+            stock_var_indices=stock_var_indices,
+            use_terminal_conditions=use_terminal_conditions,
+            solver_options=solver_options,
+        )
+
+        if verbose:
+            status = "converged" if sol.success else "FAILED"
+            print(f"  homotopy step {step}/{n_steps} (lam={lam:.3f}): {status} -- {sol.message}")
+
+        if not sol.success:
+            raise RuntimeError(
+                f"Homotopy failed to converge at lam={lam:.4f} "
+                f"(step {step}/{n_steps}): {sol.message}. "
+                f"Try increasing n_steps or adjusting solver_options."
+            )
+
+        # Use solution as warm start for the next step
+        X_warm = sol.x.reshape(T, n)
+
+    return sol
