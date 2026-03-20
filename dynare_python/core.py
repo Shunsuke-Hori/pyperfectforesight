@@ -528,8 +528,11 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                     # Check that all auxiliary variables were solved
                     if all(v(name, 0) in aux_sols for name in vars_aux):
                         solved_successfully = True
-            except Exception:
+            except Exception as e:
                 solved_successfully = False
+                _sympy_solve_exc = e  # preserved for error/warning message below
+            else:
+                _sympy_solve_exc = None
 
             if solved_successfully and aux_sols:
                 # Successfully solved analytically - compile evaluation functions
@@ -550,19 +553,19 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                 aux_method_used = 'analytical'
             else:
                 # Analytical solve failed
+                _exc_detail = f": {_sympy_solve_exc}" if _sympy_solve_exc is not None else ""
                 if aux_method == 'analytical':
                     # User forced analytical only - raise error
                     raise ValueError(
-                        f"Could not solve auxiliary equations analytically for {vars_aux}. "
-                        f"SymPy failed to find symbolic solutions. "
+                        f"Could not solve auxiliary equations analytically for {vars_aux}{_exc_detail}. "
                         f"Consider using aux_method='auto' (tries analytical then dynamic) "
                         f"or aux_method='dynamic' (include auxiliary equations in system)."
-                    )
+                    ) from _sympy_solve_exc
                 else:  # aux_method == 'auto'
                     # Auto fallback to dynamic (Dynare-style)
                     import warnings
                     warnings.warn(
-                        f"Could not solve auxiliary equations analytically for {vars_aux}. "
+                        f"Could not solve auxiliary equations analytically for {vars_aux}{_exc_detail}. "
                         f"Treating auxiliary variables as dynamic (keeping equations in system). "
                         f"This follows Dynare's approach when analytical elimination fails.",
                         UserWarning
@@ -714,61 +717,64 @@ def solve_auxiliary_nested(X_dyn_t, params_dict, model_funcs, vars_dyn, exog_t=N
     if aux_guess is None:
         aux_guess = np.zeros(n_aux)
 
+    # Precompute lookups used inside aux_residual (called many times by scipy.optimize.root)
+    _vars_aux = model_funcs['vars_aux']
+    _vars_exo = model_funcs.get('vars_exo', [])
+    _known_vars = set(vars_dyn) | set(_vars_aux) | set(_vars_exo)
+    _dyn_idx = {var: i for i, var in enumerate(vars_dyn)}
+    _aux_idx = {var: i for i, var in enumerate(_vars_aux)}
+    _exo_idx = {var: i for i, var in enumerate(_vars_exo)}
+
+    # Pre-parse each symbol in aux_eqs_syms once
+    _sym_parse = []  # list of (sym, var, lag) triples
+    for sym in model_funcs['aux_eqs_syms']:
+        parsed = _parse_time_symbol(sym.name)
+        if parsed is not None and parsed[0] in _known_vars:
+            var, lag = parsed
+        elif parsed is not None:
+            var, lag = sym.name, 0  # parameter that happens to look like var_N
+        else:
+            var, lag = sym.name, 0
+        if var in _known_vars and lag != 0:
+            raise ValueError(
+                f"Auxiliary equations should be static (no leads/lags), but found {sym.name}"
+            )
+        _sym_parse.append((sym, var, lag))
+
+    # Pre-resolve parameter values for each symbol (None = not a parameter)
+    _param_vals = []
+    for sym, var, lag in _sym_parse:
+        if var not in _known_vars:
+            if sym in params_dict:
+                _param_vals.append(params_dict[sym])
+            else:
+                val = next(
+                    (v for k, v in params_dict.items() if hasattr(k, 'name') and k.name == var),
+                    None,
+                )
+                if val is None:
+                    raise ValueError(f"Unknown symbol '{sym.name}' in auxiliary equations")
+                _param_vals.append(val)
+        else:
+            _param_vals.append(None)  # will be filled at runtime
+
     # Build residual function for auxiliary equations
     def aux_residual(x_aux):
         # Build full argument list for auxiliary equation functions
         # aux_eqs_funcs expects arguments in order of aux_eqs_syms
         args = []
-        for sym in model_funcs['aux_eqs_syms']:
-            sym_name = sym.name
-            # Parse symbol: var_lag
-            if '_' in sym_name:
-                parts = sym_name.rsplit('_', 1)
-                var = parts[0]
-                try:
-                    lag = int(parts[1])
-                except ValueError:
-                    var = sym_name
-                    lag = 0
+        for (sym, var, lag), param_val in zip(_sym_parse, _param_vals):
+            if var in _dyn_idx:
+                args.append(X_dyn_t[_dyn_idx[var]])
+            elif var in _aux_idx:
+                args.append(x_aux[_aux_idx[var]])
+            elif var in _exo_idx:
+                args.append(exog_t[_exo_idx[var]] if exog_t is not None else 0.0)
             else:
-                var = sym_name
-                lag = 0
-
-            # Only lag=0 is valid for known variables in static equations.
-            # Parameters may have numeric suffixes (e.g. rho_1) — don't reject them.
-            known_vars = set(vars_dyn) | set(model_funcs.get('vars_aux', [])) | set(model_funcs.get('vars_exo', []))
-            if var in known_vars and lag != 0:
-                raise ValueError(f"Auxiliary equations should be static (no leads/lags), but found {sym_name}")
-
-            # Get value
-            if var in vars_dyn:
-                var_idx = vars_dyn.index(var)
-                args.append(X_dyn_t[var_idx])
-            elif var in model_funcs['vars_aux']:
-                var_idx = model_funcs['vars_aux'].index(var)
-                args.append(x_aux[var_idx])
-            elif var in model_funcs.get('vars_exo', []):
-                if exog_t is not None:
-                    var_idx = model_funcs['vars_exo'].index(var)
-                    args.append(exog_t[var_idx])
-                else:
-                    args.append(0.0)  # Match residual() behaviour: missing exog_path → 0
-            elif sym in params_dict:
-                args.append(params_dict[sym])
-            else:
-                # Try to find parameter by name
-                found = False
-                for param_sym, param_val in params_dict.items():
-                    if hasattr(param_sym, 'name') and param_sym.name == var:
-                        args.append(param_val)
-                        found = True
-                        break
-                if not found:
-                    raise ValueError(f"Unknown symbol {sym_name} in auxiliary equations")
+                args.append(param_val)
 
         # Evaluate all auxiliary equation residuals
-        residuals = np.array([func(*args) for func in model_funcs['aux_eqs_funcs']])
-        return residuals
+        return np.array([func(*args) for func in model_funcs['aux_eqs_funcs']])
 
     # Solve auxiliary equations
     sol = root(aux_residual, aux_guess, method='hybr')
@@ -833,78 +839,69 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
         n_aux = len(model_funcs['vars_aux'])
         X_aux = np.zeros((T, n_aux))
 
-        # For each time period, compute auxiliary variables
+        _vars_exo = model_funcs.get('vars_exo', [])
+        _known_vars = set(vars_dyn) | set(_vars_exo) | set(model_funcs['vars_aux'])
+        _dyn_idx = {var: i for i, var in enumerate(vars_dyn)}
+        _exo_idx = {var: i for i, var in enumerate(_vars_exo)}
+
+        # Pre-parse symbols for each aux var and resolve parameter values once
+        # Structure: {var_name: [(sym, var_base, lag, param_val_or_None), ...]}
+        _sym_info = {}
+        for var_name in model_funcs['vars_aux']:
+            if var_name not in model_funcs['aux_funcs']:
+                continue
+            syms = model_funcs['aux_funcs'][var_name]['syms']
+            entries = []
+            for sym in syms:
+                parsed = _parse_time_symbol(sym.name)
+                if parsed is not None and parsed[0] in _known_vars:
+                    var_base, lag = parsed
+                else:
+                    var_base, lag = sym.name, 0  # parameter with underscore or no underscore
+
+                if var_base in _known_vars and lag != 0:
+                    raise ValueError(
+                        f"Auxiliary expressions must be static (lag=0), but '{sym.name}' "
+                        f"has lag={lag}. Check your auxiliary equation definitions."
+                    )
+
+                # Resolve parameter value (None for runtime variables)
+                if var_base not in _known_vars:
+                    if sym in params_dict:
+                        param_val = params_dict[sym]
+                    else:
+                        param_val = next(
+                            (pv for pk, pv in params_dict.items()
+                             if hasattr(pk, 'name') and pk.name == var_base),
+                            None,
+                        )
+                        if param_val is None:
+                            raise ValueError(
+                                f"Symbol '{sym.name}' in auxiliary expression for '{var_name}' "
+                                f"could not be resolved. Ensure all symbols are in vars_dyn, "
+                                f"vars_exo, or params_dict."
+                            )
+                else:
+                    param_val = None  # filled at runtime
+
+                entries.append((var_base, lag, param_val))
+            _sym_info[var_name] = entries
+
+        # Evaluate per time period
         for t in range(T):
             for i, var_name in enumerate(model_funcs['vars_aux']):
-                if var_name in model_funcs['aux_funcs']:
-                    aux_info = model_funcs['aux_funcs'][var_name]
-                    func = aux_info['func']
-                    syms = aux_info['syms']
-
-                    # Build argument list for the function
-                    args = []
-                    for sym in syms:
-                        sym_name = sym.name
-                        # Parse symbol name: varname_lag (lag is an integer).
-                        # Only treat as time-indexed if the base name is a known variable;
-                        # otherwise the whole name is a parameter (e.g. phi_1, rho_g).
-                        known_vars = set(vars_dyn) | set(model_funcs.get('vars_exo', [])) | set(model_funcs.get('vars_aux', []))
-                        if '_' in sym_name:
-                            parts = sym_name.rsplit('_', 1)
-                            try:
-                                lag = int(parts[1])
-                                base = parts[0]
-                                if base in known_vars:
-                                    var = base
-                                else:
-                                    var = sym_name  # treat whole name as parameter
-                                    lag = 0
-                            except ValueError:
-                                var = sym_name
-                                lag = 0
-                        else:
-                            var = sym_name
-                            lag = 0
-
-                        # Get value from appropriate source
-                        if var in vars_dyn:
-                            if lag != 0:
-                                raise ValueError(
-                                    f"Auxiliary expressions must be static (lag=0), but '{sym_name}' "
-                                    f"has lag={lag}. Check your auxiliary equation definitions."
-                                )
-                            var_idx = vars_dyn.index(var)
-                            args.append(X_dyn[t, var_idx])
-                        elif var in model_funcs.get('vars_exo', []):
-                            if lag != 0:
-                                raise ValueError(
-                                    f"Auxiliary expressions must be static (lag=0), but '{sym_name}' "
-                                    f"has lag={lag}. Check your auxiliary equation definitions."
-                                )
-                            if exog_path is not None:
-                                var_idx = model_funcs['vars_exo'].index(var)
-                                args.append(exog_path[t, var_idx])
-                            else:
-                                args.append(0.0)  # Match residual() behaviour: missing exog_path → 0
-                        elif sym in params_dict:
-                            args.append(params_dict[sym])
-                        else:
-                            # Try to find parameter by name
-                            found = False
-                            for param_sym, param_val in params_dict.items():
-                                if hasattr(param_sym, 'name') and param_sym.name == var:
-                                    args.append(param_val)
-                                    found = True
-                                    break
-                            if not found:
-                                raise ValueError(
-                                    f"Symbol '{sym_name}' in auxiliary expression for "
-                                    f"'{var_name}' could not be resolved. "
-                                    f"Ensure all symbols are in vars_dyn, vars_exo, or params_dict."
-                                )
-
-                    # Compute auxiliary variable value
-                    X_aux[t, i] = func(*args)
+                if var_name not in _sym_info:
+                    continue
+                func = model_funcs['aux_funcs'][var_name]['func']
+                args = []
+                for var_base, lag, param_val in _sym_info[var_name]:
+                    if var_base in _dyn_idx:
+                        args.append(X_dyn[t, _dyn_idx[var_base]])
+                    elif var_base in _exo_idx:
+                        args.append(exog_path[t, _exo_idx[var_base]] if exog_path is not None else 0.0)
+                    else:
+                        args.append(param_val)
+                X_aux[t, i] = func(*args)
 
         return X_aux
 
