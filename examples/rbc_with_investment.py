@@ -252,7 +252,7 @@ if __name__ == "__main__":
 
     # Total absorption (C + I + G)
     absorption = c_path + i_path + g_path
-    axes[1, 2].plot(periods, absorption, 'orange', linewidth=2, label='C + I + G')
+    axes[1, 2].plot(periods, absorption, '-', color='orange', linewidth=2, label='C + I + G')
     axes[1, 2].plot(periods, y_path, 'm--', linewidth=1.5, alpha=0.7, label='Output')
     axes[1, 2].axvspan(shock_start, shock_start+shock_duration, alpha=0.2, color='red')
     axes[1, 2].set_xlabel('Period')

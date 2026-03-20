@@ -536,6 +536,13 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
             try:
                 aux_sols_list = sp.solve(aux_eqs, aux_var_list, dict=True)
                 if aux_sols_list:
+                    if len(aux_sols_list) > 1:
+                        raise ValueError(
+                            f"SymPy found multiple analytical solution branches for "
+                            f"auxiliary variables {vars_aux}. Selecting a branch "
+                            f"arbitrarily may give wrong results. Use "
+                            f"aux_method='dynamic' or aux_method='nested' instead."
+                        )
                     aux_sols = aux_sols_list[0]
                     # Check that all auxiliary variables were solved
                     if all(v(name, 0) in aux_sols for name in vars_aux):
@@ -588,6 +595,12 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
 
         if aux_eqs and (aux_method == 'nested' or aux_method_used == 'nested'):
             # NESTED METHOD: Compile residual functions for numerical solving
+            if len(aux_eqs) != len(vars_aux):
+                raise ValueError(
+                    f"In aux_method='nested' the auxiliary system must be square "
+                    f"(one equation per variable). Got {len(aux_eqs)} equations for "
+                    f"{len(vars_aux)} auxiliary variables: {vars_aux}."
+                )
             # Get all symbols that appear in auxiliary equations
             aux_eqs_syms = sorted(
                 {s for eq in aux_eqs for s in eq.free_symbols},
@@ -921,8 +934,10 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
         return X_aux
 
     else:
-        # Unknown method
-        return None
+        raise ValueError(
+            f"Unknown aux_method {aux_method!r}. Supported methods are: "
+            "'analytical', 'nested'."
+        )
 
 # ============================================================
 # 10. Perfect foresight solver
@@ -975,11 +990,13 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     success = False
     msg = f"Did not converge after {max_iter} iterations"
     fun = None  # residual vector at the final x
+    F = None    # carry F_try forward to avoid re-evaluating F at the start of each iteration
 
     for it in range(max_iter):
-        F = F_func(x)
+        if F is None:
+            F = F_func(x)
+            nfev += 1
         fun = F
-        nfev += 1
 
         if not np.isfinite(F).all():
             msg = f"Residual F contains non-finite values at iteration {it}"
@@ -1032,18 +1049,20 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             break
 
         x = x + alpha * delta
+        # Reuse the accepted F_try as next iteration's residual — x == x_try,
+        # so F_try == F_func(x) and recomputing would be wasteful.
+        F = F_try
+        fun = F
 
         if max_nfev is not None and nfev >= max_nfev:
             msg = f"Reached maxfev={max_nfev} function evaluations at iteration {it}, ||F|| = {nrm:.2e}"
             break
 
         if xtol is not None and np.linalg.norm(alpha * delta) < xtol:
-            # Small step — re-evaluate F to check whether residuals are also small.
-            # A tiny step can indicate stagnation (e.g. near-singular Jacobian), not convergence.
-            F_new = F_func(x)
-            fun = F_new
-            nfev += 1
-            nrm_new = np.linalg.norm(F_new)
+            # Small step — check whether residuals are also small.
+            # F is already F_func(x) (reused from the accepted F_try above),
+            # so no extra function evaluation is needed here.
+            nrm_new = np.linalg.norm(F)
             if nrm_new < tol:
                 success = True
                 msg = f"Converged at iteration {it}, ||F|| = {nrm_new:.2e}"
