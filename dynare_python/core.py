@@ -458,7 +458,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         - 'aux_method': Method used for auxiliary variables
         - 'aux_eqs': Symbolic auxiliary equations
         - 'aux_eqs_funcs': Compiled residual functions for auxiliary equations (nested method)
-        - 'aux_eqs_syms': Ordered list of free symbols for each auxiliary equation (nested method)
+        - 'aux_eqs_syms': Sorted list of all free symbols appearing in auxiliary equations (nested method)
         - 'aux_sols': Analytical solutions for auxiliary variables (analytical method)
         - 'aux_funcs': Compiled evaluation functions (analytical method)
 
@@ -952,7 +952,8 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
     overdetermined : bool
         If True, uses lsmr (least-squares); else uses spsolve (direct).
     solver_options : dict, optional
-        May contain 'maxiter' (overrides max_iter) and 'ftol'/'xtol' (overrides tol).
+        May contain 'maxiter' (overrides max_iter), 'maxfev' (maximum number of
+        function evaluations), and 'ftol'/'xtol' (overrides tol).
     """
     from scipy.optimize import OptimizeResult
 
