@@ -85,8 +85,8 @@ def is_static(eq, known_vars=None):
         When provided, only symbols whose base name is in known_vars are
         considered time-indexed, avoiding false positives for parameters
         that happen to end in an integer (e.g. ``rho_1``).
-        When None, any symbol matching ``*_1`` or ``*_-1`` is treated as
-        a lead/lag (legacy behaviour).
+        When None, any symbol whose name parses as ``name_<int>`` with a
+        nonzero integer lag is treated as a lead/lag (legacy behaviour).
 
     Returns:
     --------
