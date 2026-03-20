@@ -521,13 +521,13 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
                 remaining_eqs.append(eq)
 
         if not aux_eqs:
-            import warnings
-            warnings.warn(
+            raise ValueError(
                 f"No static equations found for auxiliary variables {vars_aux}. "
-                f"Treating them as dynamic variables.",
-                UserWarning
+                f"Each auxiliary variable must appear in at least one static equation "
+                f"(an equation with no leads or lags of declared model variables). "
+                f"If these variables are genuinely dynamic, declare them in vars_dyn "
+                f"instead, or use aux_method='dynamic' and include them in vars_dyn."
             )
-            aux_method_used = 'dynamic'
 
     # Now process based on method (but skip if method is 'dynamic')
     if vars_aux and aux_method != 'dynamic' and aux_eqs:
@@ -743,7 +743,11 @@ def solve_auxiliary_nested(X_dyn_t, params_dict, model_funcs, vars_dyn, exog_t=N
     from scipy.optimize import root
 
     if not model_funcs.get('aux_eqs_funcs'):
-        return None
+        raise ValueError(
+            "'aux_eqs_funcs' is missing from model_funcs. "
+            "solve_auxiliary_nested requires a model processed with "
+            "aux_method='nested'."
+        )
 
     n_aux = len(model_funcs['vars_aux'])
     if aux_guess is None:
@@ -1040,7 +1044,7 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
             x_try = x + alpha * delta
             F_try = F_func(x_try)
             nfev += 1
-            if np.linalg.norm(F_try) < nrm:
+            if np.isfinite(F_try).all() and np.linalg.norm(F_try) < nrm:
                 improved = True
                 break
             alpha *= 0.5
