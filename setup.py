@@ -21,9 +21,8 @@ setup(
     description="A minimal Dynare-style perfect foresight solver in Python",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    author="Your Name",
-    author_email="your.email@example.com",
-    url="https://github.com/yourusername/DynareByPython",
+    author="Shunsuke Hori",
+    url="https://github.com/Shunsuke-Hori/pyperfectforesight",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[

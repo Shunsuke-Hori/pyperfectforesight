@@ -145,9 +145,9 @@ For advanced users who want more control:
 
 ### `solve_perfect_foresight()` options:
 - `exog_path=None`: Exogenous variable path (T x n_exo array)
-- `method='hybr'/'lm'/'krylov'/...`: Solver method
 - `use_terminal_conditions=True/False`: Enforce terminal steady state
-- `solver_options={}`: Additional scipy.optimize.root options
+- `solver_options={}`: Sparse Newton solver options (keys: `maxiter`, `ftol`, `xtol`, `maxfev`)
+- `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored — the solver is always the built-in sparse Newton method
 
 ## Requirements
 
