@@ -37,7 +37,7 @@ def _parse_time_symbol(sym_name):
 # 2. Lead / lag detection (Dynare lead_lag_incidence)
 # ============================================================
 
-def lead_lag_incidence(equations):
+def lead_lag_incidence(equations, known_vars=None):
     """
     Detect which variables appear at which time lags in the equations
 
@@ -45,6 +45,12 @@ def lead_lag_incidence(equations):
     -----------
     equations : list
         List of sympy equations
+    known_vars : set, optional
+        Set of declared variable base names (vars_dyn + vars_exo + vars_aux).
+        When provided, only symbols whose base name is in known_vars are
+        recorded, preventing parameters like ``rho_1`` from appearing in the
+        incidence table.  When None, every parseable ``name_<int>`` symbol is
+        included (legacy behaviour).
 
     Returns:
     --------
@@ -57,6 +63,8 @@ def lead_lag_incidence(equations):
             if parsed is None:
                 continue
             var_name, lag = parsed
+            if known_vars is not None and var_name not in known_vars:
+                continue
             inc.setdefault(var_name, set()).add(lag)
     return inc
 
@@ -474,8 +482,13 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     if vars_aux is None:
         vars_aux = []
 
+    # Precompute the full set of declared model variable names.
+    # Used by lead_lag_incidence and is_static to avoid false positives for
+    # parameters whose names happen to end in an integer (e.g. rho_1).
+    known_vars = set(vars_dyn) | set(vars_exo) | set(vars_aux)
+
     # Lead/lag detection
-    incidence = lead_lag_incidence(equations)
+    incidence = lead_lag_incidence(equations, known_vars=known_vars)
 
     # Process auxiliary equations based on chosen method
     aux_eqs = []
@@ -495,7 +508,6 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         aux_eqs = []
         remaining_eqs = []
 
-        known_vars = set(vars_dyn) | set(vars_exo) | set(vars_aux)
         for eq in equations:
             eq_vars = eq.free_symbols
             # Check if this equation defines an auxiliary variable
@@ -627,9 +639,12 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         # Keep all equations including auxiliary ones
 
     # Static equation elimination for non-auxiliary static variables
+    # Use known_vars so parameters like rho_1 don't trigger false dynamic classification.
+    # At this point vars_dyn may have been extended (dynamic method), so recompute.
+    known_vars_final = set(vars_dyn) | set(vars_exo) | set(vars_aux)
     if eliminate_static_vars:
-        static_eqs = [eq for eq in equations if is_static(eq) and eq not in aux_eqs_set]
-        dynamic_eqs = [eq for eq in equations if not is_static(eq)]
+        static_eqs = [eq for eq in equations if is_static(eq, known_vars_final) and eq not in aux_eqs_set]
+        dynamic_eqs = [eq for eq in equations if not is_static(eq, known_vars_final)]
 
         # For dynamic method, add auxiliary equations to dynamic_eqs
         if aux_method_used == 'dynamic' and aux_eqs:
@@ -665,7 +680,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
 
     # Recompute incidence from the final dynamic equations so it reflects any
     # auxiliary-variable substitutions / removals that happened during processing.
-    incidence = lead_lag_incidence(dynamic_eqs)
+    incidence = lead_lag_incidence(dynamic_eqs, known_vars=known_vars_final)
 
     return {
         'dynamic_eqs': dynamic_eqs,
