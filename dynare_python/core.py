@@ -433,8 +433,12 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         - 'nested': Force post-solve numerical solving of auxiliary equations.
                    After the main solver converges, auxiliary variables are
                    solved period-by-period using scipy.optimize.root with warm
-                   starting. Use when analytical solve fails and you prefer
-                   explicit numerical solving over treating aux vars as dynamic.
+                   starting. This mode requires a square auxiliary system
+                   (same number of equations and variables) and that auxiliary
+                   variables appear only in auxiliary equations — a ValueError
+                   is raised otherwise. Use when analytical solve fails and
+                   these structural conditions are satisfied; otherwise prefer
+                   'dynamic'.
         - 'dynamic': Treat auxiliary variables as dynamic. Auxiliary equations
                     included in main system. Single optimization, higher dimension.
 

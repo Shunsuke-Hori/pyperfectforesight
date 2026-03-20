@@ -62,13 +62,17 @@ process_model(..., aux_method='nested')
   for each time period in sequence (post-solve, not inline at each Newton iteration)
 - Uses scipy.optimize.root with warm starting across periods
 
-**When to use:**
-- Complex auxiliary equations (implicit, transcendental, coupled)
-- When you know analytical will fail or hang
-- When robustness is more important than speed
+**Structural requirements (raises `ValueError` if violated):**
+- The auxiliary system must be **square**: number of auxiliary equations must equal number of auxiliary variables
+- Auxiliary variables must **only appear in auxiliary equations** — they cannot appear in any non-auxiliary model equation
 
-**Pros:** Works for ANY auxiliary equations, never hangs
-**Cons:** Slower due to nested optimization
+**When to use:**
+- Complex auxiliary equations (implicit, transcendental, coupled) that form a square subsystem involving only auxiliary variables
+- When you know analytical will fail or hang
+- When the above structural conditions are satisfied and you prefer post-solve numerical solving over enlarging the main system
+
+**Pros:** Handles many nonlinear auxiliary systems without enlarging the main Newton system; avoids symbolic-solver hangs
+**Cons:** Slower due to nested optimization; raises `ValueError` if the auxiliary block is not square or if auxiliary variables appear in non-auxiliary equations — use `'dynamic'` in those cases
 
 ---
 
