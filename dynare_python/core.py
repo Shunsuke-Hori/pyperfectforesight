@@ -1011,8 +1011,10 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
         # Backtracking line search
         alpha = 1.0
         improved = False
+        maxfev_hit_in_linesearch = False
         for _ in range(30):
             if max_nfev is not None and nfev >= max_nfev:
+                maxfev_hit_in_linesearch = True
                 break
             x_try = x + alpha * delta
             F_try = F_func(x_try)
@@ -1022,6 +1024,9 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                 break
             alpha *= 0.5
 
+        if maxfev_hit_in_linesearch:
+            msg = f"Reached maxfev={max_nfev} function evaluations during line search at iteration {it}, ||F|| = {nrm:.2e}"
+            break
         if not improved:
             msg = f"Line search failed at iteration {it}, ||F|| = {nrm:.2e}"
             break
@@ -1156,6 +1161,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             )
         stock_indices = set(stock_var_indices)
         jump_indices = set(range(n)) - stock_indices
+        # Precompute position of each stock variable index within stock_var_indices
+        # so reconstruct_full_path avoids repeated linear scans during Newton iterations.
+        stock_idx_to_pos = {idx: pos for pos, idx in enumerate(stock_var_indices)}
 
         # Build list of which (time, variable) pairs are unknowns
         # and which are fixed
@@ -1178,7 +1186,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             for i in range(n):
                 if i in stock_indices:
                     # Stock variable: X[0,i] fixed, X[1:T,i] from solution
-                    X_full[0, i] = initial_state[stock_var_indices.index(i)]
+                    X_full[0, i] = initial_state[stock_idx_to_pos[i]]
                     X_full[1:, i] = x[idx:idx+T-1]
                     idx += T-1
                 else:
