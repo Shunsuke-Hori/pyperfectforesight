@@ -1512,6 +1512,25 @@ def solve_perfect_foresight_homotopy(
                 f"None, initial_state must be a full state vector."
             )
 
+    # Validate and coerce exog_path
+    if exog_path is not None:
+        exog_path = np.asarray(exog_path, dtype=float)
+        if exog_path.ndim != 2:
+            raise ValueError(
+                f"exog_path must be a 2-D array with shape (T, n_exo); "
+                f"got shape {exog_path.shape}."
+            )
+        if exog_path.shape[0] != T:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[0]} rows but T={T}."
+            )
+        n_exo_model = len(model_funcs.get('vars_exo', []))
+        if n_exo_model > 0 and exog_path.shape[1] != n_exo_model:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[1]} columns but the model "
+                f"has {n_exo_model} exogenous variable(s)."
+            )
+
     # Steady-state exogenous baseline (lam=0 value)
     if exog_path is not None:
         if exog_ss is None:

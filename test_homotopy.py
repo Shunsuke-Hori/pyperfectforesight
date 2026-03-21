@@ -35,12 +35,12 @@ SS = np.array([C_SS, K_SS])
 T = 60
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def model():
     return process_model([EQ1, EQ2], VARS_DYN)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def X0():
     return np.tile(SS, (T, 1))
 
