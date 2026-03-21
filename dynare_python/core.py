@@ -1471,6 +1471,9 @@ def solve_perfect_foresight_homotopy(
             "to scale. Both are None -- there is nothing to homotopy on."
         )
 
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+
     if initial_state is not None and stock_var_indices is not None:
         if len(initial_state) != len(stock_var_indices):
             raise ValueError(
@@ -1525,11 +1528,26 @@ def solve_perfect_foresight_homotopy(
                 f"exog_path has {exog_path.shape[0]} rows but T={T}."
             )
         n_exo_model = len(model_funcs.get('vars_exo', []))
-        if n_exo_model > 0 and exog_path.shape[1] != n_exo_model:
+        if n_exo_model == 0:
+            raise ValueError(
+                "exog_path was provided but the model defines no exogenous "
+                "variables. Remove exog_path or add exogenous variables to "
+                "the model."
+            )
+        if exog_path.shape[1] != n_exo_model:
             raise ValueError(
                 f"exog_path has {exog_path.shape[1]} columns but the model "
                 f"has {n_exo_model} exogenous variable(s)."
             )
+
+    if exog_ss is not None and exog_path is None:
+        import warnings
+        warnings.warn(
+            "exog_ss was provided but exog_path is None, so exog_ss has no "
+            "effect and will be ignored.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     # Steady-state exogenous baseline (lam=0 value)
     if exog_path is not None:
