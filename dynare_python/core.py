@@ -1438,6 +1438,10 @@ def solve_perfect_foresight_homotopy(
         Steady-state exogenous path (lam=0 value). Defaults to zeros, which
         is appropriate when ``exog_path`` represents deviations from a
         zero-shock baseline.
+    method : str, optional
+        Deprecated and ignored. The solver always uses the sparse Newton
+        method (``'hybr'``). Passing any other value emits a
+        ``DeprecationWarning``. Will be removed in a future release.
 
     Returns
     -------
@@ -1595,7 +1599,7 @@ def solve_perfect_foresight_homotopy(
         )
 
         sol = solve_perfect_foresight(
-            T, X_warm, params_dict, ss, model_funcs, vars_dyn,
+            T, X_warm, params_dict, ss, model_funcs, vars_dyn_eff,
             exog_path=exog_path_lam,
             initial_state=initial_state_lam,
             ss_initial=ss_initial,
