@@ -267,8 +267,9 @@ def test_verbose_does_not_raise(model, X0, capsys):
 def test_exog_ss_baseline(X0):
     """exog_ss shifts the lam=0 baseline away from zero.
 
-    Homotopy scales from exog_ss (1% constant shock) to exog_path (2%),
-    so the first step starts from an already-converged non-zero exo baseline.
+    Homotopy scales the exogenous path from exog_ss (1% constant shock)
+    toward exog_path (2%), using the steady-state path as the warm start
+    rather than a separately solved lam=0 baseline.
     """
     eq1_z = (
         v("c", 0) ** (-1)

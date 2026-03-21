@@ -1369,6 +1369,7 @@ def solve_perfect_foresight_homotopy(
     stock_var_indices=None,
     use_terminal_conditions=True, solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
+    method='hybr',
 ):
     """
     Solve a perfect foresight model using homotopy (parameter continuation).
@@ -1385,8 +1386,12 @@ def solve_perfect_foresight_homotopy(
     * ``exog_path`` deviation from ``exog_ss``
       (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
 
-    At lam=0 the system is at steady state (trivially solved). At lam=1 it
-    is the original problem. At least one of ``initial_state`` or
+    Conceptually, ``lam`` varies from 0 to 1, where ``lam=0`` corresponds to
+    the unshocked configuration implied by ``ss_initial`` and ``exog_ss``,
+    and ``lam=1`` to the fully shocked problem.  The implementation does not
+    explicitly solve a separate ``lam=0`` step; instead it uses the provided
+    steady-state path (``np.tile(ss_initial, (T, 1))``) as the warm start for
+    the first positive ``lam``.  At least one of ``initial_state`` or
     ``exog_path`` must be provided, otherwise there is nothing to scale.
 
     Parameters
@@ -1468,9 +1473,35 @@ def solve_perfect_foresight_homotopy(
 
     if ss_initial is None:
         ss_initial = ss
+    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
 
     vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn_eff)
+
+    if len(ss_initial) != n:
+        raise ValueError(
+            f"ss_initial has {len(ss_initial)} elements but the model has "
+            f"{n} dynamic variables."
+        )
+
+    # Validate stock_var_indices before using them to slice ss_initial
+    if stock_var_indices is not None:
+        if len(set(stock_var_indices)) != len(stock_var_indices):
+            raise ValueError("stock_var_indices contains duplicate indices.")
+        if any(i < 0 or i >= n for i in stock_var_indices):
+            raise ValueError(
+                f"stock_var_indices contains an out-of-range index. "
+                f"Valid range is [0, {n - 1}]."
+            )
+
+    # Validate full initial_state length when no stock_var_indices provided
+    if initial_state is not None and stock_var_indices is None:
+        if len(initial_state) != n:
+            raise ValueError(
+                f"initial_state has {len(initial_state)} elements but the "
+                f"model has {n} dynamic variables. When stock_var_indices is "
+                f"None, initial_state must be a full state vector."
+            )
 
     # Steady-state exogenous baseline (lam=0 value)
     if exog_path is not None:
@@ -1515,6 +1546,7 @@ def solve_perfect_foresight_homotopy(
             stock_var_indices=stock_var_indices,
             use_terminal_conditions=use_terminal_conditions,
             solver_options=solver_options,
+            method=method,
         )
 
         if verbose:
