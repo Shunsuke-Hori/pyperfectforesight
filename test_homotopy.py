@@ -177,7 +177,7 @@ def test_exog_path_mode(X0):
 
 
 # ---------------------------------------------------------------------------
-# 4. Free initial-state mode (no stock_var_indices)
+# 4. Scaling both initial_state and exog_path simultaneously
 # ---------------------------------------------------------------------------
 
 
@@ -206,6 +206,50 @@ def test_initial_state_and_exog_path_combined(X0):
         initial_state=k0,
         stock_var_indices=[1],
         n_steps=6,
+    )
+    assert sol.success
+    assert np.linalg.norm(sol.fun) < 1e-6
+
+
+def test_exog_path_only_no_initial_state(X0):
+    """Homotopy with exog_path only and initial_state=None (Case 2).
+
+    When initial_state=None and stock_var_indices=None, solve_perfect_foresight
+    uses Case 2: X[0] is pinned to ss_initial for ALL variables.  This is
+    valid when all model variables are predetermined (state variables), so
+    pinning the full X[0] vector is the correct boundary condition.
+
+    The model below is a linear VAR(1) where both c and k depend only on
+    their own lagged values and the exogenous shock z, making them both
+    predetermined.  The steady state at z=0 is (C_SS, K_SS), the same as
+    the RBC fixture.
+    """
+    # Linear VAR(1): both c and k are state variables (no jump variables).
+    #   c_{t+1} = C_SS + RHO_C * (c_t - C_SS) + z_t
+    #   k_{t+1} = K_SS + PHI   * (c_t - C_SS) + PSI * (k_t - K_SS)
+    # SS at z=0: c_SS = C_SS, k_SS = K_SS ✓
+    RHO_C, PHI, PSI = 0.8, 0.3, 0.9
+    eq1_var = v("c", 1) - (C_SS + RHO_C * (v("c", 0) - C_SS) + v("z", 0))
+    eq2_var = v("k", 1) - (K_SS + PHI * (v("c", 0) - C_SS) + PSI * (v("k", 0) - K_SS))
+    model_var = process_model([eq1_var, eq2_var], VARS_DYN, vars_exo=["z"])
+
+    # AR(1) shock starting at t=0 and decaying so the economy returns to the
+    # original SS, making the terminal condition X[T-1]=ss consistent.
+    rho_z = 0.9
+    exog = np.zeros((T, 1))
+    exog[0, 0] = 0.01
+    for t in range(1, T):
+        exog[t, 0] = rho_z * exog[t - 1, 0]
+
+    sol = solve_perfect_foresight_homotopy(
+        T, X0, PARAMS, SS, model_var, VARS_DYN,
+        exog_path=exog,
+        # initial_state intentionally omitted — exercises the exog-only branch
+        # through Case 2 (X[0] pinned to ss for all variables).
+        # use_terminal_conditions=False keeps the system square (exactly solvable)
+        # since Case 2 with terminal conditions is overdetermined.
+        use_terminal_conditions=False,
+        n_steps=5,
     )
     assert sol.success
     assert np.linalg.norm(sol.fun) < 1e-6

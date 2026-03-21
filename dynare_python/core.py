@@ -1456,6 +1456,15 @@ def solve_perfect_foresight_homotopy(
     if not isinstance(n_steps, int) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
+    if method != 'hybr':
+        import warnings
+        warnings.warn(
+            f"The 'method' parameter is deprecated and ignored. The solver always "
+            f"uses the sparse Newton method regardless of method={method!r}.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     if initial_state is None and exog_path is None:
         raise ValueError(
             "Homotopy requires at least one of 'initial_state' or 'exog_path' "
@@ -1512,6 +1521,16 @@ def solve_perfect_foresight_homotopy(
                 np.asarray(exog_ss, dtype=float), exog_path.shape
             ).copy()
 
+    # Validate X0 shape to catch mismatches early (X0 itself is not used as
+    # the warm start — the steady-state path is — but a shape mismatch usually
+    # indicates a caller error worth flagging immediately).
+    X0 = np.asarray(X0, dtype=float)
+    if X0.shape != (T, n):
+        raise ValueError(
+            f"X0 has shape {X0.shape} but expected ({T}, {n}) "
+            f"(T periods × {n} dynamic variables)."
+        )
+
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
 
@@ -1546,7 +1565,7 @@ def solve_perfect_foresight_homotopy(
             stock_var_indices=stock_var_indices,
             use_terminal_conditions=use_terminal_conditions,
             solver_options=solver_options,
-            method=method,
+            method='hybr',  # already warned above; suppress per-step warnings
         )
 
         if verbose:
