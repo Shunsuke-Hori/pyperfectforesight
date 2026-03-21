@@ -21,14 +21,12 @@ from dynare_python import (
 ALPHA = 0.36
 BETA = 0.99
 
-_alpha_sym = sp.Symbol("alpha")
-_beta_sym = sp.Symbol("beta")
-
+# Parameters are baked in numerically so no SymPy parameter symbols are needed.
 EQ1 = v("c", 0) ** (-1) - BETA * ALPHA * v("k", 1) ** (ALPHA - 1) * v("c", 1) ** (-1)
 EQ2 = v("k", 1) - v("k", 0) ** ALPHA + v("c", 0)
 
 VARS_DYN = ["c", "k"]
-PARAMS = {_alpha_sym: ALPHA, _beta_sym: BETA}
+PARAMS = {}
 
 K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
 C_SS = K_SS**ALPHA - K_SS
@@ -57,6 +55,28 @@ def test_raises_when_nothing_to_scale(model, X0):
     with pytest.raises(ValueError, match="nothing to homotopy on"):
         solve_perfect_foresight_homotopy(
             T, X0, PARAMS, SS, model, VARS_DYN
+        )
+
+
+def test_raises_on_invalid_n_steps(model, X0):
+    """n_steps must be a positive integer."""
+    k0 = np.array([K_SS * 1.1])
+    for bad in (0, -1, 1.5, "10"):
+        with pytest.raises(ValueError, match="n_steps"):
+            solve_perfect_foresight_homotopy(
+                T, X0, PARAMS, SS, model, VARS_DYN,
+                initial_state=k0, stock_var_indices=[1],
+                n_steps=bad,
+            )
+
+
+def test_raises_on_initial_state_length_mismatch(model, X0):
+    """initial_state length must match stock_var_indices when provided."""
+    wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
+    with pytest.raises(ValueError, match="initial_state has 2 elements"):
+        solve_perfect_foresight_homotopy(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            initial_state=wrong_initial_state, stock_var_indices=[1],
         )
 
 

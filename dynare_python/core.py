@@ -1407,11 +1407,19 @@ def solve_perfect_foresight_homotopy(
     exog_path : ndarray (T, n_exo), optional
         Full-shock exogenous path (lam=1 value).
     initial_state : ndarray, optional
-        Full-shock initial state (lam=1 value).
+        Initial state at t=0 for the full-shock (lam=1) problem. The expected
+        shape depends on ``stock_var_indices``:
+
+        * If ``stock_var_indices`` is None, ``initial_state`` must be a full
+          state vector of shape ``(n_dyn,)``.
+        * If ``stock_var_indices`` is provided, ``initial_state`` must contain
+          only the stock variable values at t=0, with shape ``(n_stock,)``.
     ss_initial : ndarray, optional
         Initial steady state. Defaults to ``ss``.
     stock_var_indices : list of int, optional
-        Indices of stock (predetermined) variables.
+        Indices of stock (predetermined) variables in ``vars_dyn``. When
+        provided, ``initial_state`` is interpreted as a stock-only vector
+        (see above); non-stock variables are free to jump at t=0.
     use_terminal_conditions : bool
         Enforce terminal steady-state conditions (default True).
     solver_options : dict, optional
@@ -1440,11 +1448,23 @@ def solve_perfect_foresight_homotopy(
         If the solver fails to converge at any homotopy step, with the step's
         lam value and solver message included.
     """
+    if not isinstance(n_steps, int) or n_steps < 1:
+        raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
+
     if initial_state is None and exog_path is None:
         raise ValueError(
             "Homotopy requires at least one of 'initial_state' or 'exog_path' "
             "to scale. Both are None -- there is nothing to homotopy on."
         )
+
+    if initial_state is not None and stock_var_indices is not None:
+        if len(initial_state) != len(stock_var_indices):
+            raise ValueError(
+                f"initial_state has {len(initial_state)} elements but "
+                f"stock_var_indices has {len(stock_var_indices)} entries. "
+                f"When stock_var_indices is provided, initial_state must "
+                f"contain only the stock variable values."
+            )
 
     if ss_initial is None:
         ss_initial = ss
