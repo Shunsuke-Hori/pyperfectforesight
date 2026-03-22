@@ -1522,6 +1522,14 @@ def solve_perfect_foresight_homotopy(
 
     # Validate stock_var_indices before using them to slice ss_initial
     if stock_var_indices is not None:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
+        stock_var_indices = list(stock_var_indices)
         if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
             raise ValueError(
                 "stock_var_indices must contain integers; "
