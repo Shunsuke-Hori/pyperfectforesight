@@ -245,9 +245,19 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     neq = len(dynamic_eqs)
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
+    X_aug = np.empty((T + 2, n), dtype=float)
+    X_aug[0] = initval
+    X_aug[1:-1] = X
+    X_aug[-1] = endval
     # Exogenous: pad boundary rows so lag/lead at t=0 and t=T-1 are well-defined.
-    exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
+    n_exo = exog_path.shape[1]
+    if n_exo > 0:
+        exog_aug = np.empty((T + 2, n_exo), dtype=float)
+        exog_aug[0] = exog_path[0]
+        exog_aug[1:-1] = exog_path
+        exog_aug[-1] = exog_path[-1]
+    else:
+        exog_aug = exog_path
     F = np.zeros((T, neq))
     for t in range(T):
         subs = {}
@@ -336,18 +346,29 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
 
 def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
                   vars_exo, exog_path, initval, endval):
-    """Build the square (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
+    """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
     Columns referencing the fixed boundary rows (initval/endval) are skipped
     so the result is the Jacobian w.r.t. the T inner (unknown) rows only.
+    When neq == n (as enforced by the caller), this Jacobian is square.
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
-    exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
+    X_aug = np.empty((T + 2, n), dtype=float)
+    X_aug[0] = initval
+    X_aug[1:-1] = X
+    X_aug[-1] = endval
+    n_exo = exog_path.shape[1]
+    if n_exo > 0:
+        exog_aug = np.empty((T + 2, n_exo), dtype=float)
+        exog_aug[0] = exog_path[0]
+        exog_aug[1:-1] = exog_path
+        exog_aug[-1] = exog_path[-1]
+    else:
+        exog_aug = exog_path
     J = lil_matrix((neq * T, n * T))
     for t in range(T):
         subs = {}
