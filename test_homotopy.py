@@ -337,3 +337,30 @@ def test_exog_ss_baseline(X0):
     )
     assert sol.success
     assert np.linalg.norm(sol.fun) < 1e-6
+
+
+def test_exog_ss_without_exog_path_warns(X0):
+    """Passing exog_ss without exog_path emits a UserWarning.
+
+    exog_ss is only meaningful as the lam=0 baseline when scaling toward a
+    provided exog_path.  Without exog_path, exog_ss has no effect and the
+    homotopy proceeds with a zero exogenous path throughout.
+    """
+    eq1_z = (
+        v("c", 0) ** (-1)
+        - BETA * ALPHA * v("k", 1) ** (ALPHA - 1) * v("c", 1) ** (-1)
+    )
+    eq2_z = v("k", 1) - sp.exp(v("z", 0)) * v("k", 0) ** ALPHA + v("c", 0)
+    model_z = process_model([eq1_z, eq2_z], VARS_DYN, vars_exo=["z"])
+
+    exog_base = np.full((T, 1), 0.01)
+    k0 = np.array([K_SS * 1.1])
+
+    with pytest.warns(UserWarning, match="exog_ss"):
+        solve_perfect_foresight_homotopy(
+            T, X0, PARAMS, SS, model_z, VARS_DYN,
+            exog_ss=exog_base,        # provided without exog_path
+            initial_state=k0,
+            stock_var_indices=[1],
+            n_steps=3,
+        )

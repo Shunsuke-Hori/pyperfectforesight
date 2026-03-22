@@ -1546,7 +1546,10 @@ def solve_perfect_foresight_homotopy(
                 f"has {n_exo_model} exogenous variable(s)."
             )
 
-    if exog_ss is not None and exog_path is None:
+    # Track whether exog_path was user-provided before potentially defaulting it.
+    _exog_path_user_provided = exog_path is not None
+
+    if exog_ss is not None and not _exog_path_user_provided:
         import warnings
         warnings.warn(
             "exog_ss was provided but exog_path is None, so exog_ss has no "
@@ -1557,19 +1560,29 @@ def solve_perfect_foresight_homotopy(
 
     # If the model has exogenous variables but no exog_path was given, default
     # to an all-zero path so the solver does not hit an IndexError in residual().
-    if exog_path is None:
+    if not _exog_path_user_provided:
         n_exo_model = len(model_funcs.get('vars_exo', []))
         if n_exo_model > 0:
             exog_path = np.zeros((T, n_exo_model))
 
-    # Steady-state exogenous baseline (lam=0 value)
+    # Steady-state exogenous baseline (lam=0 value).
+    # Only apply exog_ss when exog_path was user-provided; otherwise the path is
+    # already zeros and exog_ss was already warned about / ignored above.
     if exog_path is not None:
-        if exog_ss is None:
-            exog_ss = np.zeros_like(exog_path)
+        if _exog_path_user_provided and exog_ss is not None:
+            exog_arr = np.asarray(exog_ss, dtype=float)
+            _, n_exo = exog_path.shape
+            if exog_arr.shape == (n_exo,) or exog_arr.shape == exog_path.shape:
+                exog_ss = np.broadcast_to(exog_arr, exog_path.shape).copy()
+            else:
+                raise ValueError(
+                    f"exog_ss has shape {exog_arr.shape} but expected either "
+                    f"{exog_path.shape} (T periods × {n_exo} exogenous "
+                    f"variable(s)) or ({n_exo},) (one steady-state value per "
+                    f"exogenous variable)."
+                )
         else:
-            exog_ss = np.broadcast_to(
-                np.asarray(exog_ss, dtype=float), exog_path.shape
-            ).copy()
+            exog_ss = np.zeros_like(exog_path)
 
     # Validate X0 shape to catch mismatches early (X0 itself is not used as
     # the warm start — the steady-state path is — but a shape mismatch usually
