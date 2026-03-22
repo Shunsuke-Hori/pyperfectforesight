@@ -215,7 +215,13 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
     if vars_exo is None:
         vars_exo = []
     if exog_path is None:
-        exog_path = np.zeros((T, 0))
+        exog_path = np.zeros((T, len(vars_exo)))
+
+    if (initval is None) != (endval is None):
+        raise ValueError(
+            "residual(): initval and endval must be provided together for "
+            "BVP mode; supply both or neither."
+        )
 
     # BVP mode: evaluate T periods on the T+2-row augmented path.
     # initval (row 0) and endval (row T+1) are fixed boundary rows;
@@ -308,7 +314,13 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
     if vars_exo is None:
         vars_exo = []
     if exog_path is None:
-        exog_path = np.zeros((T, 0))
+        exog_path = np.zeros((T, len(vars_exo)))
+
+    if (initval is None) != (endval is None):
+        raise ValueError(
+            "sparse_jacobian(): initval and endval must be provided together "
+            "for BVP mode; supply both or neither."
+        )
 
     # BVP mode: T equation-periods on T+2-row augmented path.
     # Jacobian w.r.t. inner T rows only (initval/endval are fixed).
@@ -1199,7 +1211,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         method (_sparse_newton) regardless of this parameter. Kept for backward
         compatibility.
     use_terminal_conditions : bool
-        Whether to enforce terminal steady-state conditions (default: True)
+        Whether to enforce terminal steady-state conditions (default: True).
+        Ignored when ``stock_var_indices`` is provided: the BVP formulation
+        always enforces the terminal condition via the fixed ``endval`` boundary
+        row (= ``ss``).
     solver_options : dict
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
@@ -1257,8 +1272,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
     # path is passed to BVP-mode residual/Jacobian which evaluate T
     # equation-periods using exact index t+lag+1 with no boundary clamping.
-    # This gives T*n equations for T*n unknowns — always square and
-    # non-singular for both lead- and lag-formulation models.
+    # This gives T*n equations for T*n unknowns — always square for both
+    # lead- and lag-formulation models.  Actual non-singularity of the
+    # Jacobian depends on the specific model and its calibration.
     if stock_var_indices is not None and initial_state is not None:
         if len(initial_state) != len(stock_var_indices):
             raise ValueError(
@@ -1272,8 +1288,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
             )
 
-        # initval row: stock vars at k_{-1} = initial_state; jump vars at ss.
-        initval = ss.copy()
+        # initval row: stock vars at k_{-1} = initial_state;
+        # non-stock vars at initial steady state (ss_initial).
+        initval = ss_initial.copy()
         for pos, i in enumerate(stock_var_indices):
             initval[i] = initial_state[pos]
         # endval row: all variables at terminal steady state.
