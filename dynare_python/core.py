@@ -1293,7 +1293,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
         # initval row: stock vars at k_{-1} = initial_state;
         # non-stock vars at initial steady state (ss_initial).
-        initval = ss_initial.copy()
+        initval = np.asarray(ss_initial, dtype=float).ravel().copy()
         for pos, i in enumerate(stock_var_indices):
             initval[i] = initial_state[pos]
         # endval row: all variables at terminal steady state.
