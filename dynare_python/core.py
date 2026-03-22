@@ -358,11 +358,12 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             for lag in [-1, 0, 1]:
                 subs[v(var, lag)] = exog_aug[t + lag + 1, i]
         subs.update(params)
+        vals = [subs[s] for s in all_syms]
         for lag, f in block_funcs.items():
             col_t = t + lag  # index into X (0-based); skip fixed boundary rows
             if not (0 <= col_t < T):
                 continue
-            B = f(*[subs[s] for s in all_syms])
+            B = f(*vals)
             r0 = t * neq
             c0 = col_t * n
             J[r0:r0+neq, c0:c0+n] = B
@@ -1255,6 +1256,21 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"The solver requires a square system (neq == n)."
         )
 
+    if stock_var_indices is not None:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
+        stock_var_indices = list(stock_var_indices)
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
+
     if stock_var_indices is not None and initial_state is None:
         raise ValueError(
             "stock_var_indices was provided but initial_state is None. "
@@ -1265,6 +1281,12 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
     if ss_initial is None:
         ss_initial = ss  # Default: initial SS same as terminal SS
+    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+    if len(ss_initial) != n:
+        raise ValueError(
+            f"ss_initial has {len(ss_initial)} elements but the model has "
+            f"{n} dynamic variables."
+        )
 
     # Handle stock vs jump variables — augmented-path BVP formulation.
     #
