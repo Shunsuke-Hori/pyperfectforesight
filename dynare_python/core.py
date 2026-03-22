@@ -1426,6 +1426,13 @@ def solve_perfect_foresight_homotopy(
         Indices of stock (predetermined) variables in ``vars_dyn``. When
         provided, ``initial_state`` is interpreted as a stock-only vector
         (see above); non-stock variables are free to jump at t=0.
+        Must be provided together with ``initial_state``; passing
+        ``stock_var_indices`` without ``initial_state`` raises a
+        ``ValueError``.
+
+    The remaining parameters are **keyword-only** (enforced by ``*`` in
+    the signature):
+
     use_terminal_conditions : bool
         Enforce terminal steady-state conditions (default True).
     solver_options : dict, optional
@@ -1478,6 +1485,16 @@ def solve_perfect_foresight_homotopy(
             "to scale. Both are None -- there is nothing to homotopy on."
         )
 
+    if stock_var_indices is not None and initial_state is None:
+        raise ValueError(
+            "stock_var_indices was provided but initial_state is None. "
+            "Providing stock_var_indices without initial_state would cause "
+            "solve_perfect_foresight to silently ignore stock_var_indices and "
+            "fall back to pinning all variables at t=0 (Case 2). "
+            "Pass initial_state (at minimum ss_initial[stock_var_indices] to "
+            "start stocks at steady state) to activate the stock/jump boundary."
+        )
+
     if initial_state is not None:
         initial_state = np.asarray(initial_state, dtype=float).ravel()
 
@@ -1505,6 +1522,11 @@ def solve_perfect_foresight_homotopy(
 
     # Validate stock_var_indices before using them to slice ss_initial
     if stock_var_indices is not None:
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
         if len(set(stock_var_indices)) != len(stock_var_indices):
             raise ValueError("stock_var_indices contains duplicate indices.")
         if any(i < 0 or i >= n for i in stock_var_indices):
@@ -1573,6 +1595,9 @@ def solve_perfect_foresight_homotopy(
         if _exog_path_user_provided and exog_ss is not None:
             exog_arr = np.asarray(exog_ss, dtype=float)
             _, n_exo = exog_path.shape
+            # Accept a scalar as shorthand for (1,) when the model has one exo var
+            if exog_arr.ndim == 0 and n_exo == 1:
+                exog_arr = exog_arr.reshape(1)
             if exog_arr.shape == (n_exo,) or exog_arr.shape == exog_path.shape:
                 exog_ss = np.broadcast_to(exog_arr, exog_path.shape).copy()
             else:
