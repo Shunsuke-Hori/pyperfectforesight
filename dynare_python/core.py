@@ -1271,6 +1271,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 f"got types {[type(i).__name__ for i in stock_var_indices]}."
             )
 
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+
     if stock_var_indices is not None and initial_state is None:
         raise ValueError(
             "stock_var_indices was provided but initial_state is None. "
