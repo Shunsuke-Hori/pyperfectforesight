@@ -4,12 +4,14 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 
 ## Features
 
+- **Dynare-style lag notation**: Write equations using `v("k", -1)` for lagged variables, matching Dynare's convention
+- **Augmented-path BVP solver**: Stock/jump variable models use a boundary-value problem formulation — `initial_state` is the pre-period-0 value `k_{-1}`, and all period-0 variables are solved simultaneously
 - **Symbolic equation processing**: Define models using SymPy symbolic math
 - **Automatic differentiation**: Compute Jacobian blocks automatically
-- **Sparse matrix support**: Efficient handling of large-scale models
-- **Flexible configuration**: Customizable solver methods and options
+- **Sparse Newton solver**: Efficient sparse Jacobian and Newton iterations for large-scale models
+- **Homotopy continuation**: `solve_perfect_foresight_homotopy` for large shocks that are hard to solve directly
 - **Generic steady-state solver**: Numerical steady-state computation for any model
-- **Clean API**: Simple, intuitive interface for model definition and solving
+- **Auxiliary variable support**: Handle auxiliary (non-dynamic) variables via analytical substitution, dynamic augmentation, or nested numerical solving
 
 ## Installation
 
@@ -35,67 +37,117 @@ pip install dynare-python
 
 ## Quick Start
 
-Here's a simple RBC (Real Business Cycle) model example:
+Here's a simple RBC (Real Business Cycle) model in Dynare lag notation:
 
 ```python
-import sympy as sp
 import numpy as np
-from dynare_python import v, process_model, compute_steady_state_numerical, solve_perfect_foresight
+from dynare_python import v, process_model, solve_perfect_foresight
 
-# 1. Define model parameters
-beta, delta, alpha = sp.symbols("beta delta alpha")
+# Parameters baked in numerically
+ALPHA = 0.36
+BETA  = 0.99
+
+# Dynare-style equations:
+#   Euler:   1/c_t = beta * alpha * k_t^(alpha-1) / c_{t+1}
+#   Capital: k_t   = k_{t-1}^alpha - c_t
+#
+# k appears at lag -1 in the accumulation equation (Dynare convention).
+eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
+eq_kacc  = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
+
 vars_dyn = ["c", "k"]
+model_funcs = process_model([eq_euler, eq_kacc], vars_dyn)
 
-# 2. Define equations
-c_0, c_p = v("c", 0), v("c", 1)
-k_0, k_p = v("k", 0), v("k", 1)
+# Steady state
+K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
+C_SS = K_SS**ALPHA - K_SS
+ss = np.array([C_SS, K_SS])
 
-eq_euler = 1/c_0 - beta*(alpha*k_p**(alpha-1) + (1-delta))/c_p
-eq_kacc = k_p - (1-delta)*k_0 - k_0**alpha + c_0
-
-equations = [eq_euler, eq_kacc]
-
-# 3. Process model
-model_funcs = process_model(equations, vars_dyn)
-
-# 4. Compute steady state
-params = {beta: 0.96, delta: 0.08, alpha: 0.36}
-ss = compute_steady_state_numerical(equations, vars_dyn, params)
-
-# 5. Solve transition path
+# Transition path: k starts 10% above steady state
 T = 100
-X0 = np.tile(ss, (T, 1))
-X0[0, 1] = 0.9 * ss[1]  # 10% capital shock
+X0 = np.tile(ss, (T, 1))          # warm-start: constant ss path
 
-sol = solve_perfect_foresight(T, X0, params, ss, model_funcs, vars_dyn)
+# initial_state = k_{-1} (pre-period-0 capital, Dynare convention)
+k_neg1 = np.array([K_SS * 1.1])
+
+sol = solve_perfect_foresight(
+    T, X0, {}, ss, model_funcs, vars_dyn,
+    initial_state=k_neg1,
+    stock_var_indices=[1],         # index of k in vars_dyn
+)
 print(f"Converged: {sol.success}")
 ```
 
 ### With Exogenous Variables
 
-You can also specify exogenous variables with predetermined paths:
+```python
+import sympy as sp
+import numpy as np
+from dynare_python import v, process_model, solve_perfect_foresight
+
+ALPHA, BETA = 0.36, 0.99
+
+# TFP shock z enters the capital accumulation equation
+eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
+eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**ALPHA + v("c", 0)
+
+vars_dyn = ["c", "k"]
+model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=["z"])
+
+K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
+C_SS = K_SS**ALPHA - K_SS
+ss = np.array([C_SS, K_SS])
+
+T = 100
+X0 = np.tile(ss, (T, 1))
+
+# AR(1) TFP shock: 1% on impact, rho=0.9 decay
+rho = 0.9
+exog = np.zeros((T, 1))
+exog[0, 0] = 0.01
+for t in range(1, T):
+    exog[t, 0] = rho * exog[t-1, 0]
+
+k_neg1 = np.array([K_SS])   # k_{-1} starts at steady state
+
+sol = solve_perfect_foresight(
+    T, X0, {}, ss, model_funcs, vars_dyn,
+    initial_state=k_neg1,
+    stock_var_indices=[1],
+    exog_path=exog,
+)
+```
+
+### Homotopy for Large Shocks
+
+When direct Newton fails to converge for large shocks, use homotopy continuation:
 
 ```python
-# Define model with exogenous variables
-vars_dyn = ["c", "k"]  # Endogenous
-vars_exo = ["g"]       # Exogenous (e.g., government spending)
+from dynare_python import solve_perfect_foresight_homotopy
 
-# Include exogenous variables in equations
-g_0 = v("g", 0)
-eq_kacc = k_p - (1-delta)*k_0 - k_0**alpha + c_0 + g_0
+# Same model setup as above...
+k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
 
-# Process model
-model_funcs = process_model(equations, vars_dyn, vars_exo=vars_exo)
-
-# Define exogenous path (T x n_exo array)
-exog_path = np.zeros((T, 1))
-exog_path[:, 0] = 0.2  # Baseline government spending
-exog_path[10:30, 0] = 0.22  # Temporary increase
-
-# Solve with exogenous path
-sol = solve_perfect_foresight(T, X0, params, ss, model_funcs, vars_dyn,
-                              exog_path=exog_path)
+sol = solve_perfect_foresight_homotopy(
+    T, X0, {}, ss, model_funcs, vars_dyn,
+    initial_state=k_neg1,
+    stock_var_indices=[1],
+    n_steps=10,       # number of homotopy steps from ss to full shock
+    verbose=True,
+)
+print(f"Converged: {sol.success}")
 ```
+
+## Stock/Jump Variable Formulation
+
+When `stock_var_indices` and `initial_state` are provided, the solver uses an **augmented-path BVP formulation**:
+
+- An `initval` row (pre-period-0 values) is prepended and an `endval` row (terminal steady state) is appended to form a `T+2`-row augmented path.
+- Residuals are evaluated at periods `t = 0, …, T-1` using the full augmented path, so all `T×n` unknowns (including period-0 jump variables) are determined simultaneously.
+- `initial_state` is `k_{-1}` — the **pre-period-0** value of each stock variable, following Dynare's convention. Period-0 values of all variables (including jump variables like `c`) are solved by the model.
+- `stock_var_indices` lists the column indices (into `vars_dyn`) of the stock (predetermined) variables.
+
+This contrasts with the simple approach of pinning `X[0]` to given values, which over-constrains jump variables and can produce a structurally singular Jacobian.
 
 ## Examples
 
@@ -121,33 +173,44 @@ dynare_python/
 
 ### Main Functions
 
-- **`v(name, lag)`**: Create time-indexed symbolic variables
+- **`v(name, lag)`**: Create a time-indexed symbolic variable (e.g. `v("k", -1)` for `k_{t-1}`)
 - **`process_model(equations, vars_dyn, ...)`**: Process and compile model equations
 - **`compute_steady_state_numerical(equations, vars_dyn, params_dict, ...)`**: Compute steady state numerically
-- **`solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Solve perfect foresight problem
+- **`solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Solve perfect foresight transition path
+- **`solve_perfect_foresight_homotopy(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Homotopy continuation for difficult shocks
 
 ### Low-level Functions
 
 For advanced users who want more control:
 
-- `lead_lag_incidence()`: Detect variable lags in equations
+- `lead_lag_incidence()`: Detect variable lead/lag structure in equations
 - `is_static()`, `eliminate_static()`: Handle static equations
 - `local_blocks()`: Compute Jacobian blocks
-- `residual()`, `sparse_jacobian()`: Build residuals and Jacobians
+- `residual()`, `sparse_jacobian()`: Build residuals and Jacobians (standard mode)
 - `append_terminal_conditions()`: Add terminal steady-state constraints
 
 ## Configuration Options
 
 ### `process_model()` options:
 - `vars_exo=None`: List of exogenous variable names
-- `eliminate_static_vars=True/False`: Eliminate static variables
-- `compiler='lambdify'`: Compilation backend (extensible)
+- `vars_aux=None`: List of auxiliary (non-dynamic) variable names
+- `aux_method='auto'`: How to handle auxiliary variables: `'auto'`, `'analytical'`, `'dynamic'`, `'nested'`
+- `eliminate_static_vars=True/False`: Eliminate static variables before solving
 
 ### `solve_perfect_foresight()` options:
-- `exog_path=None`: Exogenous variable path (T x n_exo array)
-- `use_terminal_conditions=True/False`: Enforce terminal steady state
-- `solver_options={}`: Sparse Newton solver options (keys: `maxiter`, `ftol`, `xtol`, `maxfev`)
-- `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored — the solver is always the built-in sparse Newton method
+- `exog_path=None`: Exogenous variable path (`T × n_exo` array)
+- `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); required when `stock_var_indices` is provided
+- `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables
+- `ss_initial=None`: Steady-state values used for non-stock `initval` entries; defaults to `ss`
+- `use_terminal_conditions=True/False`: Enforce terminal steady state (ignored in BVP mode — terminal condition is always enforced via `endval`)
+- `solver_options={}`: Sparse Newton solver options (`maxiter`, `ftol`, `xtol`)
+- `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
+
+### `solve_perfect_foresight_homotopy()` options:
+- All options from `solve_perfect_foresight()`, plus:
+- `n_steps=10`: Number of homotopy steps (must be a positive integer)
+- `exog_ss=None`: Baseline exogenous path at `λ=0`; defaults to zero
+- `verbose=False`: Print progress at each homotopy step
 
 ## Requirements
 
@@ -166,7 +229,7 @@ To contribute or modify:
    ```bash
    pip install -e ".[dev]"
    ```
-3. Run tests (when available):
+3. Run tests:
    ```bash
    pytest
    ```
