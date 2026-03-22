@@ -172,8 +172,7 @@ def local_blocks(equations, variables):
 # 5. Residual function
 # ============================================================
 
-def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None,
-             initval=None, endval=None):
+def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None):
     """
     Evaluate residuals of the dynamic equations
 
@@ -195,19 +194,10 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
-    initval : ndarray (n_endo,), optional
-        Fixed pre-period-0 boundary row (Dynare ``initval``).  When provided
-        together with ``endval``, BVP mode is activated: T equation-periods are
-        evaluated on the T+2-row augmented path
-        ``[initval, X[0], ..., X[T-1], endval]`` using exact index ``t+lag+1``
-        with no boundary clamping.
-    endval : ndarray (n_endo,), optional
-        Fixed post-period-(T-1) boundary row (Dynare ``endval``).  Must be
-        provided together with ``initval``.
 
     Returns:
     --------
-    ndarray : Flattened residual vector
+    ndarray : Flattened residual vector of length (T-1)*neq
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
@@ -216,34 +206,6 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-
-    if (initval is None) != (endval is None):
-        raise ValueError(
-            "residual(): initval and endval must be provided together for "
-            "BVP mode; supply both or neither."
-        )
-
-    # BVP mode: evaluate T periods on the T+2-row augmented path.
-    # initval (row 0) and endval (row T+1) are fixed boundary rows;
-    # X rows map to augmented rows 1..T so exact index t+lag+1 is always valid.
-    if initval is not None and endval is not None:
-        X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
-        # Exogenous: pad with the first/last rows so lag/lead at boundary are well-defined.
-        exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
-        F = np.zeros((T, neq))
-        for t in range(T):
-            subs = {}
-            for i, var in enumerate(vars_dyn):
-                for lag in [-1, 0, 1]:
-                    subs[v(var, lag)] = X_aug[t + lag + 1, i]
-            for i, var in enumerate(vars_exo):
-                for lag in [-1, 0, 1]:
-                    subs[v(var, lag)] = exog_aug[t + lag + 1, i]
-            subs.update(params)
-            vals = [subs[s] for s in all_syms]
-            for i, func in enumerate(residual_funcs):
-                F[t, i] = func(*vals)
-        return F.ravel()
 
     # Standard mode: evaluate T-1 periods with boundary clamping.
     F = np.zeros((T-1, neq))
@@ -270,12 +232,42 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
 
     return F.ravel()
 
+
+def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
+                  vars_exo, exog_path, initval, endval):
+    """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
+
+    Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
+    Uses exact index t+lag+1 with no boundary clamping.  Returns a flattened
+    vector of length T*neq.
+    """
+    T, n = X.shape
+    neq = len(dynamic_eqs)
+    if exog_path is None:
+        exog_path = np.zeros((T, len(vars_exo)))
+    X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
+    # Exogenous: pad boundary rows so lag/lead at t=0 and t=T-1 are well-defined.
+    exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
+    F = np.zeros((T, neq))
+    for t in range(T):
+        subs = {}
+        for i, var in enumerate(vars_dyn):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+        for i, var in enumerate(vars_exo):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+        subs.update(params)
+        vals = [subs[s] for s in all_syms]
+        for i, func in enumerate(residual_funcs):
+            F[t, i] = func(*vals)
+    return F.ravel()
+
 # ============================================================
 # 6. Sparse block Jacobian
 # ============================================================
 
-def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None,
-                    initval=None, endval=None):
+def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None):
     """
     Build sparse Jacobian matrix using block structure
 
@@ -297,16 +289,11 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
-    initval : ndarray (n_endo,), optional
-        Fixed pre-period-0 boundary row for BVP mode (see ``residual``).
-    endval : ndarray (n_endo,), optional
-        Fixed post-period-(T-1) boundary row for BVP mode.
 
     Returns:
     --------
-    sparse matrix : Sparse Jacobian in CSR format.
-        BVP mode returns a square (T*n × T*n) matrix; standard mode returns
-        ((T-1)*n × T*n).
+    sparse matrix : Sparse Jacobian in CSR format of shape (neq*(T-1), n*T)
+        where neq = len(dynamic_eqs).
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
@@ -315,41 +302,6 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-
-    if (initval is None) != (endval is None):
-        raise ValueError(
-            "sparse_jacobian(): initval and endval must be provided together "
-            "for BVP mode; supply both or neither."
-        )
-
-    # BVP mode: T equation-periods on T+2-row augmented path.
-    # Jacobian w.r.t. inner T rows only (initval/endval are fixed).
-    # Column j of X_aug corresponds to column j-1 of X (j=1..T).
-    # Augmented column t+lag+1 for X unknown t+lag is valid only when
-    # 0 <= t+lag < T, i.e., the column references an inner (unknown) row.
-    if initval is not None and endval is not None:
-        X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
-        exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
-        J = lil_matrix((neq * T, n * T))
-        for t in range(T):
-            subs = {}
-            for i, var in enumerate(vars_dyn):
-                for lag in [-1, 0, 1]:
-                    subs[v(var, lag)] = X_aug[t + lag + 1, i]
-            for i, var in enumerate(vars_exo):
-                for lag in [-1, 0, 1]:
-                    subs[v(var, lag)] = exog_aug[t + lag + 1, i]
-            subs.update(params)
-            for lag, f in block_funcs.items():
-                # Skip if the column references a fixed boundary row
-                col_t = t + lag  # index into X (0-based)
-                if not (0 <= col_t < T):
-                    continue
-                B = f(*[subs[s] for s in all_syms])
-                r0 = t * neq
-                c0 = col_t * n
-                J[r0:r0+neq, c0:c0+n] = B
-        return J.tocsr()
 
     # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
@@ -379,6 +331,41 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
             c0 = (t+lag)*n
             J[r0:r0+neq, c0:c0+n] = B
 
+    return J.tocsr()
+
+
+def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
+                  vars_exo, exog_path, initval, endval):
+    """Build the square (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
+
+    Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
+    Columns referencing the fixed boundary rows (initval/endval) are skipped
+    so the result is the Jacobian w.r.t. the T inner (unknown) rows only.
+    """
+    T, n = X.shape
+    neq = len(dynamic_eqs)
+    if exog_path is None:
+        exog_path = np.zeros((T, len(vars_exo)))
+    X_aug = np.vstack([initval.reshape(1, -1), X, endval.reshape(1, -1)])
+    exog_aug = np.vstack([exog_path[[0]], exog_path, exog_path[[-1]]]) if exog_path.shape[1] > 0 else exog_path
+    J = lil_matrix((neq * T, n * T))
+    for t in range(T):
+        subs = {}
+        for i, var in enumerate(vars_dyn):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+        for i, var in enumerate(vars_exo):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+        subs.update(params)
+        for lag, f in block_funcs.items():
+            col_t = t + lag  # index into X (0-based); skip fixed boundary rows
+            if not (0 <= col_t < T):
+                continue
+            B = f(*[subs[s] for s in all_syms])
+            r0 = t * neq
+            c0 = col_t * n
+            J[r0:r0+neq, c0:c0+n] = B
     return J.tocsr()
 
 # ============================================================
@@ -1262,6 +1249,21 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     if solver_options is None:
         solver_options = {}
 
+    neq = len(dynamic_eqs)
+    if neq != n:
+        raise ValueError(
+            f"Model has {neq} dynamic equation(s) but {n} dynamic variable(s). "
+            f"The solver requires a square system (neq == n)."
+        )
+
+    if stock_var_indices is not None and initial_state is None:
+        raise ValueError(
+            "stock_var_indices was provided but initial_state is None. "
+            "The BVP formulation requires both; pass initial_state (the "
+            "pre-period-0 values of the stock variables, k_{-1}) to activate "
+            "the stock/jump boundary."
+        )
+
     if ss_initial is None:
         ss_initial = ss  # Default: initial SS same as terminal SS
 
@@ -1273,12 +1275,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     #
     # We prepend an ``initval`` row (= boundary at t=-1) and append an
     # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
-    # path is passed to BVP-mode residual/Jacobian which evaluate T
-    # equation-periods using exact index t+lag+1 with no boundary clamping.
-    # This yields T*neq equations for T*n unknowns.  For well-posed models
-    # (neq == n, which process_model guarantees), the system is square for
-    # both lead- and lag-formulation models.  Actual non-singularity of the
-    # Jacobian depends on the specific model and its calibration.
+    # path is passed to BVP-mode helpers which evaluate T equation-periods
+    # using exact index t+lag+1 with no boundary clamping.
+    # This yields T*neq equations for T*n unknowns (square since neq == n).
+    # Actual non-singularity of the Jacobian depends on the model and calibration.
     if stock_var_indices is not None and initial_state is not None:
         if len(initial_state) != len(stock_var_indices):
             raise ValueError(
@@ -1302,18 +1302,16 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
         def F_bvp(x):
             X = x.reshape(T, n)
-            return residual(
+            return _residual_bvp(
                 X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path,
-                initval=initval, endval=endval,
+                vars_exo, exog_path, initval, endval,
             )
 
         def J_bvp(x):
             X = x.reshape(T, n)
-            return sparse_jacobian(
+            return _jacobian_bvp(
                 X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path,
-                initval=initval, endval=endval,
+                vars_exo, exog_path, initval, endval,
             )
 
         sol = _sparse_newton(
