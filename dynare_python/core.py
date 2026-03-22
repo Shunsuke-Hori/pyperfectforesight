@@ -1467,7 +1467,7 @@ def solve_perfect_foresight_homotopy(
         If the solver fails to converge at any homotopy step, with the step's
         lam value and solver message included.
     """
-    if not isinstance(n_steps, int) or n_steps < 1:
+    if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
     if method != 'hybr':
