@@ -1439,9 +1439,11 @@ def solve_perfect_foresight_homotopy(
         is appropriate when ``exog_path`` represents deviations from a
         zero-shock baseline.
     method : str, optional
-        Deprecated and ignored. The solver always uses the sparse Newton
-        method (``'hybr'``). Passing any other value emits a
-        ``DeprecationWarning``. Will be removed in a future release.
+        Deprecated and ignored; kept only for backward compatibility.
+        The solver always uses the internal sparse Newton implementation
+        (``_sparse_newton``), regardless of the value passed. Providing
+        any non-default value emits a ``DeprecationWarning``. This
+        parameter will be removed in a future release.
 
     Returns
     -------
@@ -1552,6 +1554,13 @@ def solve_perfect_foresight_homotopy(
             UserWarning,
             stacklevel=2,
         )
+
+    # If the model has exogenous variables but no exog_path was given, default
+    # to an all-zero path so the solver does not hit an IndexError in residual().
+    if exog_path is None:
+        n_exo_model = len(model_funcs.get('vars_exo', []))
+        if n_exo_model > 0:
+            exog_path = np.zeros((T, n_exo_model))
 
     # Steady-state exogenous baseline (lam=0 value)
     if exog_path is not None:
