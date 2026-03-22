@@ -1367,6 +1367,7 @@ def solve_perfect_foresight_homotopy(
     T, X0, params_dict, ss, model_funcs, vars_dyn,
     exog_path=None, initial_state=None, ss_initial=None,
     stock_var_indices=None,
+    *,
     use_terminal_conditions=True, solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
     method='hybr',
@@ -1591,7 +1592,10 @@ def solve_perfect_foresight_homotopy(
     if X0.shape != (T, n):
         raise ValueError(
             f"X0 has shape {X0.shape} but expected ({T}, {n}) "
-            f"(T periods × {n} dynamic variables)."
+            f"(T periods × {n} dynamic variables). "
+            f"If process_model fell back to aux_method='dynamic', vars_dyn was "
+            f"extended to include auxiliary variables. "
+            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
         )
 
     # Warm start for the first step: full steady-state path
