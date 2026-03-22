@@ -238,8 +238,10 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
-    Uses exact index t+lag+1 with no boundary clamping.  Returns a flattened
-    vector of length T*neq.
+    Endogenous variables use the explicit initval/endval boundary rows with no
+    clamping.  Exogenous variables are padded at the endpoints (exog_path[0]
+    for t=-1, exog_path[-1] for t=T) to keep the system well-defined at the
+    boundaries.  Returns a flattened vector of length T*neq.
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
