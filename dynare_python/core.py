@@ -1197,12 +1197,15 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     ss_initial : ndarray, optional
         Initial steady state (at exog[0]). If None, uses ss.
     stock_var_indices : list of int, optional
-        Indices of stock (predetermined) variables in vars_dyn.  When provided,
-        the solver uses the augmented-path BVP formulation: ``initial_state``
-        supplies k_{-1} as the fixed left boundary; all T periods are solved as
-        unknowns with a fixed right boundary at ss.  This is correct for standard
-        Dynare lag-formulation models where stock variables appear at lag (-1) in
-        their law of motion.
+        Indices of stock (predetermined) variables in vars_dyn.  The BVP
+        formulation is activated only when **both** ``stock_var_indices`` and
+        ``initial_state`` are provided: ``initial_state`` supplies k_{-1} as
+        the fixed left boundary and all T periods are solved as unknowns with a
+        fixed right boundary at ss.  This is correct for standard Dynare
+        lag-formulation models where stock variables appear at lag (-1) in their
+        law of motion.  If ``stock_var_indices`` is provided without
+        ``initial_state``, it is silently ignored and the solver falls back to
+        Case 2 (all variables pinned at t=0).
         If None, treats all variables as stock (backward compatible).
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
     method : str
@@ -1272,8 +1275,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
     # path is passed to BVP-mode residual/Jacobian which evaluate T
     # equation-periods using exact index t+lag+1 with no boundary clamping.
-    # This gives T*n equations for T*n unknowns — always square for both
-    # lead- and lag-formulation models.  Actual non-singularity of the
+    # This yields T*neq equations for T*n unknowns.  For well-posed models
+    # (neq == n, which process_model guarantees), the system is square for
+    # both lead- and lag-formulation models.  Actual non-singularity of the
     # Jacobian depends on the specific model and its calibration.
     if stock_var_indices is not None and initial_state is not None:
         if len(initial_state) != len(stock_var_indices):
