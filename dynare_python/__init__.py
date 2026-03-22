@@ -30,6 +30,7 @@ from dynare_python.core import (
 
     # High-level solver
     solve_perfect_foresight,
+    solve_perfect_foresight_homotopy,
 )
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "append_terminal_conditions",
     # High-level solver
     "solve_perfect_foresight",
+    "solve_perfect_foresight_homotopy",
 ]

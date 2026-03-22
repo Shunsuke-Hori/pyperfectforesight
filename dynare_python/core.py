@@ -1357,3 +1357,329 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         sol.vars_aux = []
 
     return sol
+
+
+# ============================================================
+# 11. Homotopy solver
+# ============================================================
+
+def solve_perfect_foresight_homotopy(
+    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    exog_path=None, initial_state=None, ss_initial=None,
+    stock_var_indices=None,
+    *,
+    use_terminal_conditions=True, solver_options=None,
+    n_steps=10, verbose=False, exog_ss=None,
+    method='hybr',
+):
+    """
+    Solve a perfect foresight model using homotopy (parameter continuation).
+
+    When the Newton solver fails to converge from a direct initial guess --
+    typically because the shock is large and the model is nonlinear -- homotopy
+    gradually scales the shock from zero to its full size, using each
+    intermediate solution as a warm start for the next step.
+
+    The homotopy scales two sources of perturbation simultaneously:
+
+    * ``initial_state`` deviation from ``ss_initial``
+      (``initial_state_lam = ss_initial + lam * (initial_state - ss_initial)``)
+    * ``exog_path`` deviation from ``exog_ss``
+      (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
+
+    Conceptually, ``lam`` varies from 0 to 1, where ``lam=0`` corresponds to
+    the unshocked configuration implied by ``ss_initial`` and ``exog_ss``,
+    and ``lam=1`` to the fully shocked problem.  The implementation does not
+    explicitly solve a separate ``lam=0`` step; instead it uses the provided
+    steady-state path (``np.tile(ss_initial, (T, 1))``) as the warm start for
+    the first positive ``lam``.  At least one of ``initial_state`` or
+    ``exog_path`` must be provided, otherwise there is nothing to scale.
+
+    Parameters
+    ----------
+    T : int
+        Number of periods.
+    X0 : ndarray (T, n_dyn)
+        Initial guess shape reference; the actual warm start for step 1 is
+        the steady-state path.
+    params_dict : dict
+        Parameter values.
+    ss : ndarray (n_dyn,)
+        Terminal steady-state values.
+    model_funcs : dict
+        Output of ``process_model()``.
+    vars_dyn : list
+        Dynamic variable names.
+    exog_path : ndarray (T, n_exo), optional
+        Full-shock exogenous path (lam=1 value).
+    initial_state : ndarray, optional
+        Initial state at t=0 for the full-shock (lam=1) problem. The expected
+        shape depends on ``stock_var_indices``:
+
+        * If ``stock_var_indices`` is None, ``initial_state`` must be a full
+          state vector of shape ``(n_dyn,)``.
+        * If ``stock_var_indices`` is provided, ``initial_state`` must contain
+          only the stock variable values at t=0, with shape ``(n_stock,)``.
+    ss_initial : ndarray, optional
+        Initial steady state. Defaults to ``ss``.
+    stock_var_indices : list of int, optional
+        Indices of stock (predetermined) variables in ``vars_dyn``. When
+        provided, ``initial_state`` is interpreted as a stock-only vector
+        (see above); non-stock variables are free to jump at t=0.
+        Must be provided together with ``initial_state``; passing
+        ``stock_var_indices`` without ``initial_state`` raises a
+        ``ValueError``.
+
+    The remaining parameters are **keyword-only** (enforced by ``*`` in
+    the signature):
+
+    use_terminal_conditions : bool
+        Enforce terminal steady-state conditions (default True).
+    solver_options : dict, optional
+        Options forwarded to ``_sparse_newton`` at each homotopy step.
+    n_steps : int
+        Number of homotopy steps (default 10). Larger values help for very
+        nonlinear models but increase total compute time.
+    verbose : bool
+        If True, print convergence status at each step.
+    exog_ss : ndarray (T, n_exo) or (n_exo,), optional
+        Steady-state exogenous path (lam=0 value). Defaults to zeros, which
+        is appropriate when ``exog_path`` represents deviations from a
+        zero-shock baseline.
+    method : str, optional
+        Deprecated and ignored; kept only for backward compatibility.
+        The solver always uses the internal sparse Newton implementation
+        (``_sparse_newton``), regardless of the value passed. Providing
+        any non-default value emits a ``DeprecationWarning``. This
+        parameter will be removed in a future release.
+
+    Returns
+    -------
+    OptimizeResult
+        Solution object from the final (lam=1) step, identical in structure
+        to the output of ``solve_perfect_foresight``.
+
+    Raises
+    ------
+    ValueError
+        If neither ``initial_state`` nor ``exog_path`` is provided.
+    RuntimeError
+        If the solver fails to converge at any homotopy step, with the step's
+        lam value and solver message included.
+    """
+    if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
+        raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
+
+    if method != 'hybr':
+        import warnings
+        warnings.warn(
+            f"The 'method' parameter is deprecated and ignored. The solver always "
+            f"uses the sparse Newton method regardless of method={method!r}.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    if initial_state is None and exog_path is None:
+        raise ValueError(
+            "Homotopy requires at least one of 'initial_state' or 'exog_path' "
+            "to scale. Both are None -- there is nothing to homotopy on."
+        )
+
+    if stock_var_indices is not None and initial_state is None:
+        raise ValueError(
+            "stock_var_indices was provided but initial_state is None. "
+            "Providing stock_var_indices without initial_state would cause "
+            "solve_perfect_foresight to silently ignore stock_var_indices and "
+            "fall back to pinning all variables at t=0 (Case 2). "
+            "Pass initial_state (at minimum ss_initial[stock_var_indices] to "
+            "start stocks at steady state) to activate the stock/jump boundary."
+        )
+
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+
+    if initial_state is not None and stock_var_indices is not None:
+        if len(initial_state) != len(stock_var_indices):
+            raise ValueError(
+                f"initial_state has {len(initial_state)} elements but "
+                f"stock_var_indices has {len(stock_var_indices)} entries. "
+                f"When stock_var_indices is provided, initial_state must "
+                f"contain only the stock variable values."
+            )
+
+    if ss_initial is None:
+        ss_initial = ss
+    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+
+    vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
+    n = len(vars_dyn_eff)
+
+    if len(ss_initial) != n:
+        raise ValueError(
+            f"ss_initial has {len(ss_initial)} elements but the model has "
+            f"{n} dynamic variables."
+        )
+
+    # Validate stock_var_indices before using them to slice ss_initial
+    if stock_var_indices is not None:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
+        stock_var_indices = list(stock_var_indices)
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
+        if len(set(stock_var_indices)) != len(stock_var_indices):
+            raise ValueError("stock_var_indices contains duplicate indices.")
+        if any(i < 0 or i >= n for i in stock_var_indices):
+            raise ValueError(
+                f"stock_var_indices contains an out-of-range index. "
+                f"Valid range is [0, {n - 1}]."
+            )
+
+    # Validate full initial_state length when no stock_var_indices provided
+    if initial_state is not None and stock_var_indices is None:
+        if len(initial_state) != n:
+            raise ValueError(
+                f"initial_state has {len(initial_state)} elements but the "
+                f"model has {n} dynamic variables. When stock_var_indices is "
+                f"None, initial_state must be a full state vector."
+            )
+
+    # Validate and coerce exog_path
+    if exog_path is not None:
+        exog_path = np.asarray(exog_path, dtype=float)
+        if exog_path.ndim != 2:
+            raise ValueError(
+                f"exog_path must be a 2-D array with shape (T, n_exo); "
+                f"got shape {exog_path.shape}."
+            )
+        if exog_path.shape[0] != T:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[0]} rows but T={T}."
+            )
+        n_exo_model = len(model_funcs.get('vars_exo', []))
+        if n_exo_model == 0:
+            raise ValueError(
+                "exog_path was provided but the model defines no exogenous "
+                "variables. Remove exog_path or add exogenous variables to "
+                "the model."
+            )
+        if exog_path.shape[1] != n_exo_model:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[1]} columns but the model "
+                f"has {n_exo_model} exogenous variable(s)."
+            )
+
+    # Track whether exog_path was user-provided before potentially defaulting it.
+    _exog_path_user_provided = exog_path is not None
+
+    if exog_ss is not None and not _exog_path_user_provided:
+        import warnings
+        warnings.warn(
+            "exog_ss was provided but exog_path is None, so exog_ss has no "
+            "effect and will be ignored.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # If the model has exogenous variables but no exog_path was given, default
+    # to an all-zero path so the solver does not hit an IndexError in residual().
+    if not _exog_path_user_provided:
+        n_exo_model = len(model_funcs.get('vars_exo', []))
+        if n_exo_model > 0:
+            exog_path = np.zeros((T, n_exo_model))
+
+    # Steady-state exogenous baseline (lam=0 value).
+    # Only apply exog_ss when exog_path was user-provided; otherwise the path is
+    # already zeros and exog_ss was already warned about / ignored above.
+    if exog_path is not None:
+        if _exog_path_user_provided and exog_ss is not None:
+            exog_arr = np.asarray(exog_ss, dtype=float)
+            _, n_exo = exog_path.shape
+            # Accept a scalar as shorthand for (1,) when the model has one exo var
+            if exog_arr.ndim == 0 and n_exo == 1:
+                exog_arr = exog_arr.reshape(1)
+            if exog_arr.shape == (n_exo,) or exog_arr.shape == exog_path.shape:
+                exog_ss = np.broadcast_to(exog_arr, exog_path.shape).copy()
+            else:
+                raise ValueError(
+                    f"exog_ss has shape {exog_arr.shape} but expected either "
+                    f"{exog_path.shape} (T periods × {n_exo} exogenous "
+                    f"variable(s)) or ({n_exo},) (one steady-state value per "
+                    f"exogenous variable)."
+                )
+        else:
+            exog_ss = np.zeros_like(exog_path)
+
+    # Validate X0 shape to catch mismatches early (X0 itself is not used as
+    # the warm start — the steady-state path is — but a shape mismatch usually
+    # indicates a caller error worth flagging immediately).
+    X0 = np.asarray(X0, dtype=float)
+    if X0.shape != (T, n):
+        raise ValueError(
+            f"X0 has shape {X0.shape} but expected ({T}, {n}) "
+            f"(T periods × {n} dynamic variables). "
+            f"If process_model fell back to aux_method='dynamic', vars_dyn was "
+            f"extended to include auxiliary variables. "
+            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+        )
+
+    # Warm start for the first step: full steady-state path
+    X_warm = np.tile(ss_initial, (T, 1))
+
+    # Baseline (lam=0) for initial_state interpolation.
+    # When stock_var_indices is provided, initial_state contains only stock
+    # variable values, so we extract the matching slice of ss_initial.
+    if initial_state is not None:
+        if stock_var_indices is not None:
+            ss_initial_stock = ss_initial[stock_var_indices]
+        else:
+            ss_initial_stock = ss_initial
+
+    lambdas = np.linspace(0.0, 1.0, n_steps + 1)[1:]  # skip lam=0 (trivial)
+
+    sol = None
+    for step, lam in enumerate(lambdas, start=1):
+        # Scale perturbations
+        initial_state_lam = (
+            ss_initial_stock + lam * (initial_state - ss_initial_stock)
+            if initial_state is not None else None
+        )
+        exog_path_lam = (
+            exog_ss + lam * (exog_path - exog_ss)
+            if exog_path is not None else None
+        )
+
+        sol = solve_perfect_foresight(
+            T, X_warm, params_dict, ss, model_funcs, vars_dyn_eff,
+            exog_path=exog_path_lam,
+            initial_state=initial_state_lam,
+            ss_initial=ss_initial,
+            stock_var_indices=stock_var_indices,
+            use_terminal_conditions=use_terminal_conditions,
+            solver_options=solver_options,
+            method='hybr',  # already warned above; suppress per-step warnings
+        )
+
+        if verbose:
+            status = "converged" if sol.success else "FAILED"
+            print(f"  homotopy step {step}/{n_steps} (lam={lam:.3f}): {status} -- {sol.message}")
+
+        if not sol.success:
+            raise RuntimeError(
+                f"Homotopy failed to converge at lam={lam:.4f} "
+                f"(step {step}/{n_steps}): {sol.message}. "
+                f"Try increasing n_steps or adjusting solver_options."
+            )
+
+        # Use solution as warm start for the next step
+        X_warm = sol.x.reshape(T, n)
+
+    return sol
