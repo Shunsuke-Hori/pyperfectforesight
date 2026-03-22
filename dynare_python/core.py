@@ -1190,9 +1190,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         the fixed left boundary and all T periods are solved as unknowns with a
         fixed right boundary at ss.  This is correct for standard Dynare
         lag-formulation models where stock variables appear at lag (-1) in their
-        law of motion.  If ``stock_var_indices`` is provided without
-        ``initial_state``, it is silently ignored and the solver falls back to
-        Case 2 (all variables pinned at t=0).
+        law of motion.  Providing ``stock_var_indices`` without
+        ``initial_state`` raises a ``ValueError``.
         If None, treats all variables as stock (backward compatible).
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
     method : str

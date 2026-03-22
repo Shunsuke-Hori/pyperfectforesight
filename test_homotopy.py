@@ -54,6 +54,16 @@ def X0():
 # ---------------------------------------------------------------------------
 
 
+def test_solve_raises_stock_var_indices_without_initial_state(model, X0):
+    """solve_perfect_foresight raises when stock_var_indices is given without initial_state."""
+    with pytest.raises(ValueError, match="stock_var_indices"):
+        solve_perfect_foresight(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            stock_var_indices=[1],
+            # initial_state intentionally omitted
+        )
+
+
 def test_raises_when_nothing_to_scale(model, X0):
     """Must provide initial_state or exog_path."""
     with pytest.raises(ValueError, match="nothing to homotopy on"):
