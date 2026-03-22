@@ -207,19 +207,39 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
 
+    # Derive lag sets from the symbols that actually appear in the model.
+    _endo_set = set(vars_dyn)
+    _exo_set = set(vars_exo)
+    _endo_lags: list[int] = []
+    _exo_lags: list[int] = []
+    _seen_endo: set[int] = set()
+    _seen_exo: set[int] = set()
+    for _s in all_syms:
+        _p = _parse_time_symbol(_s.name)
+        if _p is not None:
+            _vn, _lg = _p
+            if _vn in _endo_set and _lg not in _seen_endo:
+                _endo_lags.append(_lg)
+                _seen_endo.add(_lg)
+            elif _vn in _exo_set and _lg not in _seen_exo:
+                _exo_lags.append(_lg)
+                _seen_exo.add(_lg)
+    _endo_lags.sort()
+    _exo_lags.sort()
+
     # Standard mode: evaluate T-1 periods with boundary clamping.
     F = np.zeros((T-1, neq))
     for t in range(T-1):
         subs = {}
         # Endogenous variables
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
+            for lag in _endo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = X[tt, i]
 
         # Exogenous variables
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
+            for lag in _exo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = exog_path[tt, i]
 
@@ -260,15 +280,37 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
+    # Derive lag sets from the symbols that actually appear in the model.
+    _endo_set = set(vars_dyn)
+    _exo_set = set(vars_exo)
+    _endo_lags: list[int] = []
+    _exo_lags: list[int] = []
+    _seen_endo: set[int] = set()
+    _seen_exo: set[int] = set()
+    for _s in all_syms:
+        _p = _parse_time_symbol(_s.name)
+        if _p is not None:
+            _vn, _lg = _p
+            if _vn in _endo_set and _lg not in _seen_endo:
+                _endo_lags.append(_lg)
+                _seen_endo.add(_lg)
+            elif _vn in _exo_set and _lg not in _seen_exo:
+                _exo_lags.append(_lg)
+                _seen_exo.add(_lg)
+    _endo_lags.sort()
+    _exo_lags.sort()
+
     F = np.zeros((T, neq))
     for t in range(T):
         subs = {}
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+            for lag in _endo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = X_aug[aug_idx, i]
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+            for lag in _exo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = exog_aug[aug_idx, i]
         subs.update(params)
         vals = [subs[s] for s in all_syms]
         for i, func in enumerate(residual_funcs):
@@ -315,6 +357,26 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
 
+    # Derive lag sets from the symbols that actually appear in the model.
+    _endo_set = set(vars_dyn)
+    _exo_set = set(vars_exo)
+    _endo_lags: list[int] = []
+    _exo_lags: list[int] = []
+    _seen_endo: set[int] = set()
+    _seen_exo: set[int] = set()
+    for _s in all_syms:
+        _p = _parse_time_symbol(_s.name)
+        if _p is not None:
+            _vn, _lg = _p
+            if _vn in _endo_set and _lg not in _seen_endo:
+                _endo_lags.append(_lg)
+                _seen_endo.add(_lg)
+            elif _vn in _exo_set and _lg not in _seen_exo:
+                _exo_lags.append(_lg)
+                _seen_exo.add(_lg)
+    _endo_lags.sort()
+    _exo_lags.sort()
+
     # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
 
@@ -322,13 +384,13 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         subs = {}
         # Endogenous variables
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
+            for lag in _endo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = X[tt, i]
 
         # Exogenous variables
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
+            for lag in _exo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = exog_path[tt, i]
 
@@ -371,15 +433,37 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
+    # Derive lag sets from the symbols that actually appear in the model.
+    _endo_set = set(vars_dyn)
+    _exo_set = set(vars_exo)
+    _endo_lags: list[int] = []
+    _exo_lags: list[int] = []
+    _seen_endo: set[int] = set()
+    _seen_exo: set[int] = set()
+    for _s in all_syms:
+        _p = _parse_time_symbol(_s.name)
+        if _p is not None:
+            _vn, _lg = _p
+            if _vn in _endo_set and _lg not in _seen_endo:
+                _endo_lags.append(_lg)
+                _seen_endo.add(_lg)
+            elif _vn in _exo_set and _lg not in _seen_exo:
+                _exo_lags.append(_lg)
+                _seen_exo.add(_lg)
+    _endo_lags.sort()
+    _exo_lags.sort()
+
     J = lil_matrix((neq * T, n * T))
     for t in range(T):
         subs = {}
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+            for lag in _endo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = X_aug[aug_idx, i]
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+            for lag in _exo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = exog_aug[aug_idx, i]
         subs.update(params)
         vals = [subs[s] for s in all_syms]
         for lag, f in block_funcs.items():
