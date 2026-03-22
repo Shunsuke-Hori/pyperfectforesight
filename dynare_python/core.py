@@ -197,17 +197,18 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
 
     Returns:
     --------
-    ndarray : Flattened residual vector
+    ndarray : Flattened residual vector of length (T-1)*neq
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
-    F = np.zeros((T-1, neq))
 
     if vars_exo is None:
         vars_exo = []
     if exog_path is None:
-        exog_path = np.zeros((T, 0))
+        exog_path = np.zeros((T, len(vars_exo)))
 
+    # Standard mode: evaluate T-1 periods with boundary clamping.
+    F = np.zeros((T-1, neq))
     for t in range(T-1):
         subs = {}
         # Endogenous variables
@@ -229,6 +230,49 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         for i, func in enumerate(residual_funcs):
             F[t, i] = func(*vals)
 
+    return F.ravel()
+
+
+def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
+                  vars_exo, exog_path, initval, endval):
+    """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
+
+    Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
+    Endogenous variables use the explicit initval/endval boundary rows with no
+    clamping.  Exogenous variables are padded at the endpoints (exog_path[0]
+    for t=-1, exog_path[-1] for t=T) to keep the system well-defined at the
+    boundaries.  Returns a flattened vector of length T*neq.
+    """
+    T, n = X.shape
+    neq = len(dynamic_eqs)
+    if exog_path is None:
+        exog_path = np.zeros((T, len(vars_exo)))
+    X_aug = np.empty((T + 2, n), dtype=float)
+    X_aug[0] = initval
+    X_aug[1:-1] = X
+    X_aug[-1] = endval
+    # Exogenous: pad boundary rows so lag/lead at t=0 and t=T-1 are well-defined.
+    n_exo = exog_path.shape[1]
+    if n_exo > 0:
+        exog_aug = np.empty((T + 2, n_exo), dtype=float)
+        exog_aug[0] = exog_path[0]
+        exog_aug[1:-1] = exog_path
+        exog_aug[-1] = exog_path[-1]
+    else:
+        exog_aug = exog_path
+    F = np.zeros((T, neq))
+    for t in range(T):
+        subs = {}
+        for i, var in enumerate(vars_dyn):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+        for i, var in enumerate(vars_exo):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+        subs.update(params)
+        vals = [subs[s] for s in all_syms]
+        for i, func in enumerate(residual_funcs):
+            F[t, i] = func(*vals)
     return F.ravel()
 
 # ============================================================
@@ -260,7 +304,8 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
 
     Returns:
     --------
-    sparse matrix : Sparse Jacobian in CSR format
+    sparse matrix : Sparse Jacobian in CSR format of shape (neq*(T-1), n*T)
+        where neq = len(dynamic_eqs).
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
@@ -268,8 +313,9 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
     if vars_exo is None:
         vars_exo = []
     if exog_path is None:
-        exog_path = np.zeros((T, 0))
+        exog_path = np.zeros((T, len(vars_exo)))
 
+    # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
 
     for t in range(T-1):
@@ -297,6 +343,53 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
             c0 = (t+lag)*n
             J[r0:r0+neq, c0:c0+n] = B
 
+    return J.tocsr()
+
+
+def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
+                  vars_exo, exog_path, initval, endval):
+    """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
+
+    Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
+    Columns referencing the fixed boundary rows (initval/endval) are skipped
+    so the result is the Jacobian w.r.t. the T inner (unknown) rows only.
+    When neq == n (as enforced by the caller), this Jacobian is square.
+    """
+    T, n = X.shape
+    neq = len(dynamic_eqs)
+    if exog_path is None:
+        exog_path = np.zeros((T, len(vars_exo)))
+    X_aug = np.empty((T + 2, n), dtype=float)
+    X_aug[0] = initval
+    X_aug[1:-1] = X
+    X_aug[-1] = endval
+    n_exo = exog_path.shape[1]
+    if n_exo > 0:
+        exog_aug = np.empty((T + 2, n_exo), dtype=float)
+        exog_aug[0] = exog_path[0]
+        exog_aug[1:-1] = exog_path
+        exog_aug[-1] = exog_path[-1]
+    else:
+        exog_aug = exog_path
+    J = lil_matrix((neq * T, n * T))
+    for t in range(T):
+        subs = {}
+        for i, var in enumerate(vars_dyn):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+        for i, var in enumerate(vars_exo):
+            for lag in [-1, 0, 1]:
+                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+        subs.update(params)
+        vals = [subs[s] for s in all_syms]
+        for lag, f in block_funcs.items():
+            col_t = t + lag  # index into X (0-based); skip fixed boundary rows
+            if not (0 <= col_t < T):
+                continue
+            B = f(*vals)
+            r0 = t * neq
+            c0 = col_t * n
+            J[r0:r0+neq, c0:c0+n] = B
     return J.tocsr()
 
 # ============================================================
@@ -1107,13 +1200,22 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         Exogenous variable path (T x n_exo). If None, no exogenous variables.
     initial_state : ndarray, optional
         Initial state values. Interpretation depends on stock_var_indices:
-        - If stock_var_indices is None: all variables (old behavior, all stock)
-        - If stock_var_indices provided: only stock variable initial values
+        - If stock_var_indices is None: full state vector at t=0 (all variables fixed).
+        - If stock_var_indices provided: pre-period-0 values of stock variables only
+          (Dynare convention: ``k_{-1}``).  The BVP formulation prepends this as
+          the ``initval`` boundary row; k_0 and jump variables at t=0 are then
+          determined simultaneously by the model equations at t=0.
     ss_initial : ndarray, optional
         Initial steady state (at exog[0]). If None, uses ss.
     stock_var_indices : list of int, optional
-        Indices of stock variables in vars_dyn. Stock variables are predetermined
-        (fixed at t=0, free at t=T-1). Jump variables are free at t=0, fixed at t=T-1.
+        Indices of stock (predetermined) variables in vars_dyn.  The BVP
+        formulation is activated only when **both** ``stock_var_indices`` and
+        ``initial_state`` are provided: ``initial_state`` supplies k_{-1} as
+        the fixed left boundary and all T periods are solved as unknowns with a
+        fixed right boundary at ss.  This is correct for standard Dynare
+        lag-formulation models where stock variables appear at lag (-1) in their
+        law of motion.  Providing ``stock_var_indices`` without
+        ``initial_state`` raises a ``ValueError``.
         If None, treats all variables as stock (backward compatible).
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
     method : str
@@ -1122,7 +1224,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         method (_sparse_newton) regardless of this parameter. Kept for backward
         compatibility.
     use_terminal_conditions : bool
-        Whether to enforce terminal steady-state conditions (default: True)
+        Whether to enforce terminal steady-state conditions (default: True).
+        Ignored when ``stock_var_indices`` is provided: the BVP formulation
+        always enforces the terminal condition via the fixed ``endval`` boundary
+        row (= ``ss``).
     solver_options : dict
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
@@ -1167,14 +1272,61 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     if solver_options is None:
         solver_options = {}
 
+    neq = len(dynamic_eqs)
+    if neq != n:
+        raise ValueError(
+            f"Model has {neq} dynamic equation(s) but {n} dynamic variable(s). "
+            f"The solver requires a square system (neq == n)."
+        )
+
+    if stock_var_indices is not None:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
+        stock_var_indices = list(stock_var_indices)
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
+
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+
+    if stock_var_indices is not None and initial_state is None:
+        raise ValueError(
+            "stock_var_indices was provided but initial_state is None. "
+            "The BVP formulation requires both; pass initial_state (the "
+            "pre-period-0 values of the stock variables, k_{-1}) to activate "
+            "the stock/jump boundary."
+        )
+
     if ss_initial is None:
         ss_initial = ss  # Default: initial SS same as terminal SS
+    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+    if len(ss_initial) != n:
+        raise ValueError(
+            f"ss_initial has {len(ss_initial)} elements but the model has "
+            f"{n} dynamic variables."
+        )
 
-    # Handle stock vs jump variables
+    # Handle stock vs jump variables — augmented-path BVP formulation.
+    #
+    # Dynare convention: the law of motion for a stock variable k is written as
+    #   k_t = f(k_{t-1}, c_t)   (k appears at lag, not lead)
+    # so ``initial_state`` supplies k_{-1} (the pre-period-0 value of k).
+    #
+    # We prepend an ``initval`` row (= boundary at t=-1) and append an
+    # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
+    # path is passed to BVP-mode helpers which evaluate T equation-periods
+    # using exact index t+lag+1 with no boundary clamping.
+    # This yields T*neq equations for T*n unknowns (square since neq == n).
+    # Actual non-singularity of the Jacobian depends on the model and calibration.
     if stock_var_indices is not None and initial_state is not None:
-        # New behavior: distinguish stock (predetermined) and jump variables
-        # Stock variables: fixed at t=0, free at t=T-1
-        # Jump variables: free at t=0, fixed at t=T-1
         if len(initial_state) != len(stock_var_indices):
             raise ValueError(
                 f"initial_state has {len(initial_state)} elements but stock_var_indices "
@@ -1186,72 +1338,33 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             raise ValueError(
                 f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
             )
-        stock_indices = set(stock_var_indices)
-        jump_indices = set(range(n)) - stock_indices
-        # Precompute position of each stock variable index within stock_var_indices
-        # so reconstruct_full_path avoids repeated linear scans during Newton iterations.
-        stock_idx_to_pos = {idx: pos for pos, idx in enumerate(stock_var_indices)}
 
-        # Build list of which (time, variable) pairs are unknowns
-        # and which are fixed
-        def build_solution_vector(X_full):
-            """Extract unknowns from full path X_full"""
-            x = []
-            for i in range(n):
-                if i in stock_indices:
-                    # Stock variable: X[1:T,i] are unknowns
-                    x.extend(X_full[1:, i])
-                else:
-                    # Jump variable: X[0:T-1,i] are unknowns
-                    x.extend(X_full[:-1, i])
-            return np.array(x)
+        # initval row: stock vars at k_{-1} = initial_state;
+        # non-stock vars at initial steady state (ss_initial).
+        initval = np.asarray(ss_initial, dtype=float).ravel().copy()
+        for pos, i in enumerate(stock_var_indices):
+            initval[i] = initial_state[pos]
+        # endval row: all variables at terminal steady state.
+        endval = ss.copy()
 
-        def reconstruct_full_path(x):
-            """Reconstruct full path from solution vector x"""
-            X_full = np.zeros((T, n))
-            idx = 0
-            for i in range(n):
-                if i in stock_indices:
-                    # Stock variable: X[0,i] fixed, X[1:T,i] from solution
-                    X_full[0, i] = initial_state[stock_idx_to_pos[i]]
-                    X_full[1:, i] = x[idx:idx+T-1]
-                    idx += T-1
-                else:
-                    # Jump variable: X[0:T-1,i] from solution, X[T-1,i] fixed at ss
-                    X_full[:-1, i] = x[idx:idx+T-1]
-                    X_full[T-1, i] = ss[i]
-                    idx += T-1
-            return X_full
+        def F_bvp(x):
+            X = x.reshape(T, n)
+            return _residual_bvp(
+                X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
+                vars_exo, exog_path, initval, endval,
+            )
 
-        def F_full(x):
-            X = reconstruct_full_path(x)
-            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-            return F
-
-        # Precompute column indices for unknown variables (constant across iterations)
-        col_indices = [
-            t * n + i
-            for i in range(n)
-            for t in range(T)
-            if (i in stock_indices and t > 0) or (i not in stock_indices and t < T - 1)
-        ]
-
-        def J_full(x):
-            X = reconstruct_full_path(x)
-            J_all = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
-            return J_all[:, col_indices]
-
-        # Initial guess
-        x0_solve = build_solution_vector(X0)
+        def J_bvp(x):
+            X = x.reshape(T, n)
+            return _jacobian_bvp(
+                X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
+                vars_exo, exog_path, initval, endval,
+            )
 
         sol = _sparse_newton(
-            F_full, J_full, x0_solve,
-            solver_options=solver_options
+            F_bvp, J_bvp, X0.ravel(),
+            solver_options=solver_options,
         )
-
-        # Reconstruct full solution
-        X_full = reconstruct_full_path(sol.x)
-        sol.x = X_full.ravel()
 
     elif initial_state is not None:
         # Case 1: X[0] = initial_state (given), X[T-1] = ss (terminal condition)
@@ -1413,13 +1526,15 @@ def solve_perfect_foresight_homotopy(
     exog_path : ndarray (T, n_exo), optional
         Full-shock exogenous path (lam=1 value).
     initial_state : ndarray, optional
-        Initial state at t=0 for the full-shock (lam=1) problem. The expected
-        shape depends on ``stock_var_indices``:
+        Pre-period-0 values of the stock variables for the full-shock (lam=1)
+        problem (Dynare convention: ``k_{-1}``).  The expected shape depends on
+        ``stock_var_indices``:
 
         * If ``stock_var_indices`` is None, ``initial_state`` must be a full
-          state vector of shape ``(n_dyn,)``.
+          state vector of shape ``(n_dyn,)`` and is pinned to ``X[0]`` directly.
         * If ``stock_var_indices`` is provided, ``initial_state`` must contain
-          only the stock variable values at t=0, with shape ``(n_stock,)``.
+          only the stock variable values at ``t=-1``, with shape ``(n_stock,)``.
+          The BVP solver then determines all period-0 variables simultaneously.
     ss_initial : ndarray, optional
         Initial steady state. Defaults to ``ss``.
     stock_var_indices : list of int, optional
