@@ -202,7 +202,7 @@ For advanced users who want more control:
 - `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
 - `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
 - `ss_initial=None`: Initial steady-state values used for the `initval` boundary row; defaults to `ss`
-- `solver_options={}`: Sparse Newton solver options (`maxiter`, `ftol`, `xtol`)
+- `solver_options=None`: Sparse Newton solver options (treated as `{}` when `None`; supports `maxiter`, `ftol`, `xtol`, `maxfev`)
 - `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
 
 ### `solve_perfect_foresight_homotopy()` options:
