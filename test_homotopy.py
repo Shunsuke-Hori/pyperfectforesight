@@ -54,14 +54,21 @@ def X0():
 # ---------------------------------------------------------------------------
 
 
-def test_solve_raises_stock_var_indices_without_initial_state(model, X0):
-    """solve_perfect_foresight raises when stock_var_indices is given without initial_state."""
-    with pytest.raises(ValueError, match="stock_var_indices"):
-        solve_perfect_foresight(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            stock_var_indices=[1],
-            # initial_state intentionally omitted
-        )
+def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
+    """solve_perfect_foresight works when stock_var_indices is given without initial_state.
+
+    initial_state defaults to ss_initial[stock_var_indices], so the economy
+    starts at the steady state implied by ss_initial.  In this fixture
+    ss_initial == ss, so with no perturbation the solution should remain at ss.
+    """
+    sol = solve_perfect_foresight(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        stock_var_indices=[1],
+        # initial_state intentionally omitted → defaults to ss_initial[1] = K_SS
+    )
+    assert sol.success
+    # Starting at ss with no shock: solution path must stay at ss
+    np.testing.assert_allclose(sol.x.reshape(T, -1), np.tile(SS, (T, 1)), atol=1e-8)
 
 
 def test_raises_when_nothing_to_scale(model, X0):
@@ -87,7 +94,7 @@ def test_raises_on_invalid_n_steps(model, X0):
 def test_raises_on_initial_state_length_mismatch(model, X0):
     """initial_state length must match stock_var_indices when provided."""
     wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
-    with pytest.raises(ValueError, match="initial_state has 2 elements"):
+    with pytest.raises(ValueError, match=r"initial_state has 2 elements?"):
         solve_perfect_foresight_homotopy(
             T, X0, PARAMS, SS, model, VARS_DYN,
             initial_state=wrong_initial_state, stock_var_indices=[1],
@@ -235,19 +242,16 @@ def test_initial_state_and_exog_path_combined(X0):
 
 
 def test_exog_path_only_no_initial_state(X0):
-    """Homotopy with exog_path only and initial_state=None (Case 2).
+    """Homotopy with exog_path only and initial_state=None.
 
-    When initial_state=None and stock_var_indices=None, solve_perfect_foresight
-    uses Case 2: X[0] is pinned to ss_initial for ALL variables.  This is
-    valid when all model variables are predetermined (state variables), so
-    pinning the full X[0] vector is the correct boundary condition.
-
-    The model below is a linear VAR(1) where both c and k depend only on
-    their own lagged values and the exogenous shock z, making them both
-    predetermined.  The steady state at z=0 is (C_SS, K_SS), the same as
-    the RBC fixture.
+    stock_var_indices and initial_state are both omitted.  The solver infers
+    stock variables from the lead-lag incidence table.  For the VAR(1) model
+    below no variable appears at a negative lag, so stock_var_indices=[] and
+    all period-0 values are free (pure jump BVP).  The BVP boundary rows are
+    both set to ss; the exogenous shock drives the dynamics.
     """
-    # Linear VAR(1): both c and k are state variables (no jump variables).
+    # Linear VAR(1): equations reference only current (lag 0) and lead (+1).
+    # No variable appears at lag < 0, so stock_var_indices is inferred as [].
     #   c_{t+1} = C_SS + RHO_C * (c_t - C_SS) + z_t
     #   k_{t+1} = K_SS + PHI   * (c_t - C_SS) + PSI * (k_t - K_SS)
     # SS at z=0: c_SS = C_SS, k_SS = K_SS ✓
@@ -256,8 +260,8 @@ def test_exog_path_only_no_initial_state(X0):
     eq2_var = v("k", 1) - (K_SS + PHI * (v("c", 0) - C_SS) + PSI * (v("k", 0) - K_SS))
     model_var = process_model([eq1_var, eq2_var], VARS_DYN, vars_exo=["z"])
 
-    # AR(1) shock starting at t=0 and decaying so the economy returns to the
-    # original SS, making the terminal condition X[T-1]=ss consistent.
+    # AR(1) shock decaying to zero well before period T so the terminal
+    # condition endval=ss is consistent.
     rho_z = 0.9
     exog = np.zeros((T, 1))
     exog[0, 0] = 0.01
@@ -267,11 +271,9 @@ def test_exog_path_only_no_initial_state(X0):
     sol = solve_perfect_foresight_homotopy(
         T, X0, PARAMS, SS, model_var, VARS_DYN,
         exog_path=exog,
-        # initial_state intentionally omitted — exercises the exog-only branch
-        # through Case 2 (X[0] pinned to ss for all variables).
-        # use_terminal_conditions=False keeps the system square (exactly solvable)
-        # since Case 2 with terminal conditions is overdetermined.
-        use_terminal_conditions=False,
+        # initial_state and stock_var_indices intentionally omitted:
+        # stock_var_indices is inferred as [] (no negative-lag vars),
+        # initial_state defaults to ss[[]] = empty array.
         n_steps=5,
     )
     assert sol.success
