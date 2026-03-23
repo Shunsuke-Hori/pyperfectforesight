@@ -1296,8 +1296,8 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
 
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                            exog_path=None, initial_state=None, ss_initial=None,
-                           stock_var_indices=None, endval=None,
-                           method='hybr', solver_options=None):
+                           stock_var_indices=None, method='hybr',
+                           solver_options=None, *, endval=None):
     """
     Solve the perfect foresight problem using an augmented-path BVP formulation.
 
@@ -1511,14 +1511,13 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         initval[i] = initial_state[pos]
     # endval row: terminal boundary (defaults to ss; override for permanent shocks).
     if endval is None:
-        endval = ss.copy()
-    else:
-        endval = np.asarray(endval, dtype=float).ravel()
-        if len(endval) != n:
-            raise ValueError(
-                f"endval has {len(endval)} elements but the model has {n} "
-                f"dynamic variables. endval must be a full state vector."
-            )
+        endval = ss
+    endval = np.asarray(endval, dtype=float).ravel().copy()
+    if len(endval) != n:
+        raise ValueError(
+            f"endval has {len(endval)} elements but the model has {n} "
+            f"dynamic variables. endval must be a full state vector."
+        )
 
     def F_bvp(x):
         X = x.reshape(T, n)
@@ -1842,14 +1841,13 @@ def solve_perfect_foresight_homotopy(
 
     # Validate and resolve endval.
     if endval is None:
-        endval = ss.copy()
-    else:
-        endval = np.asarray(endval, dtype=float).ravel()
-        if len(endval) != n:
-            raise ValueError(
-                f"endval has {len(endval)} elements but the model has {n} "
-                f"dynamic variables. endval must be a full state vector."
-            )
+        endval = ss
+    endval = np.asarray(endval, dtype=float).ravel().copy()
+    if len(endval) != n:
+        raise ValueError(
+            f"endval has {len(endval)} elements but the model has {n} "
+            f"dynamic variables. endval must be a full state vector."
+        )
 
     # Baseline (lam=0) for initial_state interpolation: ss values of stock vars.
     ss_initial_stock = ss_initial[stock_var_indices]
