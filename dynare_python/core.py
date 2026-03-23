@@ -1643,10 +1643,10 @@ def solve_perfect_foresight_homotopy(
         from the lead-lag incidence table in ``model_funcs['incidence']``.
     endval : ndarray, optional
         Terminal boundary values (the fixed right boundary row of the augmented
-        path).  If None, defaults to ``ss``.  For permanent shocks, pass the
-        new terminal steady state here.  During homotopy, ``endval`` is
-        interpolated from ``ss_initial`` at ``lam=0`` to the provided value at
-        ``lam=1``.
+        path).  If None, defaults to ``ss`` and is held fixed at ``ss`` for
+        every homotopy step.  For permanent shocks, pass the new terminal
+        steady state here; in that case ``endval`` is interpolated from
+        ``ss_initial`` at ``lam=0`` to the provided value at ``lam=1``.
 
     The remaining parameters are **keyword-only** (enforced by ``*`` in
     the signature):
@@ -1846,15 +1846,25 @@ def solve_perfect_foresight_homotopy(
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
 
-    # Validate and resolve endval.
+    # Validate and resolve endval.  Track whether the caller supplied it
+    # explicitly so we can (a) interpolate only when meaningful and
+    # (b) emit a clearer error message when the root cause is a wrong-length ss.
+    _endval_user_supplied = endval is not None
     if endval is None:
         endval = ss
     endval = np.asarray(endval, dtype=float).ravel().copy()
     if len(endval) != n:
-        raise ValueError(
-            f"endval has {len(endval)} elements but the model has {n} "
-            f"dynamic variables. endval must be a full state vector."
-        )
+        if _endval_user_supplied:
+            raise ValueError(
+                f"endval has {len(endval)} elements but the model has {n} "
+                f"dynamic variables. endval must be a full state vector."
+            )
+        else:
+            raise ValueError(
+                f"ss has {len(endval)} elements but the model has {n} "
+                f"dynamic variables. endval was not provided so it defaulted "
+                f"to ss; check that ss matches vars_dyn."
+            )
 
     # Baseline (lam=0) for initial_state interpolation: ss values of stock vars.
     ss_initial_stock = ss_initial[stock_var_indices]
@@ -1869,13 +1879,14 @@ def solve_perfect_foresight_homotopy(
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
         )
-        # Interpolate endval only when the user explicitly set a different
-        # terminal state; otherwise keep endval fixed at ss every step to
-        # preserve backward-compatible behaviour (endval defaulted to ss).
-        if np.array_equal(endval, ss):
-            endval_lam = endval
-        else:
+        # Interpolate endval from ss_initial (lam=0) to the user-supplied
+        # target (lam=1) only when the caller explicitly provided endval.
+        # When endval was not supplied it defaults to ss and is kept fixed
+        # every step, preserving backward-compatible behaviour.
+        if _endval_user_supplied:
             endval_lam = ss_initial + lam * (endval - ss_initial)
+        else:
+            endval_lam = endval
 
         sol = solve_perfect_foresight(
             T, X_warm, params_dict, ss, model_funcs, vars_dyn_eff,
