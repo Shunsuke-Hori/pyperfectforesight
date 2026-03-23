@@ -15,7 +15,7 @@ Equations are written with `v("k", -1)` for `k_{t-1}` (lag) and `v("c", 1)` for 
 This matches Dynare's convention: a stock variable `k` appears at lag -1 in the capital accumulation equation.
 
 ### `initial_state` semantics
-`initial_state` is always the **pre-period-0** value of the stock variable(s) — i.e., `k_{-1}` in Dynare notation. Period-0 values of all variables (including jump variables) are solved simultaneously by the model. Do not confuse with `k_0` (the period-0 value, which is endogenous).
+`initial_state` is always the **pre-period-0** value of the stock variable(s) — i.e., `k_{-1}` in Dynare notation. Period-0 values of all variables (including jump variables) are solved simultaneously by the model. Do not confuse it with `k_0` (the period-0 value, which is endogenous).
 
 If `initial_state` is omitted it defaults to `ss_initial[stock_var_indices]` (economy starts at the initial steady state).
 
