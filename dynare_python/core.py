@@ -42,8 +42,8 @@ def _compute_lag_sets(all_syms, vars_dyn, vars_exo):
     """
     endo_set = set(vars_dyn)
     exo_set  = set(vars_exo)
-    endo_lags: set[int] = set()
-    exo_lags:  set[int] = set()
+    endo_lags = set()
+    exo_lags  = set()
     for s in all_syms:
         p = _parse_time_symbol(s.name)
         if p is not None:
@@ -377,7 +377,7 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
             B = np.asarray(f(*vals))
             r0 = t * neq
             c0 = col_t * n
-            J[r0:r0+neq, c0:c0+n] = np.asarray(J[r0:r0+neq, c0:c0+n].todense()) + B
+            J[r0:r0+neq, c0:c0+n] = J[r0:r0+neq, c0:c0+n] + B
 
     return J.tocsr()
 
