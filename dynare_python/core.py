@@ -34,6 +34,17 @@ def _parse_time_symbol(sym_name):
         return None
 
 
+def _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags):
+    """Return (endo_lags, exo_lags), computing any missing sets from all_syms."""
+    if endo_lags is None and exo_lags is None:
+        return _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    if endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    return endo_lags, exo_lags
+
+
 def _compute_lag_sets(all_syms, vars_dyn, vars_exo):
     """Return sorted (endo_lags, exo_lags) by scanning all_syms.
 
@@ -237,12 +248,7 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    if endo_lags is None and exo_lags is None:
-        endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif endo_lags is None:
-        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif exo_lags is None:
-        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     # Standard mode: evaluate T-1 periods with boundary clamping.
     F = np.zeros((T-1, neq))
@@ -299,12 +305,7 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
-    if endo_lags is None and exo_lags is None:
-        endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif endo_lags is None:
-        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif exo_lags is None:
-        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     F = np.zeros((T, neq))
     for t in range(T):
@@ -373,12 +374,7 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    if endo_lags is None and exo_lags is None:
-        endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif endo_lags is None:
-        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif exo_lags is None:
-        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
@@ -448,12 +444,7 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
-    if endo_lags is None and exo_lags is None:
-        endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif endo_lags is None:
-        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif exo_lags is None:
-        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     J = lil_matrix((neq * T, n * T))
     for t in range(T):
@@ -1340,12 +1331,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # Precomputed lag sets — avoids rescanning all_syms on every Newton iteration.
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
-    if endo_lags is None and exo_lags is None:
-        endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif endo_lags is None:
-        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
-    elif exo_lags is None:
-        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     if X0.shape[1] != n:
         raise ValueError(
