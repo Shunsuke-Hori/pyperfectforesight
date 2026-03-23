@@ -1278,7 +1278,18 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
     list of int
         Sorted list of column indices into ``vars_dyn`` for stock variables.
     """
-    incidence = model_funcs.get('incidence', {})
+    try:
+        incidence = model_funcs['incidence']
+    except (TypeError, KeyError) as exc:
+        raise ValueError(
+            "model_funcs must contain an 'incidence' mapping when inferring "
+            "stock variable indices; ensure model_funcs comes from process_model()."
+        ) from exc
+    if not hasattr(incidence, 'get'):
+        raise ValueError(
+            "model_funcs['incidence'] must be a dict-like mapping from "
+            "variable names to iterables of lags."
+        )
     return [i for i, var in enumerate(vars_dyn)
             if any(lag < 0 for lag in incidence.get(var, []))]
 
@@ -1406,17 +1417,6 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 f"got types {[type(i).__name__ for i in stock_var_indices]}."
             )
 
-    if initial_state is not None:
-        initial_state = np.asarray(initial_state, dtype=float).ravel()
-    else:
-        # Default: stock variables start at their steady-state values (economy at ss).
-        initial_state = ss[stock_var_indices]
-
-    if len(initial_state) != len(stock_var_indices):
-        raise ValueError(
-            f"initial_state has {len(initial_state)} elements but stock_var_indices "
-            f"has {len(stock_var_indices)} entries. They must match."
-        )
     if len(set(stock_var_indices)) != len(stock_var_indices):
         raise ValueError("stock_var_indices contains duplicate indices.")
     if any(i < 0 or i >= n for i in stock_var_indices):
@@ -1424,6 +1424,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
         )
 
+    # Resolve ss_initial before defaulting initial_state so the default is
+    # consistent with initval (which is built from ss_initial, not ss).
     if ss_initial is None:
         ss_initial = ss  # Default: initial SS same as terminal SS
     ss_initial = np.asarray(ss_initial, dtype=float).ravel()
@@ -1431,6 +1433,18 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         raise ValueError(
             f"ss_initial has {len(ss_initial)} elements but the model has "
             f"{n} dynamic variables."
+        )
+
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+    else:
+        # Default: stock variables start at their initial steady-state values.
+        initial_state = ss_initial[stock_var_indices]
+
+    if len(initial_state) != len(stock_var_indices):
+        raise ValueError(
+            f"initial_state has {len(initial_state)} elements but stock_var_indices "
+            f"has {len(stock_var_indices)} entries. They must match."
         )
 
     # Augmented-path BVP formulation (always active).
