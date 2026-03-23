@@ -1354,7 +1354,11 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         where the economy converges to a different steady state than ``ss``:
         compute the new steady state (e.g. via
         ``compute_steady_state_numerical``) and pass it as ``endval``.
-        Must have the same length as ``vars_dyn``.
+        Must match the **effective** dynamic variable vector used internally
+        by the solver — ``model_funcs['vars_dyn']`` when present (e.g. when
+        ``aux_method='dynamic'`` extends the variable list), falling back to
+        the ``vars_dyn`` argument otherwise.  Construct ``endval`` consistently
+        with ``ss`` and ``X0`` using that same variable ordering.
     method : str
         Deprecated. Previously selected the scipy.optimize.root method. The
         solver now always uses the sparse Newton method (_sparse_newton)
