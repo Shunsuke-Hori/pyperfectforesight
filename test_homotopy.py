@@ -93,7 +93,7 @@ def test_raises_on_invalid_n_steps(model, X0):
 def test_raises_on_initial_state_length_mismatch(model, X0):
     """initial_state length must match stock_var_indices when provided."""
     wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
-    with pytest.raises(ValueError, match="initial_state has 2 elements"):
+    with pytest.raises(ValueError, match="initial_state has 2 element"):
         solve_perfect_foresight_homotopy(
             T, X0, PARAMS, SS, model, VARS_DYN,
             initial_state=wrong_initial_state, stock_var_indices=[1],

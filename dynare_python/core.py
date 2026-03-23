@@ -1443,14 +1443,22 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         initial_state = ss_initial[stock_var_indices]
 
     if len(initial_state) != len(stock_var_indices):
+        hint = ""
+        if len(initial_state) == n and len(stock_var_indices) != n:
+            hint = (
+                " It looks like you passed a full period-0 state vector "
+                f"(length {n}). The legacy 'pin X[0]' standard mode has been "
+                "removed; initial_state must now contain only the pre-period-0 "
+                "values k_{-1} for each stock variable."
+            )
         raise ValueError(
-            f"initial_state has {len(initial_state)} elements but "
+            f"initial_state has {len(initial_state)} element(s) but "
             f"{len(stock_var_indices)} stock variable(s) are expected "
             f"(stock_var_indices={stock_var_indices}). "
             "initial_state must contain one pre-period-0 value k_{{-1}} per "
-            "stock variable, not the full period-0 state vector. "
+            "stock variable. "
             "If stock_var_indices was not passed explicitly, it was inferred "
-            "from model_funcs['incidence']."
+            f"from model_funcs['incidence'].{hint}"
         )
 
     # Augmented-path BVP formulation (always active).
@@ -1711,10 +1719,21 @@ def solve_perfect_foresight_homotopy(
         initial_state = ss_initial[stock_var_indices]
 
     if len(initial_state) != len(stock_var_indices):
+        hint = ""
+        if len(initial_state) == n and len(stock_var_indices) != n:
+            hint = (
+                " It looks like you passed a full period-0 state vector "
+                f"(length {n}). The legacy 'pin X[0]' standard mode has been "
+                "removed; initial_state must now contain only the pre-period-0 "
+                "values k_{-1} for each stock variable."
+            )
         raise ValueError(
-            f"initial_state has {len(initial_state)} elements but "
-            f"stock_var_indices has {len(stock_var_indices)} entries. "
-            f"initial_state must contain only the stock variable values."
+            f"initial_state has {len(initial_state)} element(s) but "
+            f"{len(stock_var_indices)} stock variable(s) are expected "
+            f"(stock_var_indices={stock_var_indices}). "
+            "initial_state must contain only the pre-period-0 stock values. "
+            "If stock_var_indices was not passed explicitly, it was inferred "
+            f"from model_funcs['incidence'].{hint}"
         )
 
     # Validate and coerce exog_path
