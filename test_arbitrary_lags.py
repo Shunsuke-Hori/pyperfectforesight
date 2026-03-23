@@ -1,7 +1,8 @@
 """Tests for arbitrary lag/lead support (|lag| > 1) in residual and Jacobian."""
 
+import warnings
+
 import numpy as np
-import pytest
 
 from dynare_python import v, process_model, solve_perfect_foresight
 
@@ -178,32 +179,43 @@ def test_solve_lag2_bvp_small_shock():
     The BVP augmented path provides only one pre-sample boundary row (initval),
     so k_{-2} is assumed equal to k_{-1} = initval.  This is the correct
     assumption here: the economy was at steady state before t=0, so all
-    pre-sample values equal K_SS.
+    pre-sample values equal K_SS.  A UserWarning is expected because |lag| > 1.
     """
     model = _lag2_model()
     X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS * 1.05])
 
-    sol = solve_perfect_foresight(
-        T, X0, {}, SS, model, model["vars_dyn"],
-        initial_state=k_neg1,
-        stock_var_indices=[1],
-    )
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        sol = solve_perfect_foresight(
+            T, X0, {}, SS, model, model["vars_dyn"],
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+        )
+    assert any("BVP mode" in str(warning.message) for warning in w), \
+        "Expected UserWarning about |lag| > 1 in BVP mode"
     assert sol.success, sol.message
     assert np.linalg.norm(sol.fun) < 1e-6
 
 
 def test_solve_lead2_bvp_small_shock():
-    """solve_perfect_foresight converges for lead-2 model with a small shock."""
+    """solve_perfect_foresight converges for lead-2 model with a small shock.
+
+    A UserWarning is expected because the model has lead > 1.
+    """
     model = _lead2_model()
     X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS * 1.05])
 
-    sol = solve_perfect_foresight(
-        T, X0, {}, SS, model, model["vars_dyn"],
-        initial_state=k_neg1,
-        stock_var_indices=[1],
-    )
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        sol = solve_perfect_foresight(
+            T, X0, {}, SS, model, model["vars_dyn"],
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+        )
+    assert any("BVP mode" in str(warning.message) for warning in w), \
+        "Expected UserWarning about |lag| > 1 in BVP mode"
     assert sol.success, sol.message
     assert np.linalg.norm(sol.fun) < 1e-6
 

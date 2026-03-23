@@ -228,8 +228,12 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    if endo_lags is None or exo_lags is None:
+    if endo_lags is None and exo_lags is None:
         endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
 
     # Standard mode: evaluate T-1 periods with boundary clamping.
     F = np.zeros((T-1, neq))
@@ -286,8 +290,12 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
-    if endo_lags is None or exo_lags is None:
+    if endo_lags is None and exo_lags is None:
         endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
 
     F = np.zeros((T, neq))
     for t in range(T):
@@ -346,8 +354,12 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
-    if endo_lags is None or exo_lags is None:
+    if endo_lags is None and exo_lags is None:
         endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
 
     # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
@@ -410,8 +422,12 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
-    if endo_lags is None or exo_lags is None:
+    if endo_lags is None and exo_lags is None:
         endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
 
     J = lil_matrix((neq * T, n * T))
     for t in range(T):
@@ -1298,8 +1314,12 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # Precomputed lag sets — avoids rescanning all_syms on every Newton iteration.
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
-    if endo_lags is None or exo_lags is None:
+    if endo_lags is None and exo_lags is None:
         endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
 
     if X0.shape[1] != n:
         raise ValueError(
@@ -1391,6 +1411,24 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         if any(i < 0 or i >= n for i in stock_var_indices):
             raise ValueError(
                 f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
+            )
+
+        # Warn when the model has lags/leads beyond ±1 in BVP mode.
+        # The augmented path provides only one pre-sample row (initval) and one
+        # post-sample row (endval), so values for |lag| > 1 are clamped to those
+        # boundaries (e.g. k_{-2} = k_{-1} = initval).  This is correct when the
+        # economy was at steady state before t=0, but may be wrong otherwise.
+        if min(endo_lags) < -1 or max(endo_lags) > 1:
+            import warnings
+            warnings.warn(
+                "BVP mode: the model contains lags/leads with |lag| > 1 "
+                f"(endo_lags={endo_lags}). Pre-sample values beyond k_{{-1}} and "
+                "post-sample values beyond the terminal period are assumed equal to "
+                "initval/endval respectively. This is correct when the economy was "
+                "at steady state before t=0, but may produce incorrect dynamics "
+                "otherwise.",
+                UserWarning,
+                stacklevel=2,
             )
 
         # initval row: stock vars at k_{-1} = initial_state;
