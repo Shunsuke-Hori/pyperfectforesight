@@ -283,17 +283,24 @@ def test_bvp_no_warning_for_standard_lags():
     assert len(bvp_warns) == 0, "Unexpected BVP UserWarning for a standard |lag| <= 1 model"
 
 
-def test_bvp_warning_not_emitted_in_standard_solver_mode():
-    """The |lag| > 1 UserWarning is only emitted in BVP mode, not standard mode."""
+def test_bvp_warning_emitted_without_explicit_stock_var_indices():
+    """The |lag| > 1 UserWarning fires even when stock_var_indices is not provided.
+
+    BVP mode is always active; stock_var_indices is inferred from the incidence
+    table.  For the lag-2 model, k appears at lag -2 and -1, so k is inferred
+    as a stock variable and BVP mode is triggered — the warning must fire.
+    """
     model = _lag2_model()
     X0 = np.tile(SS, (T, 1))
+    k_neg1 = np.array([K_SS])
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        # No stock_var_indices → standard (non-BVP) mode
+        # stock_var_indices omitted → inferred; BVP still active → warning fires
         solve_perfect_foresight(
             T, X0, {}, SS, model, model["vars_dyn"],
+            initial_state=k_neg1,
         )
 
     bvp_warns = [x for x in w if issubclass(x.category, UserWarning) and "BVP mode" in str(x.message)]
-    assert len(bvp_warns) == 0, "BVP UserWarning should not fire outside BVP mode"
+    assert len(bvp_warns) == 1, f"Expected exactly one BVP UserWarning, got {len(bvp_warns)}"

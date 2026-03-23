@@ -1257,12 +1257,43 @@ def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                           status=1 if success else 0, nfev=nfev, njev=njev)
 
 
+def _infer_stock_var_indices(model_funcs, vars_dyn):
+    """Return indices of variables that appear at any negative lag in the model.
+
+    Stock (predetermined) variables are those whose value at t-1 enters the
+    model equations — i.e., they appear at lag < 0 in the lead-lag incidence
+    table stored in ``model_funcs['incidence']``.  Jump variables (e.g.
+    consumption in a standard RBC) have no negative-lag appearances and are
+    therefore free to jump at t=0 under the BVP formulation.
+
+    Parameters
+    ----------
+    model_funcs : dict
+        Output of ``process_model()``.
+    vars_dyn : list of str
+        Dynamic variable names (in column order).
+
+    Returns
+    -------
+    list of int
+        Sorted list of column indices into ``vars_dyn`` for stock variables.
+    """
+    incidence = model_funcs.get('incidence', {})
+    return [i for i, var in enumerate(vars_dyn)
+            if any(lag < 0 for lag in incidence.get(var, []))]
+
+
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None,
-                           method='hybr', use_terminal_conditions=True, solver_options=None):
+                           method='hybr', solver_options=None):
     """
-    Solve the perfect foresight problem
+    Solve the perfect foresight problem using an augmented-path BVP formulation.
+
+    The solver always uses the BVP (boundary value problem) formulation:
+    a fixed ``initval`` row (pre-period-0 boundary) and a fixed ``endval``
+    row (terminal steady state) are prepended/appended to the ``T``-row
+    unknown path, giving a square ``T×n`` system solved by sparse Newton.
 
     Parameters:
     -----------
@@ -1281,35 +1312,27 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo). If None, no exogenous variables.
     initial_state : ndarray, optional
-        Initial state values. Interpretation depends on stock_var_indices:
-        - If stock_var_indices is None: full state vector at t=0 (all variables fixed).
-        - If stock_var_indices provided: pre-period-0 values of stock variables only
-          (Dynare convention: ``k_{-1}``).  The BVP formulation prepends this as
-          the ``initval`` boundary row; k_0 and jump variables at t=0 are then
-          determined simultaneously by the model equations at t=0.
+        Pre-period-0 values of the stock variables (Dynare convention:
+        ``k_{-1}``). The BVP formulation prepends this as the ``initval``
+        boundary row; k_0 and all jump variables at t=0 are determined
+        simultaneously by the model equations at t=0.
+        If None, stock variables default to their steady-state values
+        (``ss[stock_var_indices]``), i.e., the economy starts at steady state.
+        When provided, must have the same length as ``stock_var_indices``.
     ss_initial : ndarray, optional
         Initial steady state (at exog[0]). If None, uses ss.
     stock_var_indices : list of int, optional
-        Indices of stock (predetermined) variables in vars_dyn.  The BVP
-        formulation is activated only when **both** ``stock_var_indices`` and
-        ``initial_state`` are provided: ``initial_state`` supplies k_{-1} as
-        the fixed left boundary and all T periods are solved as unknowns with a
-        fixed right boundary at ss.  This is correct for standard Dynare
-        lag-formulation models where stock variables appear at lag (-1) in their
-        law of motion.  Providing ``stock_var_indices`` without
-        ``initial_state`` raises a ``ValueError``.
-        If None, treats all variables as stock (backward compatible).
+        Indices of stock (predetermined) variables in vars_dyn.  Stock
+        variables are those that appear at lag < 0 in the model equations;
+        their pre-period-0 values form the left BVP boundary.  Jump variables
+        (no negative-lag appearances) are free to respond at t=0.
+        If None, inferred automatically from the lead-lag incidence table in
+        ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
     method : str
-        Deprecated. Previously selected the scipy.optimize.root method ('hybr',
-        'lm', 'krylov', etc.). The solver now always uses the sparse Newton
-        method (_sparse_newton) regardless of this parameter. Kept for backward
-        compatibility.
-    use_terminal_conditions : bool
-        Whether to enforce terminal steady-state conditions (default: True).
-        Ignored when ``stock_var_indices`` is provided: the BVP formulation
-        always enforces the terminal condition via the fixed ``endval`` boundary
-        row (= ``ss``).
+        Deprecated. Previously selected the scipy.optimize.root method. The
+        solver now always uses the sparse Newton method (_sparse_newton)
+        regardless of this parameter. Kept for backward compatibility.
     solver_options : dict
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
@@ -1365,7 +1388,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"The solver requires a square system (neq == n)."
         )
 
-    if stock_var_indices is not None:
+    # Infer stock_var_indices from the lead-lag incidence table if not provided.
+    if stock_var_indices is None:
+        stock_var_indices = _infer_stock_var_indices(model_funcs, vars_dyn)
+    else:
         if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
             raise ValueError(
                 "stock_var_indices must be a list, tuple, or numpy.ndarray; "
@@ -1382,13 +1408,20 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
     if initial_state is not None:
         initial_state = np.asarray(initial_state, dtype=float).ravel()
+    else:
+        # Default: stock variables start at their steady-state values (economy at ss).
+        initial_state = ss[stock_var_indices]
 
-    if stock_var_indices is not None and initial_state is None:
+    if len(initial_state) != len(stock_var_indices):
         raise ValueError(
-            "stock_var_indices was provided but initial_state is None. "
-            "The BVP formulation requires both; pass initial_state (the "
-            "pre-period-0 values of the stock variables, k_{-1}) to activate "
-            "the stock/jump boundary."
+            f"initial_state has {len(initial_state)} elements but stock_var_indices "
+            f"has {len(stock_var_indices)} entries. They must match."
+        )
+    if len(set(stock_var_indices)) != len(stock_var_indices):
+        raise ValueError("stock_var_indices contains duplicate indices.")
+    if any(i < 0 or i >= n for i in stock_var_indices):
+        raise ValueError(
+            f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
         )
 
     if ss_initial is None:
@@ -1400,7 +1433,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"{n} dynamic variables."
         )
 
-    # Handle stock vs jump variables — augmented-path BVP formulation.
+    # Augmented-path BVP formulation (always active).
     #
     # Dynare convention: the law of motion for a stock variable k is written as
     #   k_t = f(k_{t-1}, c_t)   (k appears at lag, not lead)
@@ -1413,151 +1446,54 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # single boundary row reuses initval/endval (e.g. k_{-2} = k_{-1} = initval).
     # This yields T*neq equations for T*n unknowns (square since neq == n).
     # Actual non-singularity of the Jacobian depends on the model and calibration.
-    if stock_var_indices is not None and initial_state is not None:
-        if len(initial_state) != len(stock_var_indices):
-            raise ValueError(
-                f"initial_state has {len(initial_state)} elements but stock_var_indices "
-                f"has {len(stock_var_indices)} entries. They must match."
-            )
-        if len(set(stock_var_indices)) != len(stock_var_indices):
-            raise ValueError("stock_var_indices contains duplicate indices.")
-        if any(i < 0 or i >= n for i in stock_var_indices):
-            raise ValueError(
-                f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
-            )
 
-        # Warn when the model has lags/leads beyond ±1 in BVP mode.
-        # The augmented path provides only one pre-sample row (initval) and one
-        # post-sample row (endval), so values for |lag| > 1 are clamped to those
-        # boundaries (e.g. k_{-2} = k_{-1} = initval).  This applies equally to
-        # endogenous and exogenous variables.  The assumption is correct when the
-        # economy was at steady state before t=0, but may be wrong otherwise.
-        _has_long_endo = bool(endo_lags) and (min(endo_lags) < -1 or max(endo_lags) > 1)
-        _has_long_exo  = bool(exo_lags)  and (min(exo_lags)  < -1 or max(exo_lags)  > 1)
-        if _has_long_endo or _has_long_exo:
-            import warnings
-            warnings.warn(
-                "BVP mode: the model contains lags/leads with |lag| > 1 "
-                f"(endo_lags={endo_lags}, exo_lags={exo_lags}). Pre-sample values "
-                "beyond the single initval row and post-sample values beyond endval "
-                "are assumed equal to those boundary rows. This is correct when the "
-                "economy was at steady state before t=0, but may produce incorrect "
-                "dynamics otherwise.",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # initval row: stock vars at k_{-1} = initial_state;
-        # non-stock vars at initial steady state (ss_initial).
-        initval = np.asarray(ss_initial, dtype=float).ravel().copy()
-        for pos, i in enumerate(stock_var_indices):
-            initval[i] = initial_state[pos]
-        # endval row: all variables at terminal steady state.
-        endval = ss.copy()
-
-        def F_bvp(x):
-            X = x.reshape(T, n)
-            return _residual_bvp(
-                X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
-            )
-
-        def J_bvp(x):
-            X = x.reshape(T, n)
-            return _jacobian_bvp(
-                X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
-            )
-
-        sol = _sparse_newton(
-            F_bvp, J_bvp, X0.ravel(),
-            solver_options=solver_options,
+    # Warn when the model has lags/leads beyond ±1 in BVP mode.
+    # The augmented path provides only one pre-sample row (initval) and one
+    # post-sample row (endval), so values for |lag| > 1 are clamped to those
+    # boundaries (e.g. k_{-2} = k_{-1} = initval).  This applies equally to
+    # endogenous and exogenous variables.  The assumption is correct when the
+    # economy was at steady state before t=0, but may be wrong otherwise.
+    _has_long_endo = bool(endo_lags) and (min(endo_lags) < -1 or max(endo_lags) > 1)
+    _has_long_exo  = bool(exo_lags)  and (min(exo_lags)  < -1 or max(exo_lags)  > 1)
+    if _has_long_endo or _has_long_exo:
+        import warnings
+        warnings.warn(
+            "BVP mode: the model contains lags/leads with |lag| > 1 "
+            f"(endo_lags={endo_lags}, exo_lags={exo_lags}). Pre-sample values "
+            "beyond the single initval row and post-sample values beyond endval "
+            "are assumed equal to those boundary rows. This is correct when the "
+            "economy was at steady state before t=0, but may produce incorrect "
+            "dynamics otherwise.",
+            UserWarning,
+            stacklevel=2,
         )
 
-    elif initial_state is not None:
-        # Case 1: X[0] = initial_state (given), X[T-1] = ss (terminal condition)
-        # Unknowns: X[1:T-1] → (T-2)*n values
-        # Equations: ALL dynamics periods 0 to T-2 → (T-1)*n equations
-        # System is overdetermined, so use least-squares approach (method='lm')
+    # initval row: stock vars at k_{-1} = initial_state;
+    # non-stock vars at initial steady state (ss_initial).
+    initval = np.asarray(ss_initial, dtype=float).ravel().copy()
+    for pos, i in enumerate(stock_var_indices):
+        initval[i] = initial_state[pos]
+    # endval row: all variables at terminal steady state.
+    endval = ss.copy()
 
-        def F_full(x):
-            # x contains X[1:T-1] (middle path, not including X[0] or X[T-1])
-            X_middle = x.reshape(T-2, -1)
-            # Reconstruct full path: X[0] (initial) + X[1:T-1] (unknown) + X[T-1] (terminal SS)
-            X = np.vstack([initial_state.reshape(1, -1), X_middle, ss.reshape(1, -1)])
-
-            # Compute ALL dynamic equations for periods 0 to T-2
-            # This includes the equation linking X[T-2] to X[T-1]=ss
-            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
-                         endo_lags, exo_lags)
-
-            # F has (T-1)*n equations for (T-2)*n unknowns → overdetermined
-            # The solver (especially 'lm') will minimize ||F||^2
-
-            return F
-
-        def J_full(x):
-            X_middle = x.reshape(T-2, -1)
-            X = np.vstack([initial_state.reshape(1, -1), X_middle, ss.reshape(1, -1)])
-
-            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
-                                endo_lags, exo_lags)
-
-            # J has shape ((T-1)*n, T*n)
-            # Drop first n columns (X[0], which is fixed)
-            # Drop last n columns (X[T-1], which is fixed at ss)
-            J = J[:, n:-n]
-
-            return J  # sparse matrix — no .toarray()
-
-        # Initial guess for X[1:T-1]
-        x0_solve = X0[1:-1, :].ravel()
-
-        sol = _sparse_newton(
-            F_full, J_full, x0_solve,
-            overdetermined=True,
-            solver_options=solver_options
+    def F_bvp(x):
+        X = x.reshape(T, n)
+        return _residual_bvp(
+            X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
+            vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
         )
 
-        # Reconstruct full solution: X[0] + X[1:T-1] + X[T-1]
-        X_middle = sol.x.reshape(T-2, -1)
-        X_full = np.vstack([initial_state.reshape(1, -1), X_middle, ss.reshape(1, -1)])
-        sol.x = X_full.ravel()
-
-    else:
-        # Case 2: Solve for all X[0:T], enforce X[0]=ss_initial and X[T-1]=ss
-        def F_full(x):
-            X = x.reshape(T, -1)
-            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
-                         endo_lags, exo_lags)
-            initial_resid = X[0, :] - ss_initial
-            if use_terminal_conditions:
-                terminal_resid = X[-1, :] - ss
-                return np.concatenate([F, initial_resid, terminal_resid])
-            return np.concatenate([F, initial_resid])
-
-        def J_full(x):
-            from scipy.sparse import lil_matrix, vstack
-            X = x.reshape(T, -1)
-            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
-                                endo_lags, exo_lags)
-            initial_rows = lil_matrix((n, n*T))
-            for i in range(n):
-                initial_rows[i, i] = 1.0
-            J = vstack([J, initial_rows.tocsr()])
-            if use_terminal_conditions:
-                # Append terminal condition rows directly — avoids recomputing F
-                terminal_rows = lil_matrix((n, n*T))
-                for i in range(n):
-                    terminal_rows[i, n*(T-1) + i] = 1.0
-                J = vstack([J, terminal_rows.tocsr()])
-            return J
-
-        sol = _sparse_newton(
-            F_full, J_full, X0.ravel(),
-            overdetermined=use_terminal_conditions,
-            solver_options=solver_options
+    def J_bvp(x):
+        X = x.reshape(T, n)
+        return _jacobian_bvp(
+            X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
+            vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
         )
+
+    sol = _sparse_newton(
+        F_bvp, J_bvp, X0.ravel(),
+        solver_options=solver_options,
+    )
 
     # Compute auxiliary variables if they exist.
     # Note: vars_aux is empty when aux_method='dynamic' (auxiliary variables were
@@ -1593,7 +1529,7 @@ def solve_perfect_foresight_homotopy(
     exog_path=None, initial_state=None, ss_initial=None,
     stock_var_indices=None,
     *,
-    use_terminal_conditions=True, solver_options=None,
+    solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
     method='hybr',
 ):
@@ -1642,26 +1578,23 @@ def solve_perfect_foresight_homotopy(
         problem (Dynare convention: ``k_{-1}``).  The expected shape depends on
         ``stock_var_indices``:
 
-        * If ``stock_var_indices`` is None, ``initial_state`` must be a full
-          state vector of shape ``(n_dyn,)`` and is pinned to ``X[0]`` directly.
+        * If ``stock_var_indices`` is None, stock variables are inferred from
+          the model's lead-lag incidence table, and ``initial_state`` must
+          contain values for those inferred stock variables only.
         * If ``stock_var_indices`` is provided, ``initial_state`` must contain
           only the stock variable values at ``t=-1``, with shape ``(n_stock,)``.
           The BVP solver then determines all period-0 variables simultaneously.
+        If None, defaults to steady-state values of the stock variables.
     ss_initial : ndarray, optional
         Initial steady state. Defaults to ``ss``.
     stock_var_indices : list of int, optional
-        Indices of stock (predetermined) variables in ``vars_dyn``. When
-        provided, ``initial_state`` is interpreted as a stock-only vector
-        (see above); non-stock variables are free to jump at t=0.
-        Must be provided together with ``initial_state``; passing
-        ``stock_var_indices`` without ``initial_state`` raises a
-        ``ValueError``.
+        Indices of stock (predetermined) variables in ``vars_dyn``.  Non-stock
+        variables are free to jump at t=0.  If None, inferred automatically
+        from the lead-lag incidence table in ``model_funcs['incidence']``.
 
     The remaining parameters are **keyword-only** (enforced by ``*`` in
     the signature):
 
-    use_terminal_conditions : bool
-        Enforce terminal steady-state conditions (default True).
     solver_options : dict, optional
         Options forwarded to ``_sparse_newton`` at each homotopy step.
     n_steps : int
@@ -1712,27 +1645,8 @@ def solve_perfect_foresight_homotopy(
             "to scale. Both are None -- there is nothing to homotopy on."
         )
 
-    if stock_var_indices is not None and initial_state is None:
-        raise ValueError(
-            "stock_var_indices was provided but initial_state is None. "
-            "Providing stock_var_indices without initial_state would cause "
-            "solve_perfect_foresight to silently ignore stock_var_indices and "
-            "fall back to pinning all variables at t=0 (Case 2). "
-            "Pass initial_state (at minimum ss_initial[stock_var_indices] to "
-            "start stocks at steady state) to activate the stock/jump boundary."
-        )
-
     if initial_state is not None:
         initial_state = np.asarray(initial_state, dtype=float).ravel()
-
-    if initial_state is not None and stock_var_indices is not None:
-        if len(initial_state) != len(stock_var_indices):
-            raise ValueError(
-                f"initial_state has {len(initial_state)} elements but "
-                f"stock_var_indices has {len(stock_var_indices)} entries. "
-                f"When stock_var_indices is provided, initial_state must "
-                f"contain only the stock variable values."
-            )
 
     if ss_initial is None:
         ss_initial = ss
@@ -1747,8 +1661,10 @@ def solve_perfect_foresight_homotopy(
             f"{n} dynamic variables."
         )
 
-    # Validate stock_var_indices before using them to slice ss_initial
-    if stock_var_indices is not None:
+    # Infer stock_var_indices from the lead-lag incidence table if not provided.
+    if stock_var_indices is None:
+        stock_var_indices = _infer_stock_var_indices(model_funcs, vars_dyn_eff)
+    else:
         if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
             raise ValueError(
                 "stock_var_indices must be a list, tuple, or numpy.ndarray; "
@@ -1770,14 +1686,16 @@ def solve_perfect_foresight_homotopy(
                 f"Valid range is [0, {n - 1}]."
             )
 
-    # Validate full initial_state length when no stock_var_indices provided
-    if initial_state is not None and stock_var_indices is None:
-        if len(initial_state) != n:
-            raise ValueError(
-                f"initial_state has {len(initial_state)} elements but the "
-                f"model has {n} dynamic variables. When stock_var_indices is "
-                f"None, initial_state must be a full state vector."
-            )
+    # Default initial_state to steady-state stock values when not provided.
+    if initial_state is None:
+        initial_state = ss_initial[stock_var_indices]
+
+    if len(initial_state) != len(stock_var_indices):
+        raise ValueError(
+            f"initial_state has {len(initial_state)} elements but "
+            f"stock_var_indices has {len(stock_var_indices)} entries. "
+            f"initial_state must contain only the stock variable values."
+        )
 
     # Validate and coerce exog_path
     if exog_path is not None:
@@ -1861,24 +1779,15 @@ def solve_perfect_foresight_homotopy(
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
 
-    # Baseline (lam=0) for initial_state interpolation.
-    # When stock_var_indices is provided, initial_state contains only stock
-    # variable values, so we extract the matching slice of ss_initial.
-    if initial_state is not None:
-        if stock_var_indices is not None:
-            ss_initial_stock = ss_initial[stock_var_indices]
-        else:
-            ss_initial_stock = ss_initial
+    # Baseline (lam=0) for initial_state interpolation: ss values of stock vars.
+    ss_initial_stock = ss_initial[stock_var_indices]
 
     lambdas = np.linspace(0.0, 1.0, n_steps + 1)[1:]  # skip lam=0 (trivial)
 
     sol = None
     for step, lam in enumerate(lambdas, start=1):
         # Scale perturbations
-        initial_state_lam = (
-            ss_initial_stock + lam * (initial_state - ss_initial_stock)
-            if initial_state is not None else None
-        )
+        initial_state_lam = ss_initial_stock + lam * (initial_state - ss_initial_stock)
         exog_path_lam = (
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
@@ -1890,7 +1799,6 @@ def solve_perfect_foresight_homotopy(
             initial_state=initial_state_lam,
             ss_initial=ss_initial,
             stock_var_indices=stock_var_indices,
-            use_terminal_conditions=use_terminal_conditions,
             solver_options=solver_options,
             method='hybr',  # already warned above; suppress per-step warnings
         )
