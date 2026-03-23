@@ -1327,9 +1327,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         ``k_{-1}``). The BVP formulation prepends this as the ``initval``
         boundary row; k_0 and all jump variables at t=0 are determined
         simultaneously by the model equations at t=0.
-        If None, stock variables default to their steady-state values
-        (``ss[stock_var_indices]``), i.e., the economy starts at steady state.
-        When provided, must have the same length as ``stock_var_indices``.
+        If None, stock variables default to their initial steady-state values
+        (``ss_initial[stock_var_indices]``), i.e., the economy starts at the
+        initial steady state. When provided, must have the same length as
+        ``stock_var_indices``.
     ss_initial : ndarray, optional
         Initial steady state (at exog[0]). If None, uses ss.
     stock_var_indices : list of int, optional
@@ -1443,8 +1444,13 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
     if len(initial_state) != len(stock_var_indices):
         raise ValueError(
-            f"initial_state has {len(initial_state)} elements but stock_var_indices "
-            f"has {len(stock_var_indices)} entries. They must match."
+            f"initial_state has {len(initial_state)} elements but "
+            f"{len(stock_var_indices)} stock variable(s) are expected "
+            f"(stock_var_indices={stock_var_indices}). "
+            "initial_state must contain one pre-period-0 value k_{{-1}} per "
+            "stock variable, not the full period-0 state vector. "
+            "If stock_var_indices was not passed explicitly, it was inferred "
+            "from model_funcs['incidence']."
         )
 
     # Augmented-path BVP formulation (always active).
