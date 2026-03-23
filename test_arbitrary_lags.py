@@ -173,7 +173,13 @@ def test_bvp_jacobian_lag2_shape():
 # ---------------------------------------------------------------------------
 
 def test_solve_lag2_bvp_small_shock():
-    """solve_perfect_foresight converges for lag-2 model with a small shock."""
+    """solve_perfect_foresight converges for lag-2 model with a small shock.
+
+    The BVP augmented path provides only one pre-sample boundary row (initval),
+    so k_{-2} is assumed equal to k_{-1} = initval.  This is the correct
+    assumption here: the economy was at steady state before t=0, so all
+    pre-sample values equal K_SS.
+    """
     model = _lag2_model()
     X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS * 1.05])
