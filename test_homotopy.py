@@ -57,13 +57,14 @@ def X0():
 def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
     """solve_perfect_foresight works when stock_var_indices is given without initial_state.
 
-    initial_state defaults to ss[stock_var_indices], so the economy starts at
-    steady state.  With no perturbation the solution should remain at ss.
+    initial_state defaults to ss_initial[stock_var_indices], so the economy
+    starts at the steady state implied by ss_initial.  In this fixture
+    ss_initial == ss, so with no perturbation the solution should remain at ss.
     """
     sol = solve_perfect_foresight(
         T, X0, PARAMS, SS, model, VARS_DYN,
         stock_var_indices=[1],
-        # initial_state intentionally omitted → defaults to SS[1] = K_SS
+        # initial_state intentionally omitted → defaults to ss_initial[1] = K_SS
     )
     assert sol.success
     # Starting at ss with no shock: solution path must stay at ss
@@ -93,7 +94,7 @@ def test_raises_on_invalid_n_steps(model, X0):
 def test_raises_on_initial_state_length_mismatch(model, X0):
     """initial_state length must match stock_var_indices when provided."""
     wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
-    with pytest.raises(ValueError, match="initial_state has 2 element"):
+    with pytest.raises(ValueError, match=r"initial_state has 2 elements?"):
         solve_perfect_foresight_homotopy(
             T, X0, PARAMS, SS, model, VARS_DYN,
             initial_state=wrong_initial_state, stock_var_indices=[1],
