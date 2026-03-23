@@ -33,6 +33,38 @@ def _parse_time_symbol(sym_name):
     except ValueError:
         return None
 
+
+def _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags):
+    """Return (endo_lags, exo_lags), computing any missing sets from all_syms."""
+    if endo_lags is None and exo_lags is None:
+        return _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    if endo_lags is None:
+        endo_lags, _ = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    elif exo_lags is None:
+        _, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+    return endo_lags, exo_lags
+
+
+def _compute_lag_sets(all_syms, vars_dyn, vars_exo):
+    """Return sorted (endo_lags, exo_lags) by scanning all_syms.
+
+    endo_lags : sorted list of integer lags that appear for any variable in vars_dyn.
+    exo_lags  : sorted list of integer lags that appear for any variable in vars_exo.
+    """
+    endo_set = set(vars_dyn)
+    exo_set  = set(vars_exo)
+    endo_lags = set()
+    exo_lags  = set()
+    for s in all_syms:
+        p = _parse_time_symbol(s.name)
+        if p is not None:
+            vn, lg = p
+            if vn in endo_set:
+                endo_lags.add(lg)
+            elif vn in exo_set:
+                exo_lags.add(lg)
+    return sorted(endo_lags), sorted(exo_lags)
+
 # ============================================================
 # 2. Lead / lag detection (Dynare lead_lag_incidence)
 # ============================================================
@@ -172,7 +204,8 @@ def local_blocks(equations, variables):
 # 5. Residual function
 # ============================================================
 
-def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None):
+def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None,
+             endo_lags=None, exo_lags=None):
     """
     Evaluate residuals of the dynamic equations
 
@@ -194,6 +227,15 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
+    endo_lags : list of int, optional
+        Sorted list of integer lags that appear for endogenous variables.
+        If None (or if exo_lags is also None), derived automatically from
+        all_syms via _compute_lag_sets.  Pass the precomputed value from
+        model_funcs['endo_lags'] to avoid rescanning all_syms on every call.
+    exo_lags : list of int, optional
+        Sorted list of integer lags that appear for exogenous variables.
+        Same semantics as endo_lags.  Out-of-range indices are clamped to
+        [0, T-1] (boundary replication).
 
     Returns:
     --------
@@ -206,6 +248,7 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     # Standard mode: evaluate T-1 periods with boundary clamping.
     F = np.zeros((T-1, neq))
@@ -213,13 +256,13 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         subs = {}
         # Endogenous variables
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
+            for lag in endo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = X[tt, i]
 
         # Exogenous variables
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
+            for lag in exo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = exog_path[tt, i]
 
@@ -234,14 +277,16 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
 
 
 def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
     """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
-    Endogenous variables use the explicit initval/endval boundary rows with no
-    clamping.  Exogenous variables are padded at the endpoints (exog_path[0]
-    for t=-1, exog_path[-1] for t=T) to keep the system well-defined at the
-    boundaries.  Returns a flattened vector of length T*neq.
+    Endogenous variables index the augmented path as ``X_aug[t + lag + 1]``,
+    clamped to ``[0, T+1]`` so boundary rows serve as pre-sample and
+    terminal history.  This means that for ``|lag| > 1``, values beyond the
+    single initval/endval row are assumed equal to those boundary values
+    (e.g. ``k_{-2} = k_{-1} = initval``).  Exogenous variables are padded
+    symmetrically at the endpoints.  Returns a flattened vector of length T*neq.
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
@@ -260,15 +305,19 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+
     F = np.zeros((T, neq))
     for t in range(T):
         subs = {}
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+            for lag in endo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = X_aug[aug_idx, i]
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+            for lag in exo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = exog_aug[aug_idx, i]
         subs.update(params)
         vals = [subs[s] for s in all_syms]
         for i, func in enumerate(residual_funcs):
@@ -279,7 +328,8 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
 # 6. Sparse block Jacobian
 # ============================================================
 
-def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None):
+def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo=None, exog_path=None,
+                    endo_lags=None, exo_lags=None):
     """
     Build sparse Jacobian matrix using block structure
 
@@ -301,6 +351,16 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
+    endo_lags : list of int, optional
+        Sorted list of integer lags that appear for endogenous variables.
+        If None (or if exo_lags is also None), derived automatically from
+        all_syms via _compute_lag_sets.  Pass model_funcs['endo_lags'] to
+        avoid rescanning all_syms on every Newton iteration.  Jacobian blocks
+        for out-of-range time indices are clamped to [0, T-1] and accumulated
+        into the clamped column, consistent with residual() boundary handling.
+    exo_lags : list of int, optional
+        Sorted list of integer lags for exogenous variables.  Same semantics
+        as endo_lags.
 
     Returns:
     --------
@@ -314,6 +374,7 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         vars_exo = []
     if exog_path is None:
         exog_path = np.zeros((T, len(vars_exo)))
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     # Standard mode: (T-1) equation-periods with boundary clamping.
     J = lil_matrix((neq*(T-1), n*T))
@@ -322,38 +383,50 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         subs = {}
         # Endogenous variables
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
+            for lag in endo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = X[tt, i]
 
         # Exogenous variables
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
+            for lag in exo_lags:
                 tt = min(max(t+lag, 0), T-1)
                 subs[v(var, lag)] = exog_path[tt, i]
 
         subs.update(params)
+        vals = [subs[s] for s in all_syms]
 
+        # Clamp column to [0, T-1], consistent with residual() boundary handling.
+        # Accumulate all blocks for the same col_t into a dense buffer before
+        # writing to the sparse matrix — avoids repeated sparse slice reads when
+        # multiple lags clamp to the same column.
+        col_blocks = {}
         for lag, f in block_funcs.items():
-            if not (0 <= t+lag < T):
-                continue
+            col_t = min(max(t + lag, 0), T - 1)
+            B = np.asarray(f(*vals))
+            if col_t in col_blocks:
+                col_blocks[col_t] += B
+            else:
+                col_blocks[col_t] = B.copy()
 
-            B = f(*[subs[s] for s in all_syms])
-            r0 = t*neq
-            c0 = (t+lag)*n
-            J[r0:r0+neq, c0:c0+n] = B
+        r0 = t * neq
+        for col_t, B_sum in col_blocks.items():
+            J[r0:r0+neq, col_t*n:col_t*n+n] = B_sum
 
     return J.tocsr()
 
 
 def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
     """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
     Columns referencing the fixed boundary rows (initval/endval) are skipped
-    so the result is the Jacobian w.r.t. the T inner (unknown) rows only.
-    When neq == n (as enforced by the caller), this Jacobian is square.
+    because those values are not unknowns — their derivatives do not enter the
+    Newton system.  This is consistent with _residual_bvp, which reads the same
+    boundary rows as fixed inputs (including clamped pre-sample values for
+    ``|lag| > 1``).  When neq == n (as enforced by the caller), the result is
+    a square matrix.
     """
     T, n = X.shape
     neq = len(dynamic_eqs)
@@ -371,15 +444,19 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
         exog_aug[-1] = exog_path[-1]
     else:
         exog_aug = exog_path
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+
     J = lil_matrix((neq * T, n * T))
     for t in range(T):
         subs = {}
         for i, var in enumerate(vars_dyn):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = X_aug[t + lag + 1, i]
+            for lag in endo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = X_aug[aug_idx, i]
         for i, var in enumerate(vars_exo):
-            for lag in [-1, 0, 1]:
-                subs[v(var, lag)] = exog_aug[t + lag + 1, i]
+            for lag in exo_lags:
+                aug_idx = max(0, min(t + lag + 1, T + 1))
+                subs[v(var, lag)] = exog_aug[aug_idx, i]
         subs.update(params)
         vals = [subs[s] for s in all_syms]
         for lag, f in block_funcs.items():
@@ -792,6 +869,9 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     # auxiliary-variable substitutions / removals that happened during processing.
     incidence = lead_lag_incidence(dynamic_eqs, known_vars=known_vars_final)
 
+    # Precompute lag sets so solvers don't rescan all_syms on every Newton call.
+    endo_lags, exo_lags = _compute_lag_sets(all_syms, vars_dyn, vars_exo)
+
     return {
         'dynamic_eqs': dynamic_eqs,
         'blocks': blocks,
@@ -799,6 +879,8 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         'block_funcs': block_funcs,
         'residual_funcs': residual_funcs,
         'incidence': incidence,
+        'endo_lags': endo_lags,
+        'exo_lags': exo_lags,
         'vars_dyn': vars_dyn,
         'vars_exo': vars_exo,
         'vars_aux': vars_aux,
@@ -1246,6 +1328,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # Use vars_dyn from model_funcs — process_model may have extended it (e.g. dynamic fallback)
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
+    # Precomputed lag sets — avoids rescanning all_syms on every Newton iteration.
+    endo_lags = model_funcs.get('endo_lags')
+    exo_lags  = model_funcs.get('exo_lags')
+    endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
     if X0.shape[1] != n:
         raise ValueError(
@@ -1323,7 +1409,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # We prepend an ``initval`` row (= boundary at t=-1) and append an
     # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
     # path is passed to BVP-mode helpers which evaluate T equation-periods
-    # using exact index t+lag+1 with no boundary clamping.
+    # using index t+lag+1, clamped to [0, T+1] so that any lag/lead beyond the
+    # single boundary row reuses initval/endval (e.g. k_{-2} = k_{-1} = initval).
     # This yields T*neq equations for T*n unknowns (square since neq == n).
     # Actual non-singularity of the Jacobian depends on the model and calibration.
     if stock_var_indices is not None and initial_state is not None:
@@ -1339,6 +1426,27 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
             )
 
+        # Warn when the model has lags/leads beyond ±1 in BVP mode.
+        # The augmented path provides only one pre-sample row (initval) and one
+        # post-sample row (endval), so values for |lag| > 1 are clamped to those
+        # boundaries (e.g. k_{-2} = k_{-1} = initval).  This applies equally to
+        # endogenous and exogenous variables.  The assumption is correct when the
+        # economy was at steady state before t=0, but may be wrong otherwise.
+        _has_long_endo = bool(endo_lags) and (min(endo_lags) < -1 or max(endo_lags) > 1)
+        _has_long_exo  = bool(exo_lags)  and (min(exo_lags)  < -1 or max(exo_lags)  > 1)
+        if _has_long_endo or _has_long_exo:
+            import warnings
+            warnings.warn(
+                "BVP mode: the model contains lags/leads with |lag| > 1 "
+                f"(endo_lags={endo_lags}, exo_lags={exo_lags}). Pre-sample values "
+                "beyond the single initval row and post-sample values beyond endval "
+                "are assumed equal to those boundary rows. This is correct when the "
+                "economy was at steady state before t=0, but may produce incorrect "
+                "dynamics otherwise.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         # initval row: stock vars at k_{-1} = initial_state;
         # non-stock vars at initial steady state (ss_initial).
         initval = np.asarray(ss_initial, dtype=float).ravel().copy()
@@ -1351,14 +1459,14 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             X = x.reshape(T, n)
             return _residual_bvp(
                 X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path, initval, endval,
+                vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
             )
 
         def J_bvp(x):
             X = x.reshape(T, n)
             return _jacobian_bvp(
                 X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                vars_exo, exog_path, initval, endval,
+                vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
             )
 
         sol = _sparse_newton(
@@ -1380,7 +1488,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
             # Compute ALL dynamic equations for periods 0 to T-2
             # This includes the equation linking X[T-2] to X[T-1]=ss
-            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
+            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
+                         endo_lags, exo_lags)
 
             # F has (T-1)*n equations for (T-2)*n unknowns → overdetermined
             # The solver (especially 'lm') will minimize ||F||^2
@@ -1391,7 +1500,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             X_middle = x.reshape(T-2, -1)
             X = np.vstack([initial_state.reshape(1, -1), X_middle, ss.reshape(1, -1)])
 
-            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
+            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
+                                endo_lags, exo_lags)
 
             # J has shape ((T-1)*n, T*n)
             # Drop first n columns (X[0], which is fixed)
@@ -1418,7 +1528,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         # Case 2: Solve for all X[0:T], enforce X[0]=ss_initial and X[T-1]=ss
         def F_full(x):
             X = x.reshape(T, -1)
-            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
+            F = residual(X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
+                         endo_lags, exo_lags)
             initial_resid = X[0, :] - ss_initial
             if use_terminal_conditions:
                 terminal_resid = X[-1, :] - ss
@@ -1428,7 +1539,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         def J_full(x):
             from scipy.sparse import lil_matrix, vstack
             X = x.reshape(T, -1)
-            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path)
+            J = sparse_jacobian(X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs, vars_exo, exog_path,
+                                endo_lags, exo_lags)
             initial_rows = lil_matrix((n, n*T))
             for i in range(n):
                 initial_rows[i, i] = 1.0
