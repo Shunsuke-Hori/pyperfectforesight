@@ -1296,7 +1296,7 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
 
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                            exog_path=None, initial_state=None, ss_initial=None,
-                           stock_var_indices=None,
+                           stock_var_indices=None, endval=None,
                            method='hybr', solver_options=None):
     """
     Solve the perfect foresight problem using an augmented-path BVP formulation.
@@ -1341,6 +1341,14 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         If None, inferred automatically from the lead-lag incidence table in
         ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
+    endval : ndarray, optional
+        Terminal boundary values for all endogenous variables (the fixed right
+        boundary row of the augmented path, appended at ``t = T``).  If None,
+        defaults to ``ss``.  Override this for **permanent shock** scenarios
+        where the economy converges to a different steady state than ``ss``:
+        compute the new steady state (e.g. via
+        ``compute_steady_state_numerical``) and pass it as ``endval``.
+        Must have the same length as ``vars_dyn``.
     method : str
         Deprecated. Previously selected the scipy.optimize.root method. The
         solver now always uses the sparse Newton method (_sparse_newton)
@@ -1501,8 +1509,16 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     initval = np.asarray(ss_initial, dtype=float).ravel().copy()
     for pos, i in enumerate(stock_var_indices):
         initval[i] = initial_state[pos]
-    # endval row: all variables at terminal steady state.
-    endval = ss.copy()
+    # endval row: terminal boundary (defaults to ss; override for permanent shocks).
+    if endval is None:
+        endval = ss.copy()
+    else:
+        endval = np.asarray(endval, dtype=float).ravel()
+        if len(endval) != n:
+            raise ValueError(
+                f"endval has {len(endval)} elements but the model has {n} "
+                f"dynamic variables. endval must be a full state vector."
+            )
 
     def F_bvp(x):
         X = x.reshape(T, n)
@@ -1555,7 +1571,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 def solve_perfect_foresight_homotopy(
     T, X0, params_dict, ss, model_funcs, vars_dyn,
     exog_path=None, initial_state=None, ss_initial=None,
-    stock_var_indices=None,
+    stock_var_indices=None, endval=None,
     *,
     solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
@@ -1619,6 +1635,12 @@ def solve_perfect_foresight_homotopy(
         Indices of stock (predetermined) variables in ``vars_dyn``.  Non-stock
         variables are free to jump at t=0.  If None, inferred automatically
         from the lead-lag incidence table in ``model_funcs['incidence']``.
+    endval : ndarray, optional
+        Terminal boundary values (the fixed right boundary row of the augmented
+        path).  If None, defaults to ``ss``.  For permanent shocks, pass the
+        new terminal steady state here.  During homotopy, ``endval`` is
+        interpolated from ``ss_initial`` at ``lam=0`` to the provided value at
+        ``lam=1``.
 
     The remaining parameters are **keyword-only** (enforced by ``*`` in
     the signature):
@@ -1818,6 +1840,17 @@ def solve_perfect_foresight_homotopy(
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
 
+    # Validate and resolve endval.
+    if endval is None:
+        endval = ss.copy()
+    else:
+        endval = np.asarray(endval, dtype=float).ravel()
+        if len(endval) != n:
+            raise ValueError(
+                f"endval has {len(endval)} elements but the model has {n} "
+                f"dynamic variables. endval must be a full state vector."
+            )
+
     # Baseline (lam=0) for initial_state interpolation: ss values of stock vars.
     ss_initial_stock = ss_initial[stock_var_indices]
 
@@ -1831,6 +1864,8 @@ def solve_perfect_foresight_homotopy(
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
         )
+        # Scale endval from ss_initial (lam=0) to target (lam=1).
+        endval_lam = ss_initial + lam * (endval - ss_initial)
 
         sol = solve_perfect_foresight(
             T, X_warm, params_dict, ss, model_funcs, vars_dyn_eff,
@@ -1838,6 +1873,7 @@ def solve_perfect_foresight_homotopy(
             initial_state=initial_state_lam,
             ss_initial=ss_initial,
             stock_var_indices=stock_var_indices,
+            endval=endval_lam,
             solver_options=solver_options,
             method='hybr',  # already warned above; suppress per-step warnings
         )
