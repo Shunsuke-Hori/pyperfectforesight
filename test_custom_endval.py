@@ -32,22 +32,24 @@ def model():
 # ---------------------------------------------------------------------------
 # RBC model with permanent TFP shock (exogenous z)
 #
-# k_t = exp(z_t) * k_{t-1}^alpha - c_t
-# Euler is unchanged (z doesn't enter MPK in this formulation)
+# Production:        y_t = exp(z_t) * k_{t-1}^alpha
+# Resource constr.:  k_t = exp(z_t) * k_{t-1}^alpha - c_t
+# Euler (MPK at t+1): 1/c_t = beta * alpha * exp(z_{t+1}) * k_t^(alpha-1) / c_{t+1}
 #
-# New steady state at z = Z_NEW:
-#   k_ss_new = K_SS  (Euler condition unchanged)
-#   c_ss_new = exp(Z_NEW) * K_SS^alpha - K_SS
+# New steady state at z = Z_NEW (permanent):
+#   1 = beta * alpha * exp(Z_NEW) * k_ss^(alpha-1)
+#   k_ss_new = (alpha * beta * exp(Z_NEW))^(1 / (1 - alpha))
+#   c_ss_new = exp(Z_NEW) * k_ss_new^alpha - k_ss_new
 # ---------------------------------------------------------------------------
 Z_NEW = 0.05   # 5% permanent TFP increase
-K_SS_NEW = K_SS
+K_SS_NEW = (ALPHA * BETA * np.exp(Z_NEW)) ** (1 / (1 - ALPHA))
 C_SS_NEW = np.exp(Z_NEW) * K_SS_NEW ** ALPHA - K_SS_NEW
 SS_NEW = np.array([C_SS_NEW, K_SS_NEW])
 
 
 @pytest.fixture(scope="module")
 def model_z():
-    eq1_z = v("c", 0) ** (-1) - BETA * ALPHA * v("k", 0) ** (ALPHA - 1) * v("c", 1) ** (-1)
+    eq1_z = v("c", 0) ** (-1) - BETA * ALPHA * sp.exp(v("z", 1)) * v("k", 0) ** (ALPHA - 1) * v("c", 1) ** (-1)
     eq2_z = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1) ** ALPHA + v("c", 0)
     return process_model([eq1_z, eq2_z], VARS_DYN, vars_exo=["z"])
 
