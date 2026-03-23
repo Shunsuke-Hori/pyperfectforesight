@@ -216,6 +216,15 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
+    endo_lags : list of int, optional
+        Sorted list of integer lags that appear for endogenous variables.
+        If None (or if exo_lags is also None), derived automatically from
+        all_syms via _compute_lag_sets.  Pass the precomputed value from
+        model_funcs['endo_lags'] to avoid rescanning all_syms on every call.
+    exo_lags : list of int, optional
+        Sorted list of integer lags that appear for exogenous variables.
+        Same semantics as endo_lags.  Out-of-range indices are clamped to
+        [0, T-1] (boundary replication).
 
     Returns:
     --------
@@ -341,6 +350,16 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         List of exogenous variable names
     exog_path : ndarray, optional
         Exogenous variable path (T x n_exo)
+    endo_lags : list of int, optional
+        Sorted list of integer lags that appear for endogenous variables.
+        If None (or if exo_lags is also None), derived automatically from
+        all_syms via _compute_lag_sets.  Pass model_funcs['endo_lags'] to
+        avoid rescanning all_syms on every Newton iteration.  Jacobian blocks
+        for out-of-range time indices are clamped to [0, T-1] and accumulated
+        into the clamped column, consistent with residual() boundary handling.
+    exo_lags : list of int, optional
+        Sorted list of integer lags for exogenous variables.  Same semantics
+        as endo_lags.
 
     Returns:
     --------
@@ -382,19 +401,21 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         vals = [subs[s] for s in all_syms]
 
         # Clamp column to [0, T-1], consistent with residual() boundary handling.
-        # Track written columns so we assign on first write and only read-add
-        # when a second lag clamps to the same column (rare; only at boundaries).
-        seen_cols = set()
+        # Accumulate all blocks for the same col_t into a dense buffer before
+        # writing to the sparse matrix — avoids repeated sparse slice reads when
+        # multiple lags clamp to the same column.
+        col_blocks = {}
         for lag, f in block_funcs.items():
             col_t = min(max(t + lag, 0), T - 1)
             B = np.asarray(f(*vals))
-            r0 = t * neq
-            c0 = col_t * n
-            if col_t in seen_cols:
-                J[r0:r0+neq, c0:c0+n] = J[r0:r0+neq, c0:c0+n] + B
+            if col_t in col_blocks:
+                col_blocks[col_t] += B
             else:
-                J[r0:r0+neq, c0:c0+n] = B
-                seen_cols.add(col_t)
+                col_blocks[col_t] = B.copy()
+
+        r0 = t * neq
+        for col_t, B_sum in col_blocks.items():
+            J[r0:r0+neq, col_t*n:col_t*n+n] = B_sum
 
     return J.tocsr()
 
