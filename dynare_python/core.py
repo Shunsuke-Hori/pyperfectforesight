@@ -1869,8 +1869,13 @@ def solve_perfect_foresight_homotopy(
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
         )
-        # Scale endval from ss_initial (lam=0) to target (lam=1).
-        endval_lam = ss_initial + lam * (endval - ss_initial)
+        # Interpolate endval only when the user explicitly set a different
+        # terminal state; otherwise keep endval fixed at ss every step to
+        # preserve backward-compatible behaviour (endval defaulted to ss).
+        if np.array_equal(endval, ss):
+            endval_lam = endval
+        else:
+            endval_lam = ss_initial + lam * (endval - ss_initial)
 
         sol = solve_perfect_foresight(
             T, X_warm, params_dict, ss, model_funcs, vars_dyn_eff,
