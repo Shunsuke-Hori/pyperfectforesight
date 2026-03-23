@@ -31,7 +31,7 @@ The solver **always** uses the augmented-path BVP formulation. The solver builds
 Residuals are evaluated at `t = 0, …, T-1` using index `t + lag + 1`, clamped to `[0, T+1]` so that lags beyond the single boundary row reuse `initval`/`endval` (e.g. `k_{-2} = k_{-1} = initval`).
 This gives a square `T×n` system.
 
-Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_terminal_conditions` has been removed — the terminal condition is always enforced via the fixed `endval` boundary row.
+Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_terminal_conditions` has been removed — the solver always appends a fixed `endval` boundary row, which enforces the terminal condition when leads make it bind.
 
 ### Arbitrary lag/lead support
 `residual()`, `sparse_jacobian()`, `_residual_bvp()`, and `_jacobian_bvp()` derive lag sets dynamically from `all_syms` via `_resolve_lag_sets()` / `_compute_lag_sets()`. Models with `|lag| > 1` are supported; in BVP mode a `UserWarning` is emitted because pre-sample values beyond `initval` are clamped.
