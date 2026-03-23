@@ -15,21 +15,23 @@ Equations are written with `v("k", -1)` for `k_{t-1}` (lag) and `v("c", 1)` for 
 This matches Dynare's convention: a stock variable `k` appears at lag -1 in the capital accumulation equation.
 
 ### `initial_state` semantics
-The meaning of `initial_state` depends on whether `stock_var_indices` is provided:
+`initial_state` is always the **pre-period-0** value of the stock variable(s) — i.e., `k_{-1}` in Dynare notation. Period-0 values of all variables (including jump variables) are solved simultaneously by the model. Do not confuse with `k_0` (the period-0 value, which is endogenous).
 
-- **Standard / overdetermined mode (`stock_var_indices is None`)**: `initial_state` is the full period-0 state vector `X[0]` (all endogenous variables at `t = 0`). The solver pins `X[0]` and finds a least-squares path over `X[1:T-1]`.
-- **Stock/jump BVP mode (`stock_var_indices` provided)**: `initial_state` is the **pre-period-0** value of the stock variable(s) — i.e., `k_{-1}` in Dynare notation. Period-0 values of all variables (including jump variables) are solved simultaneously by the model. Do not confuse with `k_0` (the period-0 value, which is endogenous).
+If `initial_state` is omitted it defaults to `ss_initial[stock_var_indices]` (economy starts at the initial steady state).
+
+### Stock variable inference
+`stock_var_indices` is inferred automatically via `_infer_stock_var_indices(model_funcs, vars_dyn)` when not provided by the caller. The helper reads `model_funcs['incidence']` and returns the indices of variables that appear at any negative lag. Jump variables (no negative-lag appearances) are free to respond at `t=0`. The caller can always pass `stock_var_indices` explicitly to override the inference.
 
 ### BVP (augmented-path) formulation
-The BVP branch is activated when **both** `stock_var_indices` and `initial_state` are provided (passing `stock_var_indices` without `initial_state` raises a `ValueError`). The solver builds a `T+2`-row augmented path:
+The solver **always** uses the augmented-path BVP formulation. The solver builds a `T+2`-row augmented path:
 - Row 0: `initval` (pre-period-0 boundary — stock vars from `initial_state`, others from `ss_initial`)
 - Rows 1…T: the `T` free periods (solved)
-- Row T+1: `endval` (terminal steady state)
+- Row T+1: `endval` (terminal steady state = `ss`)
 
 Residuals are evaluated at `t = 0, …, T-1` using index `t + lag + 1`, clamped to `[0, T+1]` so that lags beyond the single boundary row reuse `initval`/`endval` (e.g. `k_{-2} = k_{-1} = initval`).
 This gives a square `T×n` system.
 
-Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this; the public `residual()` and `sparse_jacobian()` are standard-mode only.
+Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_terminal_conditions` has been removed — the terminal condition is always enforced via the fixed `endval` boundary row.
 
 ### Arbitrary lag/lead support
 `residual()`, `sparse_jacobian()`, `_residual_bvp()`, and `_jacobian_bvp()` derive lag sets dynamically from `all_syms` via `_resolve_lag_sets()` / `_compute_lag_sets()`. Models with `|lag| > 1` are supported; in BVP mode a `UserWarning` is emitted because pre-sample values beyond `initval` are clamped.
