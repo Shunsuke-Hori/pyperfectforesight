@@ -63,7 +63,7 @@ K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
 C_SS = K_SS**ALPHA - K_SS
 ss = np.array([C_SS, K_SS])
 
-# Transition path: k starts 10% above steady state
+# Transition path: k_{-1} (pre-period-0 capital) starts 10% above steady state
 T = 100
 X0 = np.tile(ss, (T, 1))          # warm-start: constant ss path
 
