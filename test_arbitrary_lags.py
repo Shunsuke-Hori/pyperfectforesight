@@ -237,3 +237,61 @@ def test_standard_rbc_still_works():
     )
     assert sol.success, sol.message
     assert np.linalg.norm(sol.fun) < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# 6. UserWarning for |lag| > 1 in BVP mode
+# ---------------------------------------------------------------------------
+
+
+def test_bvp_warns_when_lag_gt_1():
+    """BVP mode emits a UserWarning when the model has |lag| > 1."""
+    model = _lag2_model()
+    X0 = np.tile(SS, (T, 1))
+    k_neg1 = np.array([K_SS])
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        solve_perfect_foresight(
+            T, X0, {}, SS, model, model["vars_dyn"],
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+        )
+
+    bvp_warns = [x for x in w if issubclass(x.category, UserWarning) and "BVP mode" in str(x.message)]
+    assert len(bvp_warns) == 1, f"Expected exactly one BVP UserWarning, got {len(bvp_warns)}"
+    assert "endo_lags" in str(bvp_warns[0].message)
+
+
+def test_bvp_no_warning_for_standard_lags():
+    """BVP mode does NOT emit a UserWarning for models with |lag| <= 1."""
+    model = _rbc_model()
+    X0 = np.tile(SS, (T, 1))
+    k_neg1 = np.array([K_SS * 1.05])
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        solve_perfect_foresight(
+            T, X0, {}, SS, model, model["vars_dyn"],
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+        )
+
+    bvp_warns = [x for x in w if issubclass(x.category, UserWarning) and "BVP mode" in str(x.message)]
+    assert len(bvp_warns) == 0, "Unexpected BVP UserWarning for a standard |lag| <= 1 model"
+
+
+def test_bvp_warning_not_emitted_in_standard_solver_mode():
+    """The |lag| > 1 UserWarning is only emitted in BVP mode, not standard mode."""
+    model = _lag2_model()
+    X0 = np.tile(SS, (T, 1))
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        # No stock_var_indices → standard (non-BVP) mode
+        solve_perfect_foresight(
+            T, X0, {}, SS, model, model["vars_dyn"],
+        )
+
+    bvp_warns = [x for x in w if issubclass(x.category, UserWarning) and "BVP mode" in str(x.message)]
+    assert len(bvp_warns) == 0, "BVP UserWarning should not fire outside BVP mode"
