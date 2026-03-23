@@ -140,14 +140,14 @@ print(f"Converged: {sol.success}")
 
 ## Stock/Jump Variable Formulation
 
-When `stock_var_indices` and `initial_state` are provided, the solver uses an **augmented-path BVP formulation**:
+The solver always uses an **augmented-path BVP (boundary value problem) formulation**:
 
-- An `initval` row (pre-period-0 values) is prepended and an `endval` row (terminal steady state) is appended to form a `T+2`-row augmented path.
+- An `initval` boundary row is prepended and an `endval` row (terminal steady state) is appended to form a `T+2`-row augmented path. The `initval` row holds pre-period-0 values for stock variables (from `initial_state`) and steady-state values for jump variables (from `ss_initial`); the `t=-1` entries for jump variables are not economically meaningful since jump variables have no negative-lag appearances by definition.
 - Residuals are evaluated at periods `t = 0, …, T-1` using the full augmented path, so all `T×n` unknowns (including period-0 jump variables) are determined simultaneously.
-- `initial_state` is `k_{-1}` — the **pre-period-0** value of each stock variable, following Dynare's convention. Period-0 values of all variables (including jump variables like `c`) are solved by the model.
-- `stock_var_indices` lists the column indices (into `vars_dyn`) of the stock (predetermined) variables.
+- `initial_state` provides `k_{-1}` — the **pre-period-0** value for each **stock** variable, following Dynare's convention. Period-0 values of all variables (including jump variables like `c`) are solved by the model.
+- `stock_var_indices` is inferred automatically from the lead-lag incidence table: variables that appear at any negative lag are classified as stock (predetermined); all others are jump variables free to respond at `t=0`. You can also pass it explicitly to override the inference.
 
-This contrasts with the simple approach of pinning `X[0]` to given values, which over-constrains jump variables and can produce a structurally singular Jacobian.
+This correctly handles jump variables — pinning `X[0]` directly would over-constrain them and produce a structurally singular Jacobian.
 
 ## Examples
 
@@ -186,8 +186,8 @@ For advanced users who want more control:
 - `lead_lag_incidence()`: Detect variable lead/lag structure in equations
 - `is_static()`, `eliminate_static()`: Handle static equations
 - `local_blocks()`: Compute Jacobian blocks
-- `residual()`, `sparse_jacobian()`: Build residuals and Jacobians (standard mode)
-- `append_terminal_conditions()`: Add terminal steady-state constraints
+- `residual()`, `sparse_jacobian()`: Build residuals and Jacobians
+- `append_terminal_conditions()` *(legacy)*: Manually append terminal-condition rows; retained for backward compatibility but not needed when using the high-level solvers
 
 ## Configuration Options
 
@@ -199,11 +199,10 @@ For advanced users who want more control:
 
 ### `solve_perfect_foresight()` options:
 - `exog_path=None`: Exogenous variable path (`T × n_exo` array)
-- `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); required when `stock_var_indices` is provided
-- `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables
-- `ss_initial=None`: Steady-state values used for non-stock `initval` entries; defaults to `ss`
-- `use_terminal_conditions=True/False`: Enforce terminal steady state (ignored in BVP mode — terminal condition is always enforced via `endval`)
-- `solver_options={}`: Sparse Newton solver options (`maxiter`, `ftol`, `xtol`)
+- `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
+- `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
+- `ss_initial=None`: Initial steady-state values used for the `initval` boundary row; defaults to `ss`
+- `solver_options=None`: Sparse Newton solver options (treated as `{}` when `None`; supports `maxiter`, `ftol`, `xtol`, `maxfev`)
 - `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
 
 ### `solve_perfect_foresight_homotopy()` options:
