@@ -1315,7 +1315,13 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     params_dict : dict
         Parameter values
     ss : ndarray
-        Terminal steady state values for endogenous variables (at exog[T-1])
+        Default steady-state values used as fallbacks when ``ss_initial`` and
+        ``endval`` are not provided.  Specifically: ``ss_initial`` defaults to
+        ``ss`` (pre-shock steady state) and ``endval`` defaults to ``ss``
+        (terminal boundary).  For permanent shocks where the initial and
+        terminal steady states differ, pass the pre-shock values as
+        ``ss_initial`` and the post-shock values as ``endval`` (or as ``ss``
+        with ``ss_initial`` set explicitly).
     model_funcs : dict
         Dictionary from process_model() containing compiled functions
     vars_dyn : list
