@@ -177,9 +177,10 @@ def test_solve_lag2_bvp_small_shock():
     """solve_perfect_foresight converges for lag-2 model with a small shock.
 
     The BVP augmented path provides only one pre-sample boundary row (initval),
-    so k_{-2} is assumed equal to k_{-1} = initval.  This is the correct
-    assumption here: the economy was at steady state before t=0, so all
-    pre-sample values equal K_SS.  A UserWarning is expected because |lag| > 1.
+    so k_{-2} is clamped to k_{-1} = initval.  We interpret the shock as having
+    occurred at t=-1: k_{-1} is set slightly above K_SS while earlier pre-sample
+    values (t <= -2) are assumed equal to K_SS.  Clamping k_{-2} to k_{-1}
+    is therefore intentional.  A UserWarning is expected because |lag| > 1.
     """
     model = _lag2_model()
     X0 = np.tile(SS, (T, 1))
@@ -261,6 +262,7 @@ def test_bvp_warns_when_lag_gt_1():
     bvp_warns = [x for x in w if issubclass(x.category, UserWarning) and "BVP mode" in str(x.message)]
     assert len(bvp_warns) == 1, f"Expected exactly one BVP UserWarning, got {len(bvp_warns)}"
     assert "endo_lags" in str(bvp_warns[0].message)
+    assert "exo_lags" in str(bvp_warns[0].message)
 
 
 def test_bvp_no_warning_for_standard_lags():

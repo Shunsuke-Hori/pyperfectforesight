@@ -381,15 +381,20 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
         subs.update(params)
         vals = [subs[s] for s in all_syms]
 
+        # Clamp column to [0, T-1], consistent with residual() boundary handling.
+        # Track written columns so we assign on first write and only read-add
+        # when a second lag clamps to the same column (rare; only at boundaries).
+        seen_cols = set()
         for lag, f in block_funcs.items():
-            # Clamp column to [0, T-1], consistent with residual() boundary handling.
-            # When multiple lags clamp to the same column (e.g. lag=-1 and lag=-2
-            # both map to col 0 at t=0), accumulate their contributions.
             col_t = min(max(t + lag, 0), T - 1)
             B = np.asarray(f(*vals))
             r0 = t * neq
             c0 = col_t * n
-            J[r0:r0+neq, c0:c0+n] = J[r0:r0+neq, c0:c0+n] + B
+            if col_t in seen_cols:
+                J[r0:r0+neq, c0:c0+n] = J[r0:r0+neq, c0:c0+n] + B
+            else:
+                J[r0:r0+neq, c0:c0+n] = B
+                seen_cols.add(col_t)
 
     return J.tocsr()
 
@@ -1397,7 +1402,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     # We prepend an ``initval`` row (= boundary at t=-1) and append an
     # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
     # path is passed to BVP-mode helpers which evaluate T equation-periods
-    # using exact index t+lag+1 with no boundary clamping.
+    # using index t+lag+1, clamped to [0, T+1] so that any lag/lead beyond the
+    # single boundary row reuses initval/endval (e.g. k_{-2} = k_{-1} = initval).
     # This yields T*neq equations for T*n unknowns (square since neq == n).
     # Actual non-singularity of the Jacobian depends on the model and calibration.
     if stock_var_indices is not None and initial_state is not None:
@@ -1416,17 +1422,20 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         # Warn when the model has lags/leads beyond ±1 in BVP mode.
         # The augmented path provides only one pre-sample row (initval) and one
         # post-sample row (endval), so values for |lag| > 1 are clamped to those
-        # boundaries (e.g. k_{-2} = k_{-1} = initval).  This is correct when the
+        # boundaries (e.g. k_{-2} = k_{-1} = initval).  This applies equally to
+        # endogenous and exogenous variables.  The assumption is correct when the
         # economy was at steady state before t=0, but may be wrong otherwise.
-        if min(endo_lags) < -1 or max(endo_lags) > 1:
+        _has_long_endo = bool(endo_lags) and (min(endo_lags) < -1 or max(endo_lags) > 1)
+        _has_long_exo  = bool(exo_lags)  and (min(exo_lags)  < -1 or max(exo_lags)  > 1)
+        if _has_long_endo or _has_long_exo:
             import warnings
             warnings.warn(
                 "BVP mode: the model contains lags/leads with |lag| > 1 "
-                f"(endo_lags={endo_lags}). Pre-sample values beyond k_{{-1}} and "
-                "post-sample values beyond the terminal period are assumed equal to "
-                "initval/endval respectively. This is correct when the economy was "
-                "at steady state before t=0, but may produce incorrect dynamics "
-                "otherwise.",
+                f"(endo_lags={endo_lags}, exo_lags={exo_lags}). Pre-sample values "
+                "beyond the single initval row and post-sample values beyond endval "
+                "are assumed equal to those boundary rows. This is correct when the "
+                "economy was at steady state before t=0, but may produce incorrect "
+                "dynamics otherwise.",
                 UserWarning,
                 stacklevel=2,
             )
