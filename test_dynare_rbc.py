@@ -68,7 +68,10 @@ _REF_PATH = os.path.join(os.path.dirname(__file__), "dynare_ref_output", "perfec
 def dynare_ref():
     if not os.path.exists(_REF_PATH):
         pytest.fail(f"Dynare reference file not found: {_REF_PATH}")
-    return np.loadtxt(_REF_PATH, delimiter=",")  # shape (200, 2): [c, k]
+    ref = np.loadtxt(_REF_PATH, delimiter=",")
+    if ref.shape != (T, 2):
+        pytest.fail(f"Unexpected shape {ref.shape} in {_REF_PATH}; expected ({T}, 2).")
+    return ref  # shape (T, 2): [c, k]
 
 
 @pytest.fixture(scope="module")
