@@ -1735,6 +1735,18 @@ def solve_perfect_foresight_expectation_errors(
         exog_sub = None
         if exog_path_i is not None:
             exog_sub = np.asarray(exog_path_i, dtype=float)
+            n_exo = len(model_funcs.get('vars_exo', []))
+            if exog_sub.ndim != 2:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path must be "
+                    f"a 2D array of shape (T_sub, n_exo), got shape {exog_sub.shape}."
+                )
+            if exog_sub.shape[1] != n_exo:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path has "
+                    f"{exog_sub.shape[1]} column(s) but the model has {n_exo} "
+                    f"exogenous variable(s)."
+                )
             if exog_sub.shape[0] < T_sub:
                 raise ValueError(
                     f"news_shocks entry with learnt_in={learnt_in}: exog_path has "
