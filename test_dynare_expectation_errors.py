@@ -1,4 +1,4 @@
-"""Test that pyperfectforesight replicates Dynare's perfect foresight with
+"""Test that dynare_python replicates Dynare's perfect foresight with
 expectation errors solution.
 
 Model: basic RBC with CRRA utility, Cobb-Douglas production (same as

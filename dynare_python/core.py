@@ -1583,7 +1583,7 @@ def solve_perfect_foresight_expectation_errors(
     initial_state=None,
     ss_initial=None,
     stock_var_indices=None,
-    constant_simulation_length=True,
+    constant_simulation_length=False,
 ):
     """
     Solve a perfect foresight model with multiple surprise (MIT) shocks.
@@ -1641,10 +1641,11 @@ def solve_perfect_foresight_expectation_errors(
         Initial steady state.  Defaults to ``ss``.
     stock_var_indices : list of int, optional
         Inferred from incidence if not provided.
-    constant_simulation_length : bool, default True
-        If True (Dynare's ``constant_simulation_length`` option), every
-        sub-solve runs for the full ``T`` periods.  If False, each sub-solve
-        uses the shrinking remaining horizon ``T - learnt_in + 1``.
+    constant_simulation_length : bool, default False
+        If False (Dynare's default), each sub-solve uses the shrinking
+        remaining horizon ``T - learnt_in + 1``.  If True (Dynare's
+        ``constant_simulation_length`` option), every sub-solve runs for
+        the full ``T`` periods.
 
     Returns
     -------
@@ -1730,10 +1731,17 @@ def solve_perfect_foresight_expectation_errors(
         elif X0_sub.shape[0] > T_sub:
             X0_sub = X0_sub[:T_sub]
 
-        # Trim exog_path_i to T_sub rows if needed.
+        # Validate and trim exog_path_i to T_sub rows.
         exog_sub = None
         if exog_path_i is not None:
-            exog_sub = exog_path_i[:T_sub]
+            exog_sub = np.asarray(exog_path_i, dtype=float)
+            if exog_sub.shape[0] < T_sub:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path has "
+                    f"{exog_sub.shape[0]} row(s) but the sub-solve requires at least "
+                    f"{T_sub} (T_sub = {'T' if constant_simulation_length else 'T - learnt_in + 1'} = {T_sub})."
+                )
+            exog_sub = exog_sub[:T_sub]
 
         sol = solve_perfect_foresight(
             T_sub, X0_sub, params_dict, ss, model_funcs, vars_dyn,
