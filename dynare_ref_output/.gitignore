@@ -1,0 +1,4 @@
+# Only track .csv files in this directory
+*
+!.gitignore
+!*.csv
