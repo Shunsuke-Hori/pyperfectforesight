@@ -1,0 +1,5 @@
+# Only track .mod and .csv files in this directory
+*
+!.gitignore
+!*.mod
+!*.csv
