@@ -61,7 +61,7 @@ T = 200
 # Dynare 6.2 and exporting oo_.endo_simul columns 2..201 to a CSV file).
 # Shape: (200, 2) — columns are [c, k], rows are periods 1..200.
 # ---------------------------------------------------------------------------
-_REF_PATH = os.path.join(os.path.dirname(__file__), "dynare_ref_output", "dynare_rbc_reference.csv")
+_REF_PATH = os.path.join(os.path.dirname(__file__), "dynare_ref_output", "perfect_foresight_rbc_output.csv")
 
 
 @pytest.fixture(scope="module")
