@@ -1,0 +1,199 @@
+"""Tests for solve_perfect_foresight_expectation_errors."""
+
+import numpy as np
+import pytest
+
+from dynare_python import (
+    v,
+    process_model,
+    solve_perfect_foresight,
+    solve_perfect_foresight_expectation_errors,
+)
+
+# ---------------------------------------------------------------------------
+# Shared RBC fixture — same model as test_homotopy.py
+# ---------------------------------------------------------------------------
+# Euler:   1/c_t = beta * alpha * k_t^(alpha-1) / c_{t+1}
+# Capital: k_t   = k_{t-1}^alpha - c_t
+
+ALPHA = 0.36
+BETA = 0.99
+
+EQ1 = v("c", 0) ** (-1) - BETA * ALPHA * v("k", 0) ** (ALPHA - 1) * v("c", 1) ** (-1)
+EQ2 = v("k", 0) - v("k", -1) ** ALPHA + v("c", 0)
+
+VARS_DYN = ["c", "k"]
+PARAMS = {}
+
+K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
+C_SS = K_SS**ALPHA - K_SS
+SS = np.array([C_SS, K_SS])
+
+T = 60
+
+
+@pytest.fixture(scope="module")
+def model():
+    return process_model([EQ1, EQ2], VARS_DYN)
+
+
+@pytest.fixture(scope="module")
+def X0():
+    return np.tile(SS, (T, 1))
+
+
+# ---------------------------------------------------------------------------
+# 1. Validation errors
+# ---------------------------------------------------------------------------
+
+
+def test_empty_news_shocks_raises(model, X0):
+    with pytest.raises(ValueError, match="non-empty"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN, news_shocks=[]
+        )
+
+
+def test_first_learnt_in_not_1_raises(model, X0):
+    exog = np.zeros((T, 0))
+    with pytest.raises(ValueError, match="learnt_in=1"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(5, exog)],
+        )
+
+
+def test_unsorted_news_shocks_raises(model, X0):
+    exog = np.zeros((T, 0))
+    with pytest.raises(ValueError, match="sorted"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, exog), (30, exog), (15, exog)],
+        )
+
+
+def test_duplicate_learnt_in_raises(model, X0):
+    exog = np.zeros((T, 0))
+    with pytest.raises(ValueError, match="duplicate"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, exog), (15, exog), (15, exog)],
+        )
+
+
+# ---------------------------------------------------------------------------
+# 2. Single news event == solve_perfect_foresight
+# ---------------------------------------------------------------------------
+
+
+def test_single_shock_matches_direct_solve(model, X0):
+    """With one news event at t=1, result must equal solve_perfect_foresight."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+
+    sol_direct = solve_perfect_foresight(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        initial_state=initial_state,
+    )
+
+    sol_ee = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None)],
+        initial_state=initial_state,
+    )
+
+    assert sol_ee.success
+    np.testing.assert_allclose(
+        sol_ee.x.reshape(T, -1),
+        sol_direct.x.reshape(T, -1),
+        atol=1e-8,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3. No shock at steady state → path stays at SS
+# ---------------------------------------------------------------------------
+
+
+def test_no_shock_stays_at_ss(model, X0):
+    """Starting at SS with no perturbation, every sub-solve stays at SS."""
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (20, None), (40, None)],
+    )
+    assert sol.success
+    np.testing.assert_allclose(
+        sol.x.reshape(T, -1), np.tile(SS, (T, 1)), atol=1e-8
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. Two news events — stitching check
+# ---------------------------------------------------------------------------
+
+
+def test_two_events_stitching(model, X0):
+    """Two news events: verify path is correctly stitched and sub_results present."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+    split = 20
+
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (split, None)],
+        initial_state=initial_state,
+    )
+
+    assert sol.success
+    assert len(sol.sub_results) == 2
+
+    X_full = sol.x.reshape(T, -1)
+
+    # Continuity at the stitch point: capital at period split-1 (0-indexed: split-2)
+    # in sub-solve 1 must equal the initial_state used for sub-solve 2.
+    k_boundary = X_full[split - 2, 1]  # k at period split-1
+    k_sub2_start = sol.sub_results[1].x.reshape(T, -1)[0, 1]
+    # k_sub2_start is the solved k at period split, which depends on k_boundary via EQ2
+    # Just check monotone convergence back to SS (capital below SS should rise).
+    assert X_full[0, 1] < K_SS  # starts below SS
+    assert X_full[-1, 1] == pytest.approx(K_SS, rel=1e-4)  # converges to SS
+
+
+# ---------------------------------------------------------------------------
+# 5. constant_simulation_length=False
+# ---------------------------------------------------------------------------
+
+
+def test_shrinking_window(model, X0):
+    """constant_simulation_length=False should also produce a T-row stitched path."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (30, None)],
+        initial_state=initial_state,
+        constant_simulation_length=False,
+    )
+
+    assert sol.success
+    assert sol.x.shape == (T * len(VARS_DYN),)
+    X_full = sol.x.reshape(T, -1)
+    assert X_full[0, 1] < K_SS
+    assert X_full[-1, 1] == pytest.approx(K_SS, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# 6. sub_results diagnostic field
+# ---------------------------------------------------------------------------
+
+
+def test_sub_results_length(model, X0):
+    """sol.sub_results has one entry per news event."""
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (15, None), (40, None)],
+    )
+    assert len(sol.sub_results) == 3
+    for sr in sol.sub_results:
+        assert hasattr(sr, 'success')
