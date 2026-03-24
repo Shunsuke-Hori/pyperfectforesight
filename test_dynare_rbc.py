@@ -1,14 +1,14 @@
 """Test that pyperfectforesight replicates Dynare's perfect foresight RBC solution.
 
 Model: basic RBC with CRRA utility, Cobb-Douglas production, one-time TFP shock.
-Reference: mod_files/perfect_foresight_rbc.mod run via Dynare 6.2.
+Source .mod file: https://git.dynare.org/JohannesPfeifer/dynare/-/blob/6.x/examples/perfect_foresight_rbc.mod
 
 Dynare .mod equations (Dynare end-of-period capital convention, i.e. k(-1) = k_{t-1}):
     c + k = z*k(-1)^alpha + (1-delta)*k(-1)        [resource constraint]
     c^(-sigma) = beta*(alpha*z(+1)*k^(alpha-1) + 1-delta)*c(+1)^(-sigma)  [Euler]
 
 Parameters: alpha=0.5, sigma=0.5, delta=0.02, beta=1/1.05
-Shock: z=1.2 in period 1 only; z=1 otherwise (initval and terminal).
+Shock: z=1.2 in Dynare period 1 (Python index t=0); z=1 otherwise (initval and terminal).
 Simulation length: T=200 periods.
 """
 
@@ -61,7 +61,7 @@ T = 200
 # Dynare 6.2 and exporting oo_.endo_simul columns 2..201 to a CSV file).
 # Shape: (200, 2) — columns are [c, k], rows are periods 1..200.
 # ---------------------------------------------------------------------------
-_REF_PATH = os.path.join(os.path.dirname(__file__), "mod_files", "dynare_rbc_reference.csv")
+_REF_PATH = os.path.join(os.path.dirname(__file__), "dynare_ref_output", "dynare_rbc_reference.csv")
 
 
 @pytest.fixture(scope="module")
@@ -78,7 +78,7 @@ def model():
 
 @pytest.fixture(scope="module")
 def exog_path():
-    """z=1.2 in period 0 (=Dynare period 1), z=1.0 thereafter."""
+    """z=1.2 in Dynare period 1 (Python index t=0), z=1.0 thereafter."""
     path = np.ones((T, 1)) * Z_SS
     path[0, 0] = 1.2
     return path
