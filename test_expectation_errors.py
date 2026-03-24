@@ -148,13 +148,16 @@ def test_two_events_stitching(model, X0):
     assert len(sol.sub_results) == 2
 
     X_full = sol.x.reshape(T, -1)
+    n_keep_1 = split - 1  # rows kept from sub-solve 1 (periods 1..split-1)
 
-    # Continuity at the stitch point: capital at period split-1 (0-indexed: split-2)
-    # in sub-solve 1 must equal the initial_state used for sub-solve 2.
-    k_boundary = X_full[split - 2, 1]  # k at period split-1
-    k_sub2_start = sol.sub_results[1].x.reshape(T, -1)[0, 1]
-    # k_sub2_start is the solved k at period split, which depends on k_boundary via EQ2
-    # Just check monotone convergence back to SS (capital below SS should rise).
+    # Stitching: the first n_keep_1 rows of the full path must exactly match
+    # the first n_keep_1 rows of sub-solve 1's solution.
+    np.testing.assert_array_equal(
+        X_full[:n_keep_1],
+        sol.sub_results[0].x.reshape(T, -1)[:n_keep_1],
+    )
+
+    # Monotone convergence back to SS (capital starts below SS and recovers).
     assert X_full[0, 1] < K_SS  # starts below SS
     assert X_full[-1, 1] == pytest.approx(K_SS, rel=1e-4)  # converges to SS
 

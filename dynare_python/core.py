@@ -1605,7 +1605,9 @@ def solve_perfect_foresight_expectation_errors(
     params_dict : dict
         Parameter values.
     ss : ndarray, shape (n_endo,)
-        Terminal steady state (right BVP boundary for every sub-solve).
+        Default terminal steady state (initial right BVP boundary), used
+        unless overridden by an ``endval`` provided in a ``news_shocks``
+        3-tuple.
     model_funcs : dict
         Output of ``process_model()``.
     vars_dyn : list of str
@@ -1616,10 +1618,11 @@ def solve_perfect_foresight_expectation_errors(
 
         * ``learnt_in`` is the period at which agents receive new information
           (1-indexed, must be in ``[1, T]``).
-        * ``exog_path`` is a ``(T, n_exo)`` array representing the agents'
-          full belief about the shock path *from* ``learnt_in`` onward.  Row 0
-          is the shock at period ``learnt_in``, row 1 at period
-          ``learnt_in + 1``, etc.
+        * ``exog_path`` is either an array of shape ``(T, n_exo)``
+          representing the agents' full belief about the shock path *from*
+          ``learnt_in`` onward (row 0 is the shock at period ``learnt_in``,
+          row 1 at period ``learnt_in + 1``, etc.), or ``None`` if there are
+          no exogenous shocks in this information set.
         * ``endval`` (optional) overrides the terminal BVP boundary (right-hand
           steady state) for this sub-solve *and all subsequent ones*.  Use this
           to replicate Dynare's ``endval(learnt_in=k)`` block, which signals a
@@ -1664,6 +1667,12 @@ def solve_perfect_foresight_expectation_errors(
         stock_var_indices = _infer_stock_var_indices(model_funcs, vars_dyn)
     else:
         stock_var_indices = list(stock_var_indices)
+
+    # Validate that news_shocks is iterable before trying to parse entries.
+    if not hasattr(news_shocks, '__iter__'):
+        raise ValueError(
+            f"news_shocks must be a list of tuples; got {type(news_shocks).__name__}."
+        )
 
     # Normalise news_shocks: each entry → (learnt_in, exog_path, endval_override)
     # where endval_override is None if the 3rd element was not supplied.
@@ -1740,8 +1749,9 @@ def solve_perfect_foresight_expectation_errors(
         if sol.x_aux is not None:
             all_aux_pieces.append(sol.x_aux[:n_keep])
 
-        # Warm-start next sub-solve from tail of this solution.
-        X0_sub = X_sub[n_keep - 1:]
+        # Warm-start next sub-solve: rows starting at next_learnt_in (index n_keep),
+        # since current_initial_state already carries stocks at next_learnt_in - 1.
+        X0_sub = X_sub[n_keep:]
         if X0_sub.shape[0] < T_sub:
             pad = np.tile(X0_sub[-1:], (T_sub - X0_sub.shape[0], 1))
             X0_sub = np.vstack([X0_sub, pad])
