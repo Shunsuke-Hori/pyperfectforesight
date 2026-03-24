@@ -67,7 +67,7 @@ _REF_PATH = os.path.join(os.path.dirname(__file__), "dynare_ref_output", "perfec
 @pytest.fixture(scope="module")
 def dynare_ref():
     if not os.path.exists(_REF_PATH):
-        pytest.skip("Dynare reference file not found; run MATLAB/Dynare first.")
+        pytest.fail(f"Dynare reference file not found: {_REF_PATH}")
     return np.loadtxt(_REF_PATH, delimiter=",")  # shape (200, 2): [c, k]
 
 
