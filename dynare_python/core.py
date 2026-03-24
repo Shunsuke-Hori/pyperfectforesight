@@ -1622,9 +1622,13 @@ def solve_perfect_foresight_expectation_errors(
           ``n_exo`` columns, representing the agents' full belief about the
           shock path *from* ``learnt_in`` onward (row 0 is the shock at
           period ``learnt_in``, row 1 at period ``learnt_in + 1``, etc.),
-          or ``None`` if there are no exogenous shocks in this information
-          set.  Only the first ``T_sub`` rows are used internally
-          (``T_sub = T`` when ``constant_simulation_length=True``; otherwise
+          or ``None`` to pass an all-zero exogenous path to the sub-solver.
+          **Note:** ``None`` is only correct when the exogenous steady state
+          is zero; for level exogenous variables (e.g. ``z = 1``) you must
+          supply an explicit path including the steady-state level, otherwise
+          the simulation will be incorrect.  Only the first ``T_sub`` rows
+          are used internally (``T_sub = T`` when
+          ``constant_simulation_length=True``; otherwise
           ``T_sub = T - learnt_in + 1``); extra rows are ignored.
         * ``endval`` (optional) overrides the terminal BVP boundary (right-hand
           steady state) for this sub-solve *and all subsequent ones*.  Use this
@@ -1652,6 +1656,9 @@ def solve_perfect_foresight_expectation_errors(
     OptimizeResult
         ``sol.x`` : ndarray, shape (T * n_endo,)
             Stitched endogenous path, reshape to ``(T, n_endo)``.
+            ``n_endo`` is ``len(model_funcs.get('vars_dyn', vars_dyn))``,
+            i.e. the effective variable count after ``process_model``
+            (same ordering as ``vars_dyn`` used internally).
         ``sol.success`` : bool
             True if every sub-solve converged.
         ``sol.sub_results`` : list of OptimizeResult
@@ -1681,6 +1688,12 @@ def solve_perfect_foresight_expectation_errors(
     # Normalise news_shocks: each entry → (learnt_in, exog_path, endval_override)
     # where endval_override is None if the 3rd element was not supplied.
     def _parse_entry(entry):
+        import collections.abc
+        if not isinstance(entry, (tuple, list, collections.abc.Sequence)) or isinstance(entry, (str, bytes)):
+            raise ValueError(
+                f"Each news_shocks entry must be a 2- or 3-tuple "
+                f"(learnt_in, exog_path[, endval]); got {type(entry).__name__}."
+            )
         if len(entry) == 2:
             return entry[0], entry[1], None
         elif len(entry) == 3:
@@ -1695,6 +1708,12 @@ def solve_perfect_foresight_expectation_errors(
     # Validate.
     if not parsed:
         raise ValueError("news_shocks must be a non-empty list of (learnt_in, exog_path) tuples.")
+    for p in parsed:
+        li = p[0]
+        if not isinstance(li, (int, np.integer)):
+            raise ValueError(
+                f"Each learnt_in must be an integer; got {type(li).__name__} ({li!r})."
+            )
     learnt_ins = [p[0] for p in parsed]
     if learnt_ins != sorted(learnt_ins):
         raise ValueError("news_shocks must be sorted by learnt_in.")
