@@ -40,3 +40,6 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/Shunsuke-Hori/pyperfectforesight"
 Repository = "https://github.com/Shunsuke-Hori/pyperfectforesight"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -269,7 +269,7 @@ To contribute or modify:
    ```bash
    pip install -e ".[dev]"
    ```
-3. Run tests:
+3. Run tests (all test files are in `tests/`):
    ```bash
    pytest
    ```

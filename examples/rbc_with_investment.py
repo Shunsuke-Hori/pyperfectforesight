@@ -9,6 +9,7 @@ This demo shows:
 4. Visualizing the response to a government spending shock including investment
 """
 
+import os
 import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
@@ -264,7 +265,7 @@ if __name__ == "__main__":
     plt.tight_layout()
 
     # Save figure
-    output_file = 'rbc_with_investment.png'
+    output_file = os.path.join(os.path.dirname(__file__), 'rbc_with_investment.png')
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
 
