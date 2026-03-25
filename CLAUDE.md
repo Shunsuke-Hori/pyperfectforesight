@@ -86,8 +86,6 @@ Individual files (if needed):
 ```
 tests/test_homotopy.py                    # solve_perfect_foresight and solve_perfect_foresight_homotopy tests
 tests/test_arbitrary_lags.py              # arbitrary lag/lead support tests
-tests/test_auto_to_dynamic.py             # aux variable auto→dynamic fallback
-tests/test_dynamic_fallback.py            # aux variable dynamic method
 tests/test_custom_endval.py               # endval / permanent-shock tests
 tests/test_dynare_rbc.py                  # regression vs Dynare 6.2 RBC reference output
 tests/test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
