@@ -51,6 +51,7 @@ When direct Newton fails to converge — typically for large shocks far from ste
 ### Usage
 
 ```python
+import numpy as np
 from pyperfectforesight import solve_perfect_foresight_homotopy
 
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
