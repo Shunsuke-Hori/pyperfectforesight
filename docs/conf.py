@@ -5,6 +5,7 @@
 
 import os
 import sys
+from importlib.metadata import version as _version
 
 # -- Path setup --------------------------------------------------------------
 sys.path.insert(0, os.path.abspath(".."))
@@ -12,7 +13,7 @@ sys.path.insert(0, os.path.abspath(".."))
 # -- Project information -----------------------------------------------------
 project = "pyperfectforesight"
 author = "Shunsuke Hori"
-release = "0.1.0"
+release = _version("pyperfectforesight")
 copyright = "2026, Shunsuke Hori"
 
 # -- General configuration ---------------------------------------------------
@@ -29,7 +30,7 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # -- MyST configuration ------------------------------------------------------
-myst_enable_extensions = ["colon_fence", "deflist"]
+myst_enable_extensions = ["colon_fence", "deflist", "dollarmath"]
 
 # -- HTML output -------------------------------------------------------------
 html_theme = "pydata_sphinx_theme"

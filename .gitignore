@@ -64,3 +64,4 @@ htmlcov/
 .claude/
 
 docs/_build/
+docs/generated/
