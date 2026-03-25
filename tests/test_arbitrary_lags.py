@@ -4,7 +4,7 @@ import warnings
 
 import numpy as np
 
-from dynare_python import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 
 ALPHA = 0.36
@@ -88,7 +88,7 @@ def test_process_model_detects_lead2():
 
 def test_residual_lag2_at_steady_state():
     """residual() with lag-2 model returns ~0 at the steady-state path."""
-    from dynare_python import residual
+    from pyperfectforesight import residual
 
     model = _lag2_model()
     X_ss = np.tile(SS, (T, 1))
@@ -101,7 +101,7 @@ def test_residual_lag2_at_steady_state():
 
 def test_sparse_jacobian_lag2_shape():
     """sparse_jacobian() returns correctly shaped matrix for lag-2 model."""
-    from dynare_python import sparse_jacobian
+    from pyperfectforesight import sparse_jacobian
 
     model = _lag2_model()
     n = len(model["vars_dyn"])
@@ -116,7 +116,7 @@ def test_sparse_jacobian_lag2_shape():
 
 def test_sparse_jacobian_lead2_shape():
     """sparse_jacobian() returns correctly shaped matrix for lead-2 model."""
-    from dynare_python import sparse_jacobian
+    from pyperfectforesight import sparse_jacobian
 
     model = _lead2_model()
     n = len(model["vars_dyn"])
@@ -135,7 +135,7 @@ def test_sparse_jacobian_lead2_shape():
 
 def test_bvp_residual_lag2_at_steady_state():
     """_residual_bvp() with lag-2 model returns ~0 at the steady-state path."""
-    from dynare_python.core import _residual_bvp
+    from pyperfectforesight.core import _residual_bvp
 
     model = _lag2_model()
     X_ss = np.tile(SS, (T, 1))
@@ -152,7 +152,7 @@ def test_bvp_residual_lag2_at_steady_state():
 
 def test_bvp_jacobian_lag2_shape():
     """_jacobian_bvp() returns (T*neq, T*n) for lag-2 model."""
-    from dynare_python.core import _jacobian_bvp
+    from pyperfectforesight.core import _jacobian_bvp
 
     model = _lag2_model()
     n   = len(model["vars_dyn"])

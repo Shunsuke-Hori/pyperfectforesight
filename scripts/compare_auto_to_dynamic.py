@@ -1,7 +1,7 @@
 """Test auto fallback from analytical to dynamic"""
 
 import sympy as sp
-from dynare_python import v, process_model
+from pyperfectforesight import v, process_model
 import warnings
 
 print("=" * 70)

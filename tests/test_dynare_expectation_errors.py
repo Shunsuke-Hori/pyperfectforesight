@@ -1,4 +1,4 @@
-"""Test that dynare_python replicates Dynare's perfect foresight with
+"""Test that pyperfectforesight replicates Dynare's perfect foresight with
 expectation errors solution.
 
 Model: basic RBC with CRRA utility, Cobb-Douglas production (same as
@@ -24,7 +24,7 @@ import os
 import numpy as np
 import pytest
 
-from dynare_python import v, process_model, solve_perfect_foresight_expectation_errors
+from pyperfectforesight import v, process_model, solve_perfect_foresight_expectation_errors
 
 # ---------------------------------------------------------------------------
 # Parameters

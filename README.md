@@ -22,7 +22,7 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 2. Set up the conda environment:
    ```bash
    bash setup_conda_env.sh
-   conda activate dynare_python
+   conda activate pyperfectforesight
    ```
 
 3. Install the package in development mode:
@@ -33,7 +33,7 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 ### With pip (when published)
 
 ```bash
-pip install dynare-python
+pip install pyperfectforesight
 ```
 
 ## Quick Start
@@ -42,7 +42,7 @@ Here's a simple RBC (Real Business Cycle) model in Dynare lag notation:
 
 ```python
 import numpy as np
-from dynare_python import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 # Parameters baked in numerically
 ALPHA = 0.36
@@ -84,7 +84,7 @@ print(f"Converged: {sol.success}")
 ```python
 import sympy as sp
 import numpy as np
-from dynare_python import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 ALPHA, BETA = 0.36, 0.99
 
@@ -124,7 +124,7 @@ sol = solve_perfect_foresight(
 When direct Newton fails to converge for large shocks, use homotopy continuation:
 
 ```python
-from dynare_python import solve_perfect_foresight_homotopy
+from pyperfectforesight import solve_perfect_foresight_homotopy
 
 # Same model setup as above...
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
@@ -145,7 +145,7 @@ Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents a
 
 ```python
 import numpy as np
-from dynare_python import solve_perfect_foresight_expectation_errors
+from pyperfectforesight import solve_perfect_foresight_expectation_errors
 
 # Same RBC model with exogenous TFP z...
 # Agents initially expect no shock (period 1), then learn of a
@@ -198,7 +198,7 @@ python examples/rbc_with_government.py
 ## Package Structure
 
 ```
-dynare_python/
+pyperfectforesight/
 ├── __init__.py       # Package exports
 ├── __version__.py    # Version information
 └── core.py          # Core functionality
@@ -287,7 +287,7 @@ Inspired by [Dynare](https://www.dynare.org/), the reference platform for solvin
 If you use this package in your research, please cite:
 
 ```bibtex
-@software{dynare_python,
+@software{pyperfectforesight,
   title={DynareByPython: A Minimal Dynare-style Perfect Foresight Solver in Python},
   author={Shunsuke Hori},
   year={2026},

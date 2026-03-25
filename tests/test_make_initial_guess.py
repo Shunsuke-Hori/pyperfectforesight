@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from dynare_python import make_initial_guess
+from pyperfectforesight import make_initial_guess
 
 
 SS0 = np.array([1.0, 2.0, 3.0])

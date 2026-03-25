@@ -1,7 +1,7 @@
 """Test different auxiliary variable methods"""
 
 import sympy as sp
-from dynare_python import v, process_model
+from pyperfectforesight import v, process_model
 
 print("=" * 70)
 print("Auxiliary Variable Methods Comparison")

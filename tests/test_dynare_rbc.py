@@ -16,7 +16,7 @@ import os
 import numpy as np
 import pytest
 
-from dynare_python import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 # ---------------------------------------------------------------------------
 # Parameters (baked in numerically — no SymPy parameter symbols needed)

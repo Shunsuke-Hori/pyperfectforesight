@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from dynare_python import (
+from pyperfectforesight import (
     v,
     process_model,
     solve_perfect_foresight,

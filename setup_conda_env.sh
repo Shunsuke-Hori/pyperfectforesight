@@ -6,7 +6,7 @@
 set -e  # Exit on error
 
 # Configuration
-ENV_NAME="${1:-dynare_python}"
+ENV_NAME="${1:-pyperfectforesight}"
 PYTHON_VERSION="3.11"
 
 echo "========================================"
