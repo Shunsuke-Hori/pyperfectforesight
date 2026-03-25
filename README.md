@@ -144,18 +144,21 @@ print(f"Converged: {sol.success}")
 Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents are surprised at each `learnt_in` period and re-solve from that point forward; the full path is stitched from the sub-simulations.
 
 ```python
+import numpy as np
 from dynare_python import solve_perfect_foresight_expectation_errors
 
 # Same RBC model with exogenous TFP z...
 # Agents initially expect no shock (period 1), then learn of a
 # persistent TFP shock at period 3.
 T = 100
-exog_surprise = np.zeros((T, 1))
-exog_surprise[2:, 0] = 0.01   # shock starts at t=3 (0-indexed t=2)
+
+# exog_path for learnt_in=3: row 0 = period 3, row 1 = period 4, …
+# (T rows is fine; the solver uses only the first T - learnt_in + 1 = T-2 rows)
+exog_surprise = np.full((T, 1), 0.01)   # permanent shock from period 3 onward
 
 news_shocks = [
     (1, None),                  # period 1: baseline, no shock expected
-    (3, exog_surprise),         # period 3: agents learn of the shock
+    (3, exog_surprise),         # period 3: agents learn of permanent shock
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
@@ -244,7 +247,7 @@ For advanced users who want more control:
 - `verbose=False`: Print progress at each homotopy step
 
 ### `solve_perfect_foresight_expectation_errors()` options:
-- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
+- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **starting at period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. It is **not** a global `T`-row path — do not offset it by `learnt_in`. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
 - `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
 - `solver_options=None`: Forwarded to each sub-solve (same keys as `solve_perfect_foresight()`)

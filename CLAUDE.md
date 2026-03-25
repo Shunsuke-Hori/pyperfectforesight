@@ -70,6 +70,8 @@ test_homotopy.py                    # solve_perfect_foresight and solve_perfect_
 test_arbitrary_lags.py              # arbitrary lag/lead support tests
 test_auto_to_dynamic.py             # aux variable auto→dynamic fallback
 test_dynamic_fallback.py            # aux variable dynamic method
+test_custom_endval.py               # endval / permanent-shock tests
+test_dynare_rbc.py                  # regression vs Dynare 6.2 RBC reference output
 test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
 test_dynare_expectation_errors.py   # regression vs Dynare 6.2 reference output (3-segment RBC)
 test_methods_comparison.py          # comparison script (runs as a script, not pytest)
@@ -77,7 +79,7 @@ test_methods_comparison.py          # comparison script (runs as a script, not p
 
 Run all pytest-compatible tests:
 ```bash
-pytest test_homotopy.py test_arbitrary_lags.py test_auto_to_dynamic.py test_dynamic_fallback.py test_expectation_errors.py test_dynare_expectation_errors.py
+pytest test_homotopy.py test_arbitrary_lags.py test_auto_to_dynamic.py test_dynamic_fallback.py test_custom_endval.py test_dynare_rbc.py test_expectation_errors.py test_dynare_expectation_errors.py
 ```
 
 ## Branching convention
