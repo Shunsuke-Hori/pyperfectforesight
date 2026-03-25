@@ -68,8 +68,15 @@ scripts/                # Standalone comparison/demo scripts (not collected by p
 ├── compare_aux_methods.py
 ├── compare_auto_to_dynamic.py
 └── compare_dynamic_fallback.py
-docs/                   # Supplementary documentation
-└── AUXILIARY_VARIABLES.md
+docs/                   # Sphinx documentation source (MyST/Markdown)
+├── conf.py
+├── index.md
+├── installation.md
+├── getting-started.md
+├── solvers.md
+├── initial-guess.md
+├── auxiliary-variables.md
+└── api-reference.md
 README.md               # User-facing documentation
 CLAUDE.md               # This file
 ```
