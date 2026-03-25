@@ -1574,7 +1574,297 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
 
 # ============================================================
-# 11. Homotopy solver
+# 11. Expectation-errors solver (multiple MIT shocks)
+# ============================================================
+
+def solve_perfect_foresight_expectation_errors(
+    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    news_shocks,
+    initial_state=None,
+    ss_initial=None,
+    stock_var_indices=None,
+    constant_simulation_length=False,
+    solver_options=None,
+):
+    """
+    Solve a perfect foresight model with multiple surprise (MIT) shocks.
+
+    Replicates Dynare's ``perfect_foresight_with_expectation_errors_setup`` /
+    ``perfect_foresight_with_expectation_errors_solver``.  At each ``learnt_in``
+    period agents receive a surprise update to their information set and
+    re-solve the perfect foresight problem from that point forward.  The full
+    simulation path is stitched from the sub-simulations.
+
+    Parameters
+    ----------
+    T : int
+        Total simulation length (number of periods in the stitched output).
+    X0 : ndarray, shape (T, n_endo)
+        Initial guess for the endogenous path, used as the warm-start for the
+        first sub-solve.  Subsequent sub-solves are warm-started from the
+        previous sub-solve's solution.
+    params_dict : dict
+        Parameter values.
+    ss : ndarray, shape (n_endo,)
+        Default terminal steady state (initial right BVP boundary), used
+        unless overridden by an ``endval`` provided in a ``news_shocks``
+        3-tuple.
+    model_funcs : dict
+        Output of ``process_model()``.
+    vars_dyn : list of str
+        Endogenous variable names (may be extended by process_model).
+    news_shocks : list of tuples
+        Each entry is either a 2-tuple ``(learnt_in, exog_path)`` or a 3-tuple
+        ``(learnt_in, exog_path, endval)`` where
+
+        * ``learnt_in`` is the period at which agents receive new information
+          (1-indexed, must be in ``[1, T]``).
+        * ``exog_path`` is either an array with at least ``T_sub`` rows and
+          ``n_exo`` columns, representing the agents' full belief about the
+          shock path *from* ``learnt_in`` onward (row 0 is the shock at
+          period ``learnt_in``, row 1 at period ``learnt_in + 1``, etc.),
+          or ``None`` to pass an all-zero exogenous path to the sub-solver.
+          **Note:** ``None`` is only correct when the exogenous steady state
+          is zero; for level exogenous variables (e.g. ``z = 1``) you must
+          supply an explicit path including the steady-state level, otherwise
+          the simulation will be incorrect.  Only the first ``T_sub`` rows
+          are used internally (``T_sub = T`` when
+          ``constant_simulation_length=True``; otherwise
+          ``T_sub = T - learnt_in + 1``); extra rows are ignored.
+        * ``endval`` (optional) overrides the terminal BVP boundary (right-hand
+          steady state) for this sub-solve *and all subsequent ones*.  Use this
+          to replicate Dynare's ``endval(learnt_in=k)`` block, which signals a
+          **permanent** shock that changes the terminal steady state.  If
+          omitted the current ``endval`` (initialised to ``ss``) is reused.
+
+        The list must be sorted by ``learnt_in`` and the first entry must have
+        ``learnt_in == 1``.
+    initial_state : ndarray, optional
+        Pre-period-0 stock variable values (``k_{-1}`` in Dynare notation).
+        Defaults to ``ss_initial[stock_var_indices]``.
+    ss_initial : ndarray, optional
+        Initial steady state.  Defaults to ``ss``.
+    stock_var_indices : list of int, optional
+        Inferred from incidence if not provided.
+    constant_simulation_length : bool, default False
+        If False (Dynare's default), each sub-solve uses the shrinking
+        remaining horizon ``T - learnt_in + 1``.  If True (Dynare's
+        ``constant_simulation_length`` option), every sub-solve runs for
+        the full ``T`` periods.
+    solver_options : dict, optional
+        Forwarded unchanged to each ``solve_perfect_foresight`` sub-solve.
+        Recognised keys: ``maxiter``, ``maxfev``, ``ftol``, ``xtol``.
+
+    Returns
+    -------
+    OptimizeResult
+        ``sol.x`` : ndarray, shape (T * n_endo,)
+            Stitched endogenous path, reshape to ``(T, n_endo)``.
+            ``n_endo`` is ``len(model_funcs.get('vars_dyn', vars_dyn))``,
+            i.e. the effective variable count after ``process_model``
+            (same ordering as ``vars_dyn`` used internally).
+        ``sol.success`` : bool
+            True if every sub-solve converged.
+        ``sol.status`` : int
+            1 if all sub-solves converged, 0 otherwise.
+        ``sol.message`` : str
+            Human-readable summary; lists failing segments on failure.
+        ``sol.sub_results`` : list of OptimizeResult
+            Per-sub-solve results (one per entry in ``news_shocks``).
+        ``sol.x_aux`` : ndarray or None
+            Stitched auxiliary variable path, shape ``(T, n_aux)``, or None.
+        ``sol.vars_aux`` : list of str
+    """
+    from scipy.optimize import OptimizeResult
+
+    # Use vars_dyn from model_funcs (may be extended by process_model).
+    vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
+    n = len(vars_dyn)
+
+    # Infer stock_var_indices once, reuse for all sub-solves.
+    if stock_var_indices is None:
+        stock_var_indices = _infer_stock_var_indices(model_funcs, vars_dyn)
+    else:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
+        stock_var_indices = list(stock_var_indices)
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
+
+    if len(set(stock_var_indices)) != len(stock_var_indices):
+        raise ValueError("stock_var_indices contains duplicate indices.")
+    if any(i < 0 or i >= n for i in stock_var_indices):
+        raise ValueError(
+            f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
+        )
+
+    # Require a sequence (list or tuple) so that len() is always available.
+    if not isinstance(news_shocks, (list, tuple)):
+        raise ValueError(
+            f"news_shocks must be a list or tuple of tuples; got {type(news_shocks).__name__}."
+        )
+
+    # Normalise news_shocks: each entry → (learnt_in, exog_path, endval_override)
+    # where endval_override is None if the 3rd element was not supplied.
+    def _parse_entry(entry):
+        import collections.abc
+        if not isinstance(entry, (tuple, list, collections.abc.Sequence)) or isinstance(entry, (str, bytes)):
+            raise ValueError(
+                f"Each news_shocks entry must be a 2- or 3-tuple "
+                f"(learnt_in, exog_path[, endval]); got {type(entry).__name__}."
+            )
+        if len(entry) == 2:
+            return entry[0], entry[1], None
+        elif len(entry) == 3:
+            return entry[0], entry[1], entry[2]
+        else:
+            raise ValueError(
+                f"Each news_shocks entry must be a 2- or 3-tuple "
+                f"(learnt_in, exog_path[, endval]); got length {len(entry)}."
+            )
+    parsed = [_parse_entry(e) for e in news_shocks]
+
+    # Validate.
+    if not parsed:
+        raise ValueError("news_shocks must be a non-empty list of (learnt_in, exog_path) tuples.")
+    for p in parsed:
+        li = p[0]
+        if not isinstance(li, (int, np.integer)):
+            raise ValueError(
+                f"Each learnt_in must be an integer; got {type(li).__name__} ({li!r})."
+            )
+    learnt_ins = [p[0] for p in parsed]
+    if learnt_ins != sorted(learnt_ins):
+        raise ValueError("news_shocks must be sorted by learnt_in.")
+    if learnt_ins[0] != 1:
+        raise ValueError("The first entry in news_shocks must have learnt_in=1.")
+    if any(li < 1 or li > T for li in learnt_ins):
+        raise ValueError(f"All learnt_in values must be in [1, T={T}].")
+    if len(set(learnt_ins)) != len(learnt_ins):
+        raise ValueError("news_shocks contains duplicate learnt_in values.")
+
+    all_pieces = []
+    all_aux_pieces = []
+    sub_results = []
+    current_initial_state = initial_state
+    current_endval = ss   # updated if a 3-tuple provides an endval override
+    X0_sub = X0  # warm-start for first sub-solve
+
+    for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
+        # Apply endval override (persists to subsequent segments).
+        if endval_override is not None:
+            current_endval = np.asarray(endval_override, dtype=float).ravel()
+
+        # Number of periods to keep from this sub-solve's output.
+        next_learnt_in = parsed[i + 1][0] if i + 1 < len(parsed) else T + 1
+        n_keep = next_learnt_in - learnt_in
+
+        # Sub-solve horizon.
+        T_sub = T if constant_simulation_length else T - learnt_in + 1
+
+        # Trim/pad X0_sub to T_sub rows.
+        if X0_sub.shape[0] < T_sub:
+            pad = np.tile(X0_sub[-1:], (T_sub - X0_sub.shape[0], 1))
+            X0_sub = np.vstack([X0_sub, pad])
+        elif X0_sub.shape[0] > T_sub:
+            X0_sub = X0_sub[:T_sub]
+
+        # Validate and trim exog_path_i to T_sub rows.
+        exog_sub = None
+        if exog_path_i is not None:
+            exog_sub = np.asarray(exog_path_i, dtype=float)
+            n_exo = len(model_funcs.get('vars_exo', []))
+            if exog_sub.ndim != 2:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path must be "
+                    f"a 2D array of shape (T_sub, n_exo), got shape {exog_sub.shape}."
+                )
+            if exog_sub.shape[1] != n_exo:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path has "
+                    f"{exog_sub.shape[1]} column(s) but the model has {n_exo} "
+                    f"exogenous variable(s)."
+                )
+            if exog_sub.shape[0] < T_sub:
+                raise ValueError(
+                    f"news_shocks entry with learnt_in={learnt_in}: exog_path has "
+                    f"{exog_sub.shape[0]} row(s) but the sub-solve requires at least "
+                    f"{T_sub} (T_sub = {'T' if constant_simulation_length else 'T - learnt_in + 1'} = {T_sub})."
+                )
+            exog_sub = exog_sub[:T_sub]
+
+        sol = solve_perfect_foresight(
+            T_sub, X0_sub, params_dict, ss, model_funcs, vars_dyn,
+            exog_path=exog_sub,
+            initial_state=current_initial_state,
+            ss_initial=ss_initial,
+            stock_var_indices=stock_var_indices,
+            solver_options=solver_options,
+            endval=current_endval,
+        )
+        sub_results.append(sol)
+
+        X_sub = sol.x.reshape(T_sub, n)
+        all_pieces.append(X_sub[:n_keep])
+
+        # Auxiliary variables.
+        if sol.x_aux is not None:
+            all_aux_pieces.append(sol.x_aux[:n_keep])
+
+        # Stock var values at the boundary (period next_learnt_in - 1).
+        if i + 1 < len(parsed):
+            current_initial_state = X_sub[n_keep - 1, stock_var_indices]
+
+            # Warm-start next sub-solve: rows starting at next_learnt_in (index
+            # n_keep), since current_initial_state already carries stocks at
+            # next_learnt_in - 1.  Pad/trim to the *next* sub-solve's horizon.
+            T_sub_next = T if constant_simulation_length else T - next_learnt_in + 1
+            X0_sub = X_sub[n_keep:]
+            if X0_sub.shape[0] < T_sub_next:
+                pad = np.tile(X0_sub[-1:], (T_sub_next - X0_sub.shape[0], 1))
+                X0_sub = np.vstack([X0_sub, pad])
+            elif X0_sub.shape[0] > T_sub_next:
+                X0_sub = X0_sub[:T_sub_next]
+
+    X_full = np.vstack(all_pieces)  # (T, n)
+
+    x_aux_full = None
+    vars_aux = model_funcs.get('vars_aux', [])
+    if all_aux_pieces and len(all_aux_pieces) == len(parsed):
+        x_aux_full = np.vstack(all_aux_pieces)
+
+    overall_success = all(s.success for s in sub_results)
+    if overall_success:
+        message = f"All {len(sub_results)} sub-solve(s) converged."
+    else:
+        failed = [
+            f"learnt_in={parsed[i][0]}: {s.message}"
+            for i, s in enumerate(sub_results)
+            if not s.success
+        ]
+        message = "One or more sub-solves failed: " + "; ".join(failed)
+
+    return OptimizeResult(
+        x=X_full.ravel(),
+        success=overall_success,
+        status=1 if overall_success else 0,
+        message=message,
+        sub_results=sub_results,
+        x_aux=x_aux_full,
+        vars_aux=vars_aux,
+    )
+
+
+# ============================================================
+# 12. Homotopy solver
 # ============================================================
 
 def solve_perfect_foresight_homotopy(

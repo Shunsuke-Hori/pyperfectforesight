@@ -31,6 +31,7 @@ from dynare_python.core import (
     # High-level solver
     solve_perfect_foresight,
     solve_perfect_foresight_homotopy,
+    solve_perfect_foresight_expectation_errors,
 )
 
 __all__ = [
@@ -55,4 +56,5 @@ __all__ = [
     # High-level solver
     "solve_perfect_foresight",
     "solve_perfect_foresight_homotopy",
+    "solve_perfect_foresight_expectation_errors",
 ]
