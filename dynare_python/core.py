@@ -1661,6 +1661,10 @@ def solve_perfect_foresight_expectation_errors(
             (same ordering as ``vars_dyn`` used internally).
         ``sol.success`` : bool
             True if every sub-solve converged.
+        ``sol.status`` : int
+            1 if all sub-solves converged, 0 otherwise.
+        ``sol.message`` : str
+            Human-readable summary; lists failing segments on failure.
         ``sol.sub_results`` : list of OptimizeResult
             Per-sub-solve results (one per entry in ``news_shocks``).
         ``sol.x_aux`` : ndarray or None
@@ -1813,9 +1817,22 @@ def solve_perfect_foresight_expectation_errors(
     if all_aux_pieces and len(all_aux_pieces) == len(parsed):
         x_aux_full = np.vstack(all_aux_pieces)
 
+    overall_success = all(s.success for s in sub_results)
+    if overall_success:
+        message = f"All {len(sub_results)} sub-solve(s) converged."
+    else:
+        failed = [
+            f"learnt_in={parsed[i][0]}: {s.message}"
+            for i, s in enumerate(sub_results)
+            if not s.success
+        ]
+        message = "One or more sub-solves failed: " + "; ".join(failed)
+
     return OptimizeResult(
         x=X_full.ravel(),
-        success=all(s.success for s in sub_results),
+        success=overall_success,
+        status=1 if overall_success else 0,
+        message=message,
         sub_results=sub_results,
         x_aux=x_aux_full,
         vars_aux=vars_aux,
