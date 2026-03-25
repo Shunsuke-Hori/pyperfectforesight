@@ -41,5 +41,12 @@ dev = [
 Homepage = "https://github.com/Shunsuke-Hori/pyperfectforesight"
 Repository = "https://github.com/Shunsuke-Hori/pyperfectforesight"
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dynare_python*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
