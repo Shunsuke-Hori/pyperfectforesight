@@ -55,32 +55,44 @@ dynare_python/
 ├── __version__.py      # Version string
 └── core.py             # All model/solver logic
 
-examples/               # Standalone demo scripts
-AUXILIARY_VARIABLES.md  # Docs for auxiliary variable handling
+examples/               # Standalone demo scripts (PNGs saved here)
+tests/                  # All pytest-compatible test files and reference data
+├── dynare_ref_output/  # Dynare 6.2 reference CSVs (only .csv files are tracked)
+├── test_homotopy.py
+├── test_arbitrary_lags.py
+├── test_custom_endval.py
+├── test_dynare_rbc.py
+├── test_expectation_errors.py
+└── test_dynare_expectation_errors.py
+scripts/                # Standalone comparison/demo scripts (not collected by pytest)
+├── compare_aux_methods.py
+├── compare_auto_to_dynamic.py
+└── compare_dynamic_fallback.py
+docs/                   # Supplementary documentation
+└── AUXILIARY_VARIABLES.md
 README.md               # User-facing documentation
 CLAUDE.md               # This file
 ```
 
 ## Testing
 
-Tests live in the repo root (not in a `tests/` directory):
+Tests live in `tests/`. `pyproject.toml` sets `testpaths = ["tests"]` so a bare `pytest` runs all pytest-compatible tests:
 
-```
-test_homotopy.py                    # solve_perfect_foresight and solve_perfect_foresight_homotopy tests
-test_arbitrary_lags.py              # arbitrary lag/lead support tests
-test_auto_to_dynamic.py             # aux variable auto→dynamic fallback
-test_dynamic_fallback.py            # aux variable dynamic method
-test_custom_endval.py               # endval / permanent-shock tests
-test_dynare_rbc.py                  # regression vs Dynare 6.2 RBC reference output
-test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
-test_dynare_expectation_errors.py   # regression vs Dynare 6.2 reference output (3-segment RBC)
-test_methods_comparison.py          # comparison script (runs as a script, not pytest)
-```
-
-Run all pytest-compatible tests:
 ```bash
-pytest test_homotopy.py test_arbitrary_lags.py test_auto_to_dynamic.py test_dynamic_fallback.py test_custom_endval.py test_dynare_rbc.py test_expectation_errors.py test_dynare_expectation_errors.py
+pytest
 ```
+
+Individual files (if needed):
+```
+tests/test_homotopy.py                    # solve_perfect_foresight and solve_perfect_foresight_homotopy tests
+tests/test_arbitrary_lags.py              # arbitrary lag/lead support tests
+tests/test_custom_endval.py               # endval / permanent-shock tests
+tests/test_dynare_rbc.py                  # regression vs Dynare 6.2 RBC reference output
+tests/test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
+tests/test_dynare_expectation_errors.py   # regression vs Dynare 6.2 reference output (3-segment RBC)
+```
+
+Standalone comparison scripts (run directly, not via pytest) live in `scripts/`.
 
 ## Branching convention
 

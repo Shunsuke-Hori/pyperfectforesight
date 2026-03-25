@@ -49,6 +49,7 @@ dist/
 *.png
 *.pdf
 !docs/**/*.png
+!examples/**/*.png
 
 # OS
 .DS_Store
@@ -62,7 +63,3 @@ htmlcov/
 # Claude
 .claude/
 
-# Temporary test files
-test_auto_to_dynamic.py
-test_dynamic_fallback.py
-test_methods_comparison.py

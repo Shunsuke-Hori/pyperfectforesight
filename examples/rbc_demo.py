@@ -10,6 +10,7 @@ This demo shows:
 5. Visualizing the results
 """
 
+import os
 import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
@@ -217,7 +218,7 @@ if __name__ == "__main__":
     plt.tight_layout()
 
     # Save figure
-    output_file = 'rbc_transition.png'
+    output_file = os.path.join(os.path.dirname(__file__), 'rbc_transition.png')
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Plot saved to: {output_file}")
 
