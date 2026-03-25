@@ -60,8 +60,6 @@ tests/                  # All pytest-compatible test files and reference data
 ├── dynare_ref_output/  # Dynare 6.2 reference CSVs (only .csv files are tracked)
 ├── test_homotopy.py
 ├── test_arbitrary_lags.py
-├── test_auto_to_dynamic.py
-├── test_dynamic_fallback.py
 ├── test_custom_endval.py
 ├── test_dynare_rbc.py
 ├── test_expectation_errors.py

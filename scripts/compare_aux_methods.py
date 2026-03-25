@@ -1,7 +1,6 @@
 """Test different auxiliary variable methods"""
 
 import sympy as sp
-import numpy as np
 from dynare_python import v, process_model
 
 print("=" * 70)

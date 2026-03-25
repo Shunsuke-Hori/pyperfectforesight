@@ -1,7 +1,6 @@
 """Test auto fallback from analytical to dynamic"""
 
 import sympy as sp
-import numpy as np
 from dynare_python import v, process_model
 import warnings
 
