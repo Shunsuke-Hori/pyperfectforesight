@@ -36,6 +36,17 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 ### Arbitrary lag/lead support
 `residual()`, `sparse_jacobian()`, `_residual_bvp()`, and `_jacobian_bvp()` derive lag sets dynamically from `all_syms` via `_resolve_lag_sets()` / `_compute_lag_sets()`. Models with `|lag| > 1` are supported; in BVP mode a `UserWarning` is emitted because pre-sample values beyond `initval` are clamped.
 
+### `endval` parameter
+`solve_perfect_foresight()` accepts an `endval` keyword argument to override the terminal BVP boundary (right-hand steady state). Defaults to `ss`. Use for permanent shocks where the long-run equilibrium differs from the initial steady state.
+
+### Expectation-errors solver
+`solve_perfect_foresight_expectation_errors()` replicates Dynare's `perfect_foresight_with_expectation_errors_setup` / `_solver`. It accepts a `news_shocks` list of 2- or 3-tuples `(learnt_in, exog_path[, endval])`. At each `learnt_in` the solver re-solves from that period forward and stitches the pieces together. Key design points:
+- `learnt_in` is 1-indexed; the list must be sorted and start with `learnt_in=1`.
+- The 3-tuple `endval` overrides the terminal steady state from that segment onward (mirrors Dynare's `endval(learnt_in=k)`).
+- `constant_simulation_length=False` (default) uses a shrinking horizon `T - learnt_in + 1`; `True` uses the full `T` every sub-solve.
+- The returned `OptimizeResult` includes `success`, `status` (1/0), `message`, `sub_results` (per-segment), `x_aux`, and `vars_aux`.
+- `exog_path=None` passes an all-zero path; only correct when the exogenous steady state is zero.
+
 ## Repository layout
 
 ```
@@ -55,16 +66,18 @@ CLAUDE.md               # This file
 Tests live in the repo root (not in a `tests/` directory):
 
 ```
-test_homotopy.py           # solve_perfect_foresight and solve_perfect_foresight_homotopy tests
-test_arbitrary_lags.py     # arbitrary lag/lead support tests
-test_auto_to_dynamic.py    # aux variable auto→dynamic fallback
-test_dynamic_fallback.py   # aux variable dynamic method
-test_methods_comparison.py # comparison script (runs as a script, not pytest)
+test_homotopy.py                    # solve_perfect_foresight and solve_perfect_foresight_homotopy tests
+test_arbitrary_lags.py              # arbitrary lag/lead support tests
+test_auto_to_dynamic.py             # aux variable auto→dynamic fallback
+test_dynamic_fallback.py            # aux variable dynamic method
+test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
+test_dynare_expectation_errors.py   # regression vs Dynare 6.2 reference output (3-segment RBC)
+test_methods_comparison.py          # comparison script (runs as a script, not pytest)
 ```
 
 Run all pytest-compatible tests:
 ```bash
-pytest test_homotopy.py test_arbitrary_lags.py test_auto_to_dynamic.py test_dynamic_fallback.py
+pytest test_homotopy.py test_arbitrary_lags.py test_auto_to_dynamic.py test_dynamic_fallback.py test_expectation_errors.py test_dynare_expectation_errors.py
 ```
 
 ## Branching convention
