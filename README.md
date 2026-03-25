@@ -10,6 +10,7 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 - **Automatic differentiation**: Compute Jacobian blocks automatically
 - **Sparse Newton solver**: Efficient sparse Jacobian and Newton iterations for large-scale models
 - **Homotopy continuation**: `solve_perfect_foresight_homotopy` for large shocks that are hard to solve directly
+- **Expectation-errors solver**: `solve_perfect_foresight_expectation_errors` replicates Dynare's `perfect_foresight_with_expectation_errors_solver` — agents are surprised at multiple `learnt_in` periods and the full path is stitched from sub-simulations
 - **Generic steady-state solver**: Numerical steady-state computation for any model
 - **Auxiliary variable support**: Handle auxiliary (non-dynamic) variables via analytical substitution, dynamic augmentation, or nested numerical solving
 
@@ -138,6 +139,38 @@ sol = solve_perfect_foresight_homotopy(
 print(f"Converged: {sol.success}")
 ```
 
+### Multiple Surprise Shocks (Expectation Errors)
+
+Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents are surprised at each `learnt_in` period and re-solve from that point forward; the full path is stitched from the sub-simulations.
+
+```python
+import numpy as np
+from dynare_python import solve_perfect_foresight_expectation_errors
+
+# Same RBC model with exogenous TFP z...
+# Agents initially expect no shock (period 1), then learn of a
+# persistent TFP shock at period 3.
+T = 100
+
+# exog_path for learnt_in=3: row 0 = period 3, row 1 = period 4, …
+# (T rows is fine; the solver uses only the first T - learnt_in + 1 = T-2 rows)
+exog_surprise = np.full((T, 1), 0.01)   # permanent shock from period 3 onward
+
+news_shocks = [
+    (1, None),                  # period 1: baseline, no shock expected
+    (3, exog_surprise),         # period 3: agents learn of permanent shock
+]
+
+sol = solve_perfect_foresight_expectation_errors(
+    T, X0, {}, ss, model_funcs, vars_dyn,
+    news_shocks=news_shocks,
+)
+print(f"Converged: {sol.success}, message: {sol.message}")
+X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
+```
+
+Each entry in `news_shocks` is a 2-tuple `(learnt_in, exog_path)` or a 3-tuple `(learnt_in, exog_path, endval)`. The optional `endval` mirrors Dynare's `endval(learnt_in=k)` block for permanent shocks that change the terminal steady state. An `endval` in a 3-tuple applies to that sub-solve and remains the terminal boundary for all later segments unless overridden again by another 3-tuple. The list must be sorted by `learnt_in` and the first entry must have `learnt_in=1`.
+
 ## Stock/Jump Variable Formulation
 
 The solver always uses an **augmented-path BVP (boundary value problem) formulation**:
@@ -178,6 +211,7 @@ dynare_python/
 - **`compute_steady_state_numerical(equations, vars_dyn, params_dict, ...)`**: Compute steady state numerically
 - **`solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Solve perfect foresight transition path
 - **`solve_perfect_foresight_homotopy(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Homotopy continuation for difficult shocks
+- **`solve_perfect_foresight_expectation_errors(T, X0, params_dict, ss, model_funcs, vars_dyn, news_shocks, ...)`**: Multiple surprise (MIT) shocks — replicates Dynare's expectation-errors solver
 
 ### Low-level Functions
 
@@ -202,6 +236,7 @@ For advanced users who want more control:
 - `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
 - `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
 - `ss_initial=None`: Initial steady-state values used for the `initval` boundary row; defaults to `ss`
+- `endval=None`: Override the terminal steady state (right BVP boundary); defaults to `ss`. Use this for permanent shocks that shift the long-run equilibrium.
 - `solver_options=None`: Sparse Newton solver options (treated as `{}` when `None`; supports `maxiter`, `ftol`, `xtol`, `maxfev`)
 - `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
 
@@ -210,6 +245,12 @@ For advanced users who want more control:
 - `n_steps=10`: Number of homotopy steps (must be a positive integer)
 - `exog_ss=None`: Baseline exogenous path at `λ=0`; defaults to zero
 - `verbose=False`: Print progress at each homotopy step
+
+### `solve_perfect_foresight_expectation_errors()` options:
+- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. Do **not** pre-offset it as if row 0 were period 1; the solver handles that alignment internally. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; longer paths (including a full `T`-row array) are accepted and extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
+- `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
+- `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
+- `solver_options=None`: Forwarded to each sub-solve (same keys as `solve_perfect_foresight()`)
 
 ## Requirements
 
