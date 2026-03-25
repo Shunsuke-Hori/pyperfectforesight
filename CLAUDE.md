@@ -40,7 +40,7 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 `solve_perfect_foresight()` accepts an `endval` keyword argument to override the terminal BVP boundary (right-hand steady state). Defaults to `ss`. Use for permanent shocks where the long-run equilibrium differs from the initial steady state.
 
 ### Expectation-errors solver
-`solve_perfect_foresight_expectation_errors()` replicates Dynare's `perfect_foresight_with_expectation_errors_setup` / `_solver`. It accepts a `news_shocks` list of 2- or 3-tuples `(learnt_in, exog_path[, endval])`. At each `learnt_in` the solver re-solves from that period forward and stitches the pieces together. Key design points:
+`solve_perfect_foresight_expectation_errors()` replicates Dynare's `perfect_foresight_with_expectation_errors_setup` / `perfect_foresight_with_expectation_errors_solver`. It accepts a `news_shocks` list of 2- or 3-tuples `(learnt_in, exog_path[, endval])`. At each `learnt_in` the solver re-solves from that period forward and stitches the pieces together. Key design points:
 - `learnt_in` is 1-indexed; the list must be sorted and start with `learnt_in=1`.
 - The 3-tuple `endval` overrides the terminal steady state from that segment onward (mirrors Dynare's `endval(learnt_in=k)`).
 - `constant_simulation_length=False` (default) uses a shrinking horizon `T - learnt_in + 1`; `True` uses the full `T` every sub-solve.
