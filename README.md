@@ -169,7 +169,7 @@ print(f"Converged: {sol.success}, message: {sol.message}")
 X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
 ```
 
-Each entry in `news_shocks` is a 2-tuple `(learnt_in, exog_path)` or a 3-tuple `(learnt_in, exog_path, endval)`. The optional `endval` mirrors Dynare's `endval(learnt_in=k)` block for permanent shocks that change the terminal steady state. The list must be sorted by `learnt_in` and the first entry must have `learnt_in=1`.
+Each entry in `news_shocks` is a 2-tuple `(learnt_in, exog_path)` or a 3-tuple `(learnt_in, exog_path, endval)`. The optional `endval` mirrors Dynare's `endval(learnt_in=k)` block for permanent shocks that change the terminal steady state. An `endval` in a 3-tuple applies to that sub-solve and remains the terminal boundary for all later segments unless overridden again by another 3-tuple. The list must be sorted by `learnt_in` and the first entry must have `learnt_in=1`.
 
 ## Stock/Jump Variable Formulation
 
@@ -247,7 +247,7 @@ For advanced users who want more control:
 - `verbose=False`: Print progress at each homotopy step
 
 ### `solve_perfect_foresight_expectation_errors()` options:
-- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **starting at period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. It is **not** a global `T`-row path — do not offset it by `learnt_in`. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
+- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. Do **not** pre-offset it as if row 0 were period 1; the solver handles that alignment internally. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; longer paths (including a full `T`-row array) are accepted and extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
 - `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
 - `solver_options=None`: Forwarded to each sub-solve (same keys as `solve_perfect_foresight()`)
