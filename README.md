@@ -254,7 +254,7 @@ For advanced users who want more control:
 
 ## Requirements
 
-- Python >= 3.8
+- Python >= 3.9
 - NumPy >= 1.20.0
 - SciPy >= 1.7.0
 - SymPy >= 1.9.0

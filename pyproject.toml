@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,7 @@ name = "dynare-python"
 version = "0.1.0"
 description = "A minimal Dynare-style perfect foresight solver in Python"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Shunsuke Hori"}
@@ -19,10 +19,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
@@ -40,6 +40,13 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/Shunsuke-Hori/pyperfectforesight"
 Repository = "https://github.com/Shunsuke-Hori/pyperfectforesight"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dynare_python*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
