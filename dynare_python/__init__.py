@@ -32,6 +32,9 @@ from dynare_python.core import (
     solve_perfect_foresight,
     solve_perfect_foresight_homotopy,
     solve_perfect_foresight_expectation_errors,
+
+    # Initial guess helper
+    make_initial_guess,
 )
 
 __all__ = [
@@ -57,4 +60,6 @@ __all__ = [
     "solve_perfect_foresight",
     "solve_perfect_foresight_homotopy",
     "solve_perfect_foresight_expectation_errors",
+    # Initial guess helper
+    "make_initial_guess",
 ]

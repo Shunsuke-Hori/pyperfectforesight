@@ -2208,3 +2208,96 @@ def solve_perfect_foresight_homotopy(
         X_warm = sol.x.reshape(T, n)
 
     return sol
+
+
+# ============================================================
+# 13. Initial guess helper
+# ============================================================
+
+def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
+    """
+    Generate an initial guess path for the perfect foresight solver.
+
+    Replicates the spirit of Dynare's ``perfect_foresight_setup`` path
+    initialisation and adds an exponential option that better matches the
+    saddle-path dynamics typical of DSGE models.
+
+    Parameters
+    ----------
+    T : int
+        Number of periods (rows of the returned array).
+    ss_initial : array-like, shape (n,)
+        Starting values — typically the initial steady state or the
+        period-0 values you expect the path to begin near.
+    ss_terminal : array-like, shape (n,)
+        Terminal values — typically the terminal steady state ``ss``.
+    method : {'linear', 'exponential', 'constant'}, default 'linear'
+        How to interpolate between ``ss_initial`` and ``ss_terminal``:
+
+        * ``'linear'`` — evenly spaced from ``ss_initial`` (t=0) to
+          ``ss_terminal`` (t=T-1).  Matches Dynare's default
+          ``perfect_foresight_setup`` behaviour when both ``initval`` and
+          ``endval`` are supplied.
+        * ``'exponential'`` — geometric convergence
+          ``x(t) = ss_terminal + (ss_initial - ss_terminal) * decay**t``.
+          The path closes most of the gap in early periods and flattens
+          near ``ss_terminal``, mimicking saddle-path dynamics.  The gap
+          never reaches exactly zero; use ``decay`` to control the speed.
+        * ``'constant'`` — ``ss_terminal`` repeated for all periods.
+          Equivalent to ``np.tile(ss_terminal, (T, 1))``.
+    decay : float, default 0.9
+        Decay rate for ``method='exponential'``.  Must be in ``(0, 1)``.
+        Smaller values converge faster (e.g. ``0.5`` closes half the gap
+        each period); values near 1 converge slowly and approach linear.
+        Ignored for other methods.
+
+    Returns
+    -------
+    X0 : ndarray, shape (T, n)
+        Initial guess array, ready to pass as ``X0`` to
+        ``solve_perfect_foresight`` or
+        ``solve_perfect_foresight_expectation_errors``.
+
+    Examples
+    --------
+    Linear interpolation (Dynare default):
+
+    >>> X0 = make_initial_guess(T, ss_initial=ss, ss_terminal=ss_new)
+
+    Exponential interpolation with faster convergence:
+
+    >>> X0 = make_initial_guess(T, ss_initial=ss, ss_terminal=ss_new,
+    ...                         method='exponential', decay=0.85)
+    """
+    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+    ss_terminal = np.asarray(ss_terminal, dtype=float).ravel()
+    if ss_initial.shape != ss_terminal.shape:
+        raise ValueError(
+            f"ss_initial and ss_terminal must have the same length; "
+            f"got {ss_initial.shape} and {ss_terminal.shape}."
+        )
+    if not isinstance(T, (int, np.integer)):
+        raise TypeError(f"T must be an integer; got {type(T).__name__} ({T!r}).")
+    if T < 2:
+        raise ValueError(f"T must be >= 2; got {T}.")
+
+    if method == 'constant':
+        return np.tile(ss_terminal, (T, 1))
+
+    elif method == 'linear':
+        # weights: 0 at t=0, 1 at t=T-1 (exact endpoints)
+        weights = np.linspace(0.0, 1.0, T)
+        return ss_initial[None, :] + weights[:, None] * (ss_terminal - ss_initial)[None, :]
+
+    elif method == 'exponential':
+        if not (0.0 < decay < 1.0):
+            raise ValueError(f"decay must be in (0, 1); got {decay}.")
+        t = np.arange(T, dtype=float)
+        # x(t) = ss_terminal + (ss_initial - ss_terminal) * decay**t
+        weights = decay ** t          # shape (T,); 1 at t=0, → 0 as t → ∞
+        return ss_terminal[None, :] + weights[:, None] * (ss_initial - ss_terminal)[None, :]
+
+    else:
+        raise ValueError(
+            f"method must be 'linear', 'exponential', or 'constant'; got {method!r}."
+        )
