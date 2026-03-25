@@ -288,7 +288,7 @@ If you use this package in your research, please cite:
 
 ```bibtex
 @software{pyperfectforesight,
-  title={DynareByPython: A Minimal Dynare-style Perfect Foresight Solver in Python},
+  title={pyperfectforesight: A Minimal Dynare-style Perfect Foresight Solver in Python},
   author={Shunsuke Hori},
   year={2026},
   url={https://github.com/Shunsuke-Hori/pyperfectforesight}
