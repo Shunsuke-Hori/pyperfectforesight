@@ -56,8 +56,8 @@ dynare_python/
 └── core.py             # All model/solver logic
 
 examples/               # Standalone demo scripts (PNGs saved here)
-tests/                  # All test files and reference data
-├── dynare_ref_output/  # Dynare 6.2 reference CSVs and .mod files
+tests/                  # All pytest-compatible test files and reference data
+├── dynare_ref_output/  # Dynare 6.2 reference CSVs (only .csv files are tracked)
 ├── test_homotopy.py
 ├── test_arbitrary_lags.py
 ├── test_auto_to_dynamic.py
@@ -65,8 +65,11 @@ tests/                  # All test files and reference data
 ├── test_custom_endval.py
 ├── test_dynare_rbc.py
 ├── test_expectation_errors.py
-├── test_dynare_expectation_errors.py
-└── test_methods_comparison.py  # comparison script (run directly, not via pytest)
+└── test_dynare_expectation_errors.py
+scripts/                # Standalone comparison/demo scripts (not collected by pytest)
+├── compare_aux_methods.py
+├── compare_auto_to_dynamic.py
+└── compare_dynamic_fallback.py
 docs/                   # Supplementary documentation
 └── AUXILIARY_VARIABLES.md
 README.md               # User-facing documentation
@@ -91,8 +94,9 @@ tests/test_custom_endval.py               # endval / permanent-shock tests
 tests/test_dynare_rbc.py                  # regression vs Dynare 6.2 RBC reference output
 tests/test_expectation_errors.py          # solve_perfect_foresight_expectation_errors unit tests
 tests/test_dynare_expectation_errors.py   # regression vs Dynare 6.2 reference output (3-segment RBC)
-tests/test_methods_comparison.py          # comparison script (runs as a script, not pytest)
 ```
+
+Standalone comparison scripts (run directly, not via pytest) live in `scripts/`.
 
 ## Branching convention
 
