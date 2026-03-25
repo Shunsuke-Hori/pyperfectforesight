@@ -84,13 +84,3 @@ Complete API reference for all public functions in `pyperfectforesight`.
    pyperfectforesight.append_terminal_conditions
 ```
 
----
-
-## Full module listing
-
-```{eval-rst}
-.. automodule:: pyperfectforesight
-   :members:
-   :undoc-members: False
-   :show-inheritance:
-```

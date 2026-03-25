@@ -594,23 +594,22 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         from dynamic and exogenous variables (default: None).
 
     aux_method : str, optional
-        Method for handling auxiliary variables (default: 'auto'):
-        - 'auto': Try analytical first; if SymPy can't solve, treat as dynamic.
-                 Best default - fast when possible, robust when needed.
-                 (Similar to Dynare: eliminate if possible, else keep in system)
-        - 'analytical': Force analytical method only. Faster but will fail if
-                       SymPy cannot solve the auxiliary equations symbolically.
-        - 'nested': Force post-solve numerical solving of auxiliary equations.
-                   After the main solver converges, auxiliary variables are
-                   solved period-by-period using scipy.optimize.root with warm
-                   starting. This mode requires a square auxiliary system
-                   (same number of equations and variables) and that auxiliary
-                   variables appear only in auxiliary equations — a ValueError
-                   is raised otherwise. Use when analytical solve fails and
-                   these structural conditions are satisfied; otherwise prefer
-                   'dynamic'.
-        - 'dynamic': Treat auxiliary variables as dynamic. Auxiliary equations
-                    included in main system. Single optimization, higher dimension.
+        Method for handling auxiliary variables (default: ``'auto'``):
+
+        - ``'auto'``: Try analytical first; if SymPy can't solve, treat as dynamic.
+          Best default — fast when possible, robust when needed.
+          (Similar to Dynare: eliminate if possible, else keep in system.)
+        - ``'analytical'``: Force analytical method only. Faster but will fail if
+          SymPy cannot solve the auxiliary equations symbolically.
+        - ``'nested'``: Force post-solve numerical solving of auxiliary equations.
+          After the main solver converges, auxiliary variables are solved
+          period-by-period using ``scipy.optimize.root`` with warm starting.
+          Requires a square auxiliary system and auxiliary variables appearing
+          only in auxiliary equations; raises ``ValueError`` otherwise.
+          Use when analytical solve fails and these structural conditions hold;
+          otherwise prefer ``'dynamic'``.
+        - ``'dynamic'``: Treat auxiliary variables as dynamic. Auxiliary equations
+          included in main system. Single optimization, higher dimension.
 
     eliminate_static_vars : bool
         Whether to eliminate non-auxiliary static variables (default: True)
@@ -639,13 +638,13 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     Notes:
     ------
     Recommended usage:
-    - 'auto' (default): Best for most cases - tries analytical, falls back to dynamic.
-                       Like Dynare: eliminate if possible, else keep in system.
-    - 'analytical': When you know equations are simple (e.g., i = y - c - g) and
-                   want guaranteed fast performance with no fallback.
-    - 'nested': When you specifically want nested optimization (rare use case).
-    - 'dynamic': When you want to skip analytical attempt and go straight to
-                treating as dynamic variables.
+
+    - ``'auto'`` (default): Best for most cases — tries analytical, falls back to dynamic.
+      Like Dynare: eliminate if possible, else keep in system.
+    - ``'analytical'``: When equations are simple (e.g. ``i = y - c - g``) and
+      guaranteed fast performance with no fallback is desired.
+    - ``'nested'``: When nested post-solve optimization is explicitly preferred (rare).
+    - ``'dynamic'``: To skip the analytical attempt and treat aux vars as dynamic.
 
     The analytical method solves equations symbolically then evaluates (fastest).
     The dynamic method includes auxiliary equations in main system (Dynare-style).
@@ -1674,6 +1673,7 @@ def solve_perfect_foresight_expectation_errors(
         ``sol.x_aux`` : ndarray or None
             Stitched auxiliary variable path, shape ``(T, n_aux)``, or None.
         ``sol.vars_aux`` : list of str
+            Names of auxiliary variables (empty list if none).
     """
     from scipy.optimize import OptimizeResult
 
@@ -1928,6 +1928,7 @@ def solve_perfect_foresight_homotopy(
         * If ``stock_var_indices`` is provided, ``initial_state`` must contain
           only the stock variable values at ``t=-1``, with shape ``(n_stock,)``.
           The BVP solver then determines all period-0 variables simultaneously.
+
         If None, defaults to steady-state values of the stock variables.
     ss_initial : ndarray, optional
         Initial steady state. Defaults to ``ss``.

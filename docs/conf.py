@@ -26,7 +26,7 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "AUXILIARY_VARIABLES.md"]
 
 # -- MyST configuration ------------------------------------------------------
 myst_enable_extensions = ["colon_fence", "deflist"]

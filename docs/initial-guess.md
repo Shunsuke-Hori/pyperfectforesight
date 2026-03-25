@@ -6,6 +6,7 @@ The perfect foresight solver requires an initial guess `X0` — a `(T, n)` array
 
 ```{eval-rst}
 .. autofunction:: pyperfectforesight.make_initial_guess
+   :no-index:
 ```
 
 ## Methods
