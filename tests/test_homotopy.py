@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from dynare_python import (
+from pyperfectforesight import (
     v,
     process_model,
     solve_perfect_foresight,

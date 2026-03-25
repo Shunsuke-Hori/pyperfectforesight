@@ -4,8 +4,8 @@ Project context and conventions for Claude Code.
 
 ## Project overview
 
-`dynare_python` is a minimal Dynare-style perfect foresight solver in Python.
-All model logic lives in `dynare_python/core.py`. There are no sub-packages.
+`pyperfectforesight` is a minimal Dynare-style perfect foresight solver in Python.
+All model logic lives in `pyperfectforesight/core.py`. There are no sub-packages.
 
 ## Key conventions
 
@@ -50,7 +50,7 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 ## Repository layout
 
 ```
-dynare_python/
+pyperfectforesight/
 ├── __init__.py         # Public API exports
 ├── __version__.py      # Version string
 └── core.py             # All model/solver logic

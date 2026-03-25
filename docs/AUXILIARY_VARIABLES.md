@@ -101,7 +101,7 @@ process_model(..., aux_method='dynamic')
 ```python
 import sympy as sp
 import numpy as np
-from dynare_python import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 # Parameters
 beta, delta, alpha = sp.symbols("beta delta alpha")

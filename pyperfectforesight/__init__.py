@@ -1,11 +1,11 @@
 """
-dynare_python: A minimal Dynare-style perfect foresight solver in Python
+pyperfectforesight: A minimal Dynare-style perfect foresight solver in Python
 
 This package provides tools for solving perfect foresight dynamic economic models.
 """
 
-from dynare_python.__version__ import __version__
-from dynare_python.core import (
+from pyperfectforesight.__version__ import __version__
+from pyperfectforesight.core import (
     # Utilities
     v,
 
