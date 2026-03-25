@@ -1584,6 +1584,7 @@ def solve_perfect_foresight_expectation_errors(
     ss_initial=None,
     stock_var_indices=None,
     constant_simulation_length=False,
+    solver_options=None,
 ):
     """
     Solve a perfect foresight model with multiple surprise (MIT) shocks.
@@ -1650,6 +1651,9 @@ def solve_perfect_foresight_expectation_errors(
         remaining horizon ``T - learnt_in + 1``.  If True (Dynare's
         ``constant_simulation_length`` option), every sub-solve runs for
         the full ``T`` periods.
+    solver_options : dict, optional
+        Forwarded unchanged to each ``solve_perfect_foresight`` sub-solve.
+        Recognised keys: ``maxiter``, ``maxfev``, ``ftol``, ``xtol``.
 
     Returns
     -------
@@ -1681,7 +1685,26 @@ def solve_perfect_foresight_expectation_errors(
     if stock_var_indices is None:
         stock_var_indices = _infer_stock_var_indices(model_funcs, vars_dyn)
     else:
+        if not isinstance(stock_var_indices, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "stock_var_indices must be a list, tuple, or numpy.ndarray; "
+                f"got {type(stock_var_indices).__name__}. "
+                "Sets and other unordered iterables are not accepted because "
+                "index order must be deterministic."
+            )
         stock_var_indices = list(stock_var_indices)
+        if not all(isinstance(i, (int, np.integer)) for i in stock_var_indices):
+            raise ValueError(
+                "stock_var_indices must contain integers; "
+                f"got types {[type(i).__name__ for i in stock_var_indices]}."
+            )
+
+    if len(set(stock_var_indices)) != len(stock_var_indices):
+        raise ValueError("stock_var_indices contains duplicate indices.")
+    if any(i < 0 or i >= n for i in stock_var_indices):
+        raise ValueError(
+            f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
+        )
 
     # Require a sequence (list or tuple) so that len() is always available.
     if not isinstance(news_shocks, (list, tuple)):
@@ -1784,6 +1807,7 @@ def solve_perfect_foresight_expectation_errors(
             initial_state=current_initial_state,
             ss_initial=ss_initial,
             stock_var_indices=stock_var_indices,
+            solver_options=solver_options,
             endval=current_endval,
         )
         sub_results.append(sol)
