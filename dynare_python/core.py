@@ -2276,18 +2276,17 @@ def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
             f"ss_initial and ss_terminal must have the same length; "
             f"got {ss_initial.shape} and {ss_terminal.shape}."
         )
-    if T < 1:
-        raise ValueError(f"T must be a positive integer; got {T}.")
+    if not isinstance(T, (int, np.integer)):
+        raise TypeError(f"T must be an integer; got {type(T).__name__} ({T!r}).")
+    if T < 2:
+        raise ValueError(f"T must be >= 2; got {T}.")
 
     if method == 'constant':
         return np.tile(ss_terminal, (T, 1))
 
     elif method == 'linear':
-        # weights: 0 at t=0, 1 at t=T-1  (exact endpoints)
-        if T == 1:
-            weights = np.array([1.0])
-        else:
-            weights = np.linspace(0.0, 1.0, T)
+        # weights: 0 at t=0, 1 at t=T-1 (exact endpoints)
+        weights = np.linspace(0.0, 1.0, T)
         return ss_initial[None, :] + weights[:, None] * (ss_terminal - ss_initial)[None, :]
 
     elif method == 'exponential':

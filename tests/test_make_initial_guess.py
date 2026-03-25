@@ -104,16 +104,9 @@ def test_exponential_decay_parameter():
 # edge cases and validation
 # ---------------------------------------------------------------------------
 
-def test_t_equals_1_linear():
-    X0 = make_initial_guess(1, SS0, SS1, method='linear')
-    assert X0.shape == (1, 3)
-    assert np.allclose(X0[0], SS1)
-
-
-def test_t_equals_1_exponential():
-    X0 = make_initial_guess(1, SS0, SS1, method='exponential')
-    assert X0.shape == (1, 3)
-    assert np.allclose(X0[0], SS0)
+def test_T_less_than_2_raises():
+    with pytest.raises(ValueError, match="T must be >= 2"):
+        make_initial_guess(1, SS0, SS1)
 
 
 def test_invalid_method_raises():
@@ -137,8 +130,19 @@ def test_shape_mismatch_raises():
 
 
 def test_invalid_T_raises():
-    with pytest.raises(ValueError, match="positive integer"):
+    with pytest.raises(ValueError, match="T must be >= 2"):
         make_initial_guess(0, SS0, SS1)
+
+
+def test_float_T_raises():
+    with pytest.raises(TypeError, match="integer"):
+        make_initial_guess(2.5, SS0, SS1)
+
+
+def test_numpy_integer_T_accepted():
+    """np.integer types are valid integers and should not raise."""
+    X0 = make_initial_guess(np.int64(T), SS0, SS1)
+    assert X0.shape == (T, 3)
 
 
 def test_default_method_is_linear():
