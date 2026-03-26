@@ -1584,6 +1584,7 @@ def solve_perfect_foresight_expectation_errors(
     stock_var_indices=None,
     constant_simulation_length=False,
     solver_options=None,
+    sub_x0=None,
 ):
     """
     Solve a perfect foresight model with multiple surprise (MIT) shocks.
@@ -1653,6 +1654,21 @@ def solve_perfect_foresight_expectation_errors(
     solver_options : dict, optional
         Forwarded unchanged to each ``solve_perfect_foresight`` sub-solve.
         Recognised keys: ``maxiter``, ``maxfev``, ``ftol``, ``xtol``.
+    sub_x0 : list, optional
+        Per-sub-solve initial guesses, one entry per element of ``news_shocks``.
+        Each entry is either:
+
+        * ``None`` — use the automatic warm-start (previous sub-solve's tail,
+          or ``X0`` for the first sub-solve).
+        * an ndarray of shape ``(T_sub, n_endo)`` — use this array as the
+          warm-start for that sub-solve.  ``T_sub`` is
+          ``T - learnt_in + 1`` (or ``T`` when
+          ``constant_simulation_length=True``); the array will be
+          trimmed or padded to ``T_sub`` rows if necessary, matching the
+          behaviour applied to the automatic warm-start.
+
+        If ``sub_x0`` is ``None`` (the default) the automatic warm-start is
+        used for every sub-solve.
 
     Returns
     -------
@@ -1751,6 +1767,27 @@ def solve_perfect_foresight_expectation_errors(
     if len(set(learnt_ins)) != len(learnt_ins):
         raise ValueError("news_shocks contains duplicate learnt_in values.")
 
+    # Validate sub_x0.
+    if sub_x0 is not None:
+        if not isinstance(sub_x0, (list, tuple)):
+            raise ValueError(
+                f"sub_x0 must be a list or tuple; got {type(sub_x0).__name__}."
+            )
+        if len(sub_x0) != len(parsed):
+            raise ValueError(
+                f"sub_x0 has length {len(sub_x0)} but news_shocks has "
+                f"{len(parsed)} entries; they must have the same length."
+            )
+        for idx, entry in enumerate(sub_x0):
+            if entry is None:
+                continue
+            arr = np.asarray(entry, dtype=float)
+            if arr.ndim != 2 or arr.shape[1] != n:
+                raise ValueError(
+                    f"sub_x0[{idx}] must be None or a 2D array with shape "
+                    f"(T_sub, {n}); got shape {arr.shape}."
+                )
+
     all_pieces = []
     all_aux_pieces = []
     sub_results = []
@@ -1769,6 +1806,10 @@ def solve_perfect_foresight_expectation_errors(
 
         # Sub-solve horizon.
         T_sub = T if constant_simulation_length else T - learnt_in + 1
+
+        # Override warm-start with caller-supplied per-sub-solve guess if provided.
+        if sub_x0 is not None and sub_x0[i] is not None:
+            X0_sub = np.asarray(sub_x0[i], dtype=float)
 
         # Trim/pad X0_sub to T_sub rows.
         if X0_sub.shape[0] < T_sub:

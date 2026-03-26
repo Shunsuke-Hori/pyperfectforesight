@@ -200,3 +200,95 @@ def test_sub_results_length(model, X0):
     assert len(sol.sub_results) == 3
     for sr in sol.sub_results:
         assert hasattr(sr, 'success')
+
+
+# ---------------------------------------------------------------------------
+# 7. sub_x0 — per-sub-solve initial guess
+# ---------------------------------------------------------------------------
+
+
+def test_sub_x0_none_list_same_as_default(model, X0):
+    """sub_x0=[None, None] must give the same result as sub_x0=None."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+    news_shocks = [(1, None), (30, None)]
+
+    sol_default = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=news_shocks,
+        initial_state=initial_state,
+    )
+    sol_none_list = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=news_shocks,
+        initial_state=initial_state,
+        sub_x0=[None, None],
+    )
+
+    assert sol_none_list.success
+    np.testing.assert_array_equal(sol_none_list.x, sol_default.x)
+
+
+def test_sub_x0_explicit_guess_converges(model, X0):
+    """An explicit sub_x0 array for the first sub-solve still converges."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+
+    # Use SS as the explicit initial guess for sub-solve 1 (same as X0).
+    explicit_x0 = np.tile(SS, (T, 1))
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None)],
+        initial_state=initial_state,
+        sub_x0=[explicit_x0],
+    )
+    assert sol.success
+
+
+def test_sub_x0_wrong_length_raises(model, X0):
+    """sub_x0 length != len(news_shocks) must raise ValueError."""
+    with pytest.raises(ValueError, match="same length"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None), (30, None)],
+            sub_x0=[None],  # length 1 vs 2
+        )
+
+
+def test_sub_x0_wrong_type_raises(model, X0):
+    """sub_x0 that is not a list or tuple must raise ValueError."""
+    with pytest.raises(ValueError, match="list or tuple"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)],
+            sub_x0=X0,  # ndarray, not a list
+        )
+
+
+def test_sub_x0_wrong_shape_raises(model, X0):
+    """An entry in sub_x0 with wrong n_endo must raise ValueError."""
+    bad_x0 = np.ones((T, 99))  # wrong n_endo
+    with pytest.raises(ValueError, match="shape"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)],
+            sub_x0=[bad_x0],
+        )
+
+
+def test_sub_x0_override_second_subsolver(model, X0):
+    """Supplying an explicit guess for the second sub-solve (None for first)."""
+    k_init = K_SS * 0.9
+    initial_state = np.array([k_init])
+    # Provide explicit guess for sub-solve 2 only; sub-solve 1 uses auto.
+    T_sub2 = T - 30 + 1
+    explicit_x0_2 = np.tile(SS, (T_sub2, 1))
+
+    sol = solve_perfect_foresight_expectation_errors(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (30, None)],
+        initial_state=initial_state,
+        sub_x0=[None, explicit_x0_2],
+    )
+    assert sol.success
+    assert sol.x.shape == (T * len(VARS_DYN),)
