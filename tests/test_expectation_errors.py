@@ -225,6 +225,7 @@ def test_sub_x0_none_list_same_as_default(model, X0):
         sub_x0=[None, None],
     )
 
+    assert sol_default.success
     assert sol_none_list.success
     np.testing.assert_allclose(sol_none_list.x, sol_default.x, atol=1e-8)
 

@@ -1781,7 +1781,12 @@ def solve_perfect_foresight_expectation_errors(
         for idx, entry in enumerate(sub_x0):
             if entry is None:
                 continue
-            arr = np.asarray(entry, dtype=float)
+            try:
+                arr = np.asarray(entry, dtype=float)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"sub_x0[{idx}] could not be converted to a numeric array: {exc}"
+                ) from exc
             if arr.ndim != 2 or arr.shape[1] != n:
                 raise ValueError(
                     f"sub_x0[{idx}] must be None or a 2D array with shape "
