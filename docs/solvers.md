@@ -164,7 +164,7 @@ sol = solve_perfect_foresight_expectation_errors(
 | `stock_var_indices` | `None` | Same semantics as `solve_perfect_foresight`. |
 | `constant_simulation_length` | `False` | If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve uses the full `T` periods. |
 | `solver_options` | `None` | Forwarded to each sub-solve. Same keys as `solve_perfect_foresight`. |
-| `sub_x0` | `None` | Per-sub-solve initial guesses. A list of the same length as `news_shocks`; each entry is either `None` (use the automatic warm-start) or an `(T_sub, n_endo)` array to use as the warm-start for that sub-solve. Rows are trimmed or padded to `T_sub` if needed. |
+| `sub_x0` | `None` | Per-sub-solve initial guesses. A list or tuple of the same length as `news_shocks`; each entry is either `None` (use the automatic warm-start) or an `(T_sub, n_endo)` array to use as the warm-start for that sub-solve. Rows are trimmed or padded to `T_sub` if needed. |
 
 ### Supplying per-sub-solve initial guesses (`sub_x0`)
 
@@ -173,13 +173,20 @@ By default each sub-solve is warm-started from the previous sub-solve's tail sol
 Use `sub_x0` to inject high-quality initial guesses directly:
 
 ```python
-from pyperfectforesight import make_initial_guess
+from pyperfectforesight import make_initial_guess, solve_perfect_foresight_expectation_errors
 
-T_sub2 = T - learnt_in2 + 1
-T_sub3 = T - learnt_in3 + 1
+# news_shocks has three entries; learnt_in values are read from the list.
+news_shocks = [
+    (1,  None),           # period 1: baseline, agents expect no shock
+    (10, exog_news),      # period 10: agents learn of a news shock
+    (25, exog_dis),       # period 25: shock is disappointed
+]
+
+T_sub2 = T - news_shocks[1][0] + 1   # T - 10 + 1
+T_sub3 = T - news_shocks[2][0] + 1   # T - 25 + 1
 
 sub_x0 = [
-    None,                                                             # sub-solve 1: trivial, auto warm-start is fine
+    None,                                                                # sub-solve 1: trivial, auto warm-start is fine
     make_initial_guess(T_sub2, ss1_vec, ss2_vec, method='exponential'),  # sub-solve 2: news shock
     make_initial_guess(T_sub3, ss2_vec, ss1_vec, method='exponential'),  # sub-solve 3: disappointment
 ]

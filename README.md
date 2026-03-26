@@ -247,7 +247,7 @@ For advanced users who want more control:
 - `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
 - `solver_options=None`: Forwarded to each sub-solve (same keys as `solve_perfect_foresight()`)
-- `sub_x0=None`: Per-sub-solve initial guesses. A list of the same length as `news_shocks`; each entry is either `None` (use the automatic warm-start from the previous sub-solve's tail) or a `(T_sub, n_endo)` array to use as the warm-start for that sub-solve. Useful when the first sub-solve is trivial (e.g. agents stay at `ss_initial`) and the automatic warm-start for a later sub-solve is too far from the solution.
+- `sub_x0=None`: Per-sub-solve initial guesses. A list or tuple of the same length as `news_shocks`; each entry is either `None` (use the automatic warm-start from the previous sub-solve's tail) or a `(T_sub, n_endo)` array to use as the warm-start for that sub-solve. Useful when the first sub-solve is trivial (e.g. agents stay at `ss_initial`) and the automatic warm-start for a later sub-solve is too far from the solution.
 
 ## Requirements
 

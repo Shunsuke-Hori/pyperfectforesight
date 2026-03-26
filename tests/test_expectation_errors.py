@@ -276,6 +276,17 @@ def test_sub_x0_wrong_shape_raises(model, X0):
         )
 
 
+def test_sub_x0_empty_rows_raises(model, X0):
+    """An entry in sub_x0 with zero rows must raise ValueError."""
+    empty_x0 = np.empty((0, len(VARS_DYN)))
+    with pytest.raises(ValueError, match="at least one row"):
+        solve_perfect_foresight_expectation_errors(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)],
+            sub_x0=[empty_x0],
+        )
+
+
 def test_sub_x0_override_second_subsolver(model, X0):
     """Supplying an explicit guess for the second sub-solve (None for first)."""
     k_init = K_SS * 0.9
