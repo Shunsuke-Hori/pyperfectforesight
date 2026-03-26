@@ -1372,6 +1372,9 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         retries using solve_perfect_foresight_homotopy with the same inputs.
         A UserWarning is emitted when the fallback is triggered. Set to False
         to surface the Newton failure directly (original behaviour).
+        Note: fallback is silently skipped when both ``initial_state`` and
+        ``exog_path`` are None, because homotopy has nothing to scale in that
+        case; the Newton failure result is returned directly.
     homotopy_options : dict, optional
         Options forwarded to ``solve_perfect_foresight_homotopy`` when the
         fallback is triggered. Supported keys:
@@ -1617,14 +1620,16 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 )
             except RuntimeError as exc:
                 from scipy.optimize import OptimizeResult as _OptRes
-                return _OptRes(
+                # Assign to sol and fall through to the aux-variable block so
+                # that x_aux/vars_aux are populated consistently with other
+                # failure modes (Newton failure without fallback).
+                sol = _OptRes(
                     success=False, status=0,
                     message=f"Homotopy fallback also failed: {exc}",
                     x=sol.x, fun=sol.fun,
                     nit=getattr(sol, 'nit', 0),
                     nfev=getattr(sol, 'nfev', 0),
                     njev=getattr(sol, 'njev', 0),
-                    x_aux=None, vars_aux=[],
                 )
 
     # Compute auxiliary variables if they exist.
