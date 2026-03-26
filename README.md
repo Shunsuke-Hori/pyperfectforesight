@@ -21,15 +21,9 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 ### From source (development)
 
 1. Clone or download this repository
-2. Set up the conda environment:
+2. Install the package in development mode:
    ```bash
-   bash setup_conda_env.sh
-   conda activate pyperfectforesight
-   ```
-
-3. Install the package in development mode:
-   ```bash
-   pip install -e .
+   pip install -e ".[dev]"
    ```
 
 ### With pip (when published)
