@@ -403,7 +403,7 @@ def test_exog_ss_without_exog_path_warns(X0):
 def test_fallback_triggered_on_newton_failure(model, X0):
     """When Newton fails, homotopy_fallback=True retries and succeeds.
 
-    A large shock (K_SS * 1.5) with maxiter=1 forces Newton to fail.
+    maxiter=0 guarantees Newton does not converge (zero iterations).
     The fallback should emit a UserWarning and return a successful solution.
     """
     k_neg1 = np.array([K_SS * 1.5])
@@ -412,7 +412,7 @@ def test_fallback_triggered_on_newton_failure(model, X0):
             T, X0, PARAMS, SS, model, VARS_DYN,
             initial_state=k_neg1,
             stock_var_indices=[1],
-            solver_options={'maxiter': 1},
+            solver_options={'maxiter': 0},
             homotopy_fallback=True,
             homotopy_options={'n_steps': 10},
         )
@@ -427,22 +427,36 @@ def test_fallback_disabled(model, X0):
         T, X0, PARAMS, SS, model, VARS_DYN,
         initial_state=k_neg1,
         stock_var_indices=[1],
-        solver_options={'maxiter': 1},
+        solver_options={'maxiter': 0},
         homotopy_fallback=False,
     )
     assert not sol.success
 
 
-def test_homotopy_options_forwarded(model, X0):
+def test_homotopy_options_forwarded(model, X0, monkeypatch):
     """homotopy_options are forwarded to the homotopy solver on fallback."""
+    import pyperfectforesight.core as _core
+
+    captured = {}
+
+    _orig_homotopy = _core.solve_perfect_foresight_homotopy
+
+    def _spy(*args, **kwargs):
+        captured.update(kwargs)
+        return _orig_homotopy(*args, **kwargs)
+
+    monkeypatch.setattr(_core, 'solve_perfect_foresight_homotopy', _spy)
+
     k_neg1 = np.array([K_SS * 1.5])
     with pytest.warns(UserWarning, match="homotopy_fallback=False"):
         sol = solve_perfect_foresight(
             T, X0, PARAMS, SS, model, VARS_DYN,
             initial_state=k_neg1,
             stock_var_indices=[1],
-            solver_options={'maxiter': 1},
+            solver_options={'maxiter': 0},
             homotopy_fallback=True,
             homotopy_options={'n_steps': 3, 'verbose': False},
         )
     assert sol.success
+    assert captured.get('n_steps') == 3
+    assert captured.get('verbose') is False
