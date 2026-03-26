@@ -1787,6 +1787,10 @@ def solve_perfect_foresight_expectation_errors(
                     f"sub_x0[{idx}] must be None or a 2D array with shape "
                     f"(T_sub, {n}); got shape {arr.shape}."
                 )
+            if arr.shape[0] == 0:
+                raise ValueError(
+                    f"sub_x0[{idx}] must have at least one row; got shape {arr.shape}."
+                )
 
     all_pieces = []
     all_aux_pieces = []

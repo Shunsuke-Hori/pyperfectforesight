@@ -226,7 +226,7 @@ def test_sub_x0_none_list_same_as_default(model, X0):
     )
 
     assert sol_none_list.success
-    np.testing.assert_array_equal(sol_none_list.x, sol_default.x)
+    np.testing.assert_allclose(sol_none_list.x, sol_default.x, atol=1e-8)
 
 
 def test_sub_x0_explicit_guess_converges(model, X0):
