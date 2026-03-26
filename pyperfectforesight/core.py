@@ -1593,11 +1593,18 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                 UserWarning,
                 stacklevel=2,
             )
-            homotopy_opts = homotopy_options if homotopy_options is not None else {}
+            homotopy_opts = dict(homotopy_options) if homotopy_options is not None else {}
             # Do not forward solver_options from the failed Newton attempt: those
-            # options (e.g. maxiter=1) caused the failure and would break every
+            # options (e.g. maxiter=0) caused the failure and would break every
             # homotopy sub-step.  The caller can pass solver_options inside
             # homotopy_options if per-step limits are desired.
+            #
+            # Pop 'endval' from homotopy_opts so it can be passed as the
+            # explicit keyword argument.  If the user supplied it inside
+            # homotopy_options, that value takes precedence over _orig_endval;
+            # otherwise fall back to _orig_endval.  This avoids a TypeError
+            # from duplicate keyword arguments.
+            _homotopy_endval = homotopy_opts.pop('endval', _orig_endval)
             try:
                 return solve_perfect_foresight_homotopy(
                     T, X0, params_dict, ss, model_funcs, vars_dyn,
@@ -1605,7 +1612,7 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                     initial_state=_orig_initial_state,
                     ss_initial=ss_initial,
                     stock_var_indices=stock_var_indices,
-                    endval=_orig_endval,
+                    endval=_homotopy_endval,
                     **homotopy_opts,
                 )
             except RuntimeError as exc:

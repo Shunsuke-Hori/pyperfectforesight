@@ -396,7 +396,7 @@ def test_exog_ss_without_exog_path_warns(X0):
 
 
 # ---------------------------------------------------------------------------
-# 7. Homotopy fallback from solve_perfect_foresight
+# 8. Homotopy fallback from solve_perfect_foresight
 # ---------------------------------------------------------------------------
 
 
