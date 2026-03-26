@@ -393,3 +393,56 @@ def test_exog_ss_without_exog_path_warns(X0):
             stock_var_indices=[1],
             n_steps=3,
         )
+
+
+# ---------------------------------------------------------------------------
+# 7. Homotopy fallback from solve_perfect_foresight
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_triggered_on_newton_failure(model, X0):
+    """When Newton fails, homotopy_fallback=True retries and succeeds.
+
+    A large shock (K_SS * 1.5) with maxiter=1 forces Newton to fail.
+    The fallback should emit a UserWarning and return a successful solution.
+    """
+    k_neg1 = np.array([K_SS * 1.5])
+    with pytest.warns(UserWarning, match="homotopy_fallback=False"):
+        sol = solve_perfect_foresight(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+            solver_options={'maxiter': 1},
+            homotopy_fallback=True,
+            homotopy_options={'n_steps': 10},
+        )
+    assert sol.success
+    assert np.linalg.norm(sol.fun) < 1e-6
+
+
+def test_fallback_disabled(model, X0):
+    """When homotopy_fallback=False, a Newton failure is returned as-is."""
+    k_neg1 = np.array([K_SS * 1.5])
+    sol = solve_perfect_foresight(
+        T, X0, PARAMS, SS, model, VARS_DYN,
+        initial_state=k_neg1,
+        stock_var_indices=[1],
+        solver_options={'maxiter': 1},
+        homotopy_fallback=False,
+    )
+    assert not sol.success
+
+
+def test_homotopy_options_forwarded(model, X0):
+    """homotopy_options are forwarded to the homotopy solver on fallback."""
+    k_neg1 = np.array([K_SS * 1.5])
+    with pytest.warns(UserWarning, match="homotopy_fallback=False"):
+        sol = solve_perfect_foresight(
+            T, X0, PARAMS, SS, model, VARS_DYN,
+            initial_state=k_neg1,
+            stock_var_indices=[1],
+            solver_options={'maxiter': 1},
+            homotopy_fallback=True,
+            homotopy_options={'n_steps': 3, 'verbose': False},
+        )
+    assert sol.success

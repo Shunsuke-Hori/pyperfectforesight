@@ -1296,7 +1296,8 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
 def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='hybr',
-                           solver_options=None, *, endval=None):
+                           solver_options=None, *, endval=None,
+                           homotopy_fallback=True, homotopy_options=None):
     """
     Solve the perfect foresight problem using an augmented-path BVP formulation.
 
@@ -1366,6 +1367,16 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
         'xtol' (x-step tolerance), 'maxfev' (max function evaluations budget).
+    homotopy_fallback : bool, default True
+        If True and the sparse Newton solver fails to converge, automatically
+        retries using solve_perfect_foresight_homotopy with the same inputs.
+        A UserWarning is emitted when the fallback is triggered. Set to False
+        to surface the Newton failure directly (original behaviour).
+    homotopy_options : dict, optional
+        Options forwarded to solve_perfect_foresight_homotopy when the fallback
+        is triggered. Supported keys: 'n_steps' (int, default 10), 'verbose'
+        (bool, default False), 'exog_ss' (ndarray). Ignored when
+        homotopy_fallback=False or when Newton succeeds.
 
     Returns:
     --------
@@ -1409,6 +1420,12 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 
     if solver_options is None:
         solver_options = {}
+
+    # Save originals before any mutation so the homotopy fallback receives
+    # None vs. an explicit array (the distinction matters for homotopy's
+    # endval interpolation and its "nothing to scale" guard).
+    _orig_initial_state = initial_state
+    _orig_endval = endval
 
     neq = len(dynamic_eqs)
     if neq != n:
@@ -1546,6 +1563,30 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
         F_bvp, J_bvp, X0.ravel(),
         solver_options=solver_options,
     )
+
+    if not sol.success and homotopy_fallback:
+        import warnings
+        warnings.warn(
+            f"Standard solver failed to converge ({sol.message}). "
+            "Retrying with homotopy (solve_perfect_foresight_homotopy). "
+            "To disable this behaviour, pass homotopy_fallback=False.",
+            UserWarning,
+            stacklevel=2,
+        )
+        homotopy_opts = homotopy_options if homotopy_options is not None else {}
+        # Do not forward solver_options from the failed Newton attempt: those
+        # options (e.g. maxiter=1) caused the failure and would break every
+        # homotopy sub-step.  The caller can pass solver_options inside
+        # homotopy_options if per-step limits are desired.
+        return solve_perfect_foresight_homotopy(
+            T, X0, params_dict, ss, model_funcs, vars_dyn,
+            exog_path=exog_path,
+            initial_state=_orig_initial_state,
+            ss_initial=ss_initial,
+            stock_var_indices=stock_var_indices,
+            endval=_orig_endval,
+            **homotopy_opts,
+        )
 
     # Compute auxiliary variables if they exist.
     # Note: vars_aux is empty when aux_method='dynamic' (auxiliary variables were
@@ -2242,6 +2283,7 @@ def solve_perfect_foresight_homotopy(
             endval=endval_lam,
             solver_options=solver_options,
             method='hybr',  # already warned above; suppress per-step warnings
+            homotopy_fallback=False,  # prevent infinite recursion
         )
 
         if verbose:
