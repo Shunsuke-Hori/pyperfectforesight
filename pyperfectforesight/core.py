@@ -1654,7 +1654,7 @@ def solve_perfect_foresight_expectation_errors(
     solver_options : dict, optional
         Forwarded unchanged to each ``solve_perfect_foresight`` sub-solve.
         Recognised keys: ``maxiter``, ``maxfev``, ``ftol``, ``xtol``.
-    sub_x0 : list, optional
+    sub_x0 : list or tuple, optional
         Per-sub-solve initial guesses, one entry per element of ``news_shocks``.
         Each entry is either:
 
