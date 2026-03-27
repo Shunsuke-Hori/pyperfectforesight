@@ -1710,7 +1710,9 @@ def solve_perfect_foresight_expectation_errors(
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
         previous sub-solve's solution.  If None (the default), the path is
-        initialised to ``ss`` tiled over all T periods.
+        initialised to the effective terminal steady state for the first
+        segment (``ss`` unless overridden by the first ``news_shocks`` entry's
+        ``endval``) tiled over all ``T`` periods.
     params_dict : dict
         Parameter values.
     ss : ndarray, shape (n_endo,)
@@ -1943,14 +1945,30 @@ def solve_perfect_foresight_expectation_errors(
             raise ValueError(f"X0 could not be converted to a numeric array: {exc}") from exc
         if X0.ndim != 2 or X0.shape[1] != n:
             raise ValueError(
-                f"X0 must be a 2D array with shape (T, {n}); got shape {X0.shape}."
+                f"X0 must be a 2D array with {n} columns (one per dynamic variable); "
+                f"got shape {X0.shape}. Rows are trimmed/padded per sub-solve horizon."
             )
         if X0.shape[0] == 0:
             raise ValueError(f"X0 must have at least one row; got shape {X0.shape}.")
         X0_sub = X0
     else:
-        first_endval = parsed[0][2] if parsed[0][2] is not None else ss
-        X0_sub = np.tile(np.asarray(first_endval, dtype=float).ravel(), (T, 1))
+        _first_endval_raw = parsed[0][2] if parsed[0][2] is not None else ss
+        _source = (
+            "the endval override in the first news_shocks entry"
+            if parsed[0][2] is not None
+            else "the steady-state vector ss"
+        )
+        try:
+            first_endval = np.asarray(_first_endval_raw, dtype=float).ravel()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{_source} could not be converted to a numeric array: {exc}"
+            ) from exc
+        if first_endval.size != n:
+            raise ValueError(
+                f"{_source} must have length {n}; got length {first_endval.size}."
+            )
+        X0_sub = np.tile(first_endval, (T, 1))
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
         # Apply endval override (persists to subsequent segments).

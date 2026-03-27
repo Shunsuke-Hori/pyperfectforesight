@@ -77,16 +77,28 @@ def test_solve_x0_none_defaults_to_terminal_ss(model):
 
 
 def test_solve_x0_none_with_custom_endval(model):
-    """X0=None uses endval (not ss) as the default initial guess when endval is provided."""
+    """X0=None uses endval as the default initial guess when endval is provided.
+
+    With the same endval and initial_state, X0=None should behave the same as
+    an explicit X0 constructed by tiling endval over the horizon.
+    """
     k_neg1 = np.array([K_SS * 0.9])
     ss_shifted = SS * 1.01  # arbitrary non-ss endval
-    sol = solve_perfect_foresight(
+    sol_explicit = solve_perfect_foresight(
+        T, np.tile(ss_shifted, (T, 1)), PARAMS, SS, model, VARS_DYN,
+        initial_state=k_neg1,
+        endval=ss_shifted,
+    )
+    sol_none = solve_perfect_foresight(
         T, None, PARAMS, SS, model, VARS_DYN,
         initial_state=k_neg1,
         endval=ss_shifted,
     )
-    # Just verify it runs without error and converges.
-    assert sol.success
+    assert sol_explicit.success, f"explicit endval-based X0 solve failed: {sol_explicit.message}"
+    assert sol_none.success, f"X0=None with endval solve failed: {sol_none.message}"
+    np.testing.assert_allclose(
+        sol_none.x.reshape(T, -1), sol_explicit.x.reshape(T, -1), atol=1e-8
+    )
 
 
 def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
