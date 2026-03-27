@@ -64,11 +64,11 @@ def test_endval_none_defaults_to_ss(model):
     X0 = np.tile(SS, (T, 1))
 
     sol_default = solve_perfect_foresight(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_explicit = solve_perfect_foresight(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         endval=SS,
     )
@@ -89,11 +89,11 @@ def test_custom_endval_changes_solution(model):
     SS_ALT = SS * 1.05   # arbitrary different terminal value
 
     sol_default = solve_perfect_foresight(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_custom = solve_perfect_foresight(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         endval=SS_ALT,
     )
@@ -120,7 +120,7 @@ def test_permanent_shock_reaches_new_ss(model_z):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight(
-        T, X0, {}, SS, model_z, VARS_DYN,
+        T, {}, SS, model_z, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         exog_path=exog_path,
         endval=SS_NEW,
@@ -146,7 +146,7 @@ def test_endval_wrong_shape_raises(model):
 
     with pytest.raises(ValueError, match="endval has"):
         solve_perfect_foresight(
-            T, X0, {}, SS, model, VARS_DYN,
+            T, {}, SS, model, VARS_DYN, X0,
             initial_state=k_neg1, stock_var_indices=[1],
             endval=np.array([C_SS]),   # only 1 element, needs 2
         )
@@ -163,7 +163,7 @@ def test_homotopy_permanent_shock(model_z):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, X0, {}, SS, model_z, VARS_DYN,
+        T, {}, SS, model_z, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         exog_path=exog_path,
         endval=SS_NEW,
@@ -186,12 +186,12 @@ def test_homotopy_endval_none_defaults_to_ss(model):
     X0 = np.tile(SS, (T, 1))
 
     sol_default = solve_perfect_foresight_homotopy(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=4,
     )
     sol_explicit = solve_perfect_foresight_homotopy(
-        T, X0, {}, SS, model, VARS_DYN,
+        T, {}, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         endval=SS, n_steps=4,
     )
@@ -212,7 +212,7 @@ def test_homotopy_endval_wrong_shape_raises(model):
 
     with pytest.raises(ValueError, match="endval has"):
         solve_perfect_foresight_homotopy(
-            T, X0, {}, SS, model, VARS_DYN,
+            T, {}, SS, model, VARS_DYN, X0,
             initial_state=k_neg1, stock_var_indices=[1],
             endval=np.array([C_SS]),
             n_steps=3,

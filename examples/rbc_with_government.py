@@ -141,7 +141,7 @@ if __name__ == "__main__":
     print(f"  Shock periods: {shock_start} to {shock_start+shock_duration-1}")
 
     # Solve with stock/jump variable distinction
-    sol = solve_perfect_foresight(T, X0, params, ss, model_funcs, vars_dyn,
+    sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn, X0,
                                   exog_path=exog_path,
                                   initial_state=initial_stock,
                                   stock_var_indices=[1],

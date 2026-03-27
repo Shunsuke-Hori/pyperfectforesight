@@ -50,7 +50,7 @@ def X0():
 def test_empty_news_shocks_raises(model, X0):
     with pytest.raises(ValueError, match="non-empty"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN, news_shocks=[]
+            T, PARAMS, SS, model, VARS_DYN, news_shocks=[], X0=X0
         )
 
 
@@ -58,8 +58,8 @@ def test_first_learnt_in_not_1_raises(model, X0):
     exog = np.zeros((T, 0))
     with pytest.raises(ValueError, match="learnt_in=1"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(5, exog)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(5, exog)], X0=X0,
         )
 
 
@@ -67,8 +67,8 @@ def test_unsorted_news_shocks_raises(model, X0):
     exog = np.zeros((T, 0))
     with pytest.raises(ValueError, match="sorted"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, exog), (30, exog), (15, exog)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, exog), (30, exog), (15, exog)], X0=X0,
         )
 
 
@@ -76,8 +76,8 @@ def test_duplicate_learnt_in_raises(model, X0):
     exog = np.zeros((T, 0))
     with pytest.raises(ValueError, match="duplicate"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, exog), (15, exog), (15, exog)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, exog), (15, exog), (15, exog)], X0=X0,
         )
 
 
@@ -92,13 +92,13 @@ def test_single_shock_matches_direct_solve(model, X0):
     initial_state = np.array([k_init])
 
     sol_direct = solve_perfect_foresight(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=initial_state,
     )
 
     sol_ee = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None)], X0=X0,
         initial_state=initial_state,
     )
 
@@ -118,8 +118,8 @@ def test_single_shock_matches_direct_solve(model, X0):
 def test_no_shock_stays_at_ss(model, X0):
     """Starting at SS with no perturbation, every sub-solve stays at SS."""
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None), (20, None), (40, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (20, None), (40, None)], X0=X0,
     )
     assert sol.success
     np.testing.assert_allclose(
@@ -139,8 +139,8 @@ def test_two_events_stitching(model, X0):
     split = 20
 
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None), (split, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (split, None)], X0=X0,
         initial_state=initial_state,
     )
 
@@ -173,8 +173,8 @@ def test_shrinking_window(model, X0):
     initial_state = np.array([k_init])
 
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None), (30, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (30, None)], X0=X0,
         initial_state=initial_state,
         constant_simulation_length=False,
     )
@@ -194,8 +194,8 @@ def test_shrinking_window(model, X0):
 def test_sub_results_length(model, X0):
     """sol.sub_results has one entry per news event."""
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None), (15, None), (40, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (15, None), (40, None)], X0=X0,
     )
     assert len(sol.sub_results) == 3
     for sr in sol.sub_results:
@@ -214,13 +214,13 @@ def test_sub_x0_none_list_same_as_default(model, X0):
     news_shocks = [(1, None), (30, None)]
 
     sol_default = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=news_shocks,
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=news_shocks, X0=X0,
         initial_state=initial_state,
     )
     sol_none_list = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=news_shocks,
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=news_shocks, X0=X0,
         initial_state=initial_state,
         sub_x0=[None, None],
     )
@@ -238,8 +238,8 @@ def test_sub_x0_explicit_guess_converges(model, X0):
     # Use SS as the explicit initial guess for sub-solve 1 (same as X0).
     explicit_x0 = np.tile(SS, (T, 1))
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None)], X0=X0,
         initial_state=initial_state,
         sub_x0=[explicit_x0],
     )
@@ -250,8 +250,8 @@ def test_sub_x0_wrong_length_raises(model, X0):
     """sub_x0 length != len(news_shocks) must raise ValueError."""
     with pytest.raises(ValueError, match="same length"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, None), (30, None)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None), (30, None)], X0=X0,
             sub_x0=[None],  # length 1 vs 2
         )
 
@@ -260,8 +260,8 @@ def test_sub_x0_wrong_type_raises(model, X0):
     """sub_x0 that is not a list or tuple must raise ValueError."""
     with pytest.raises(ValueError, match="list or tuple"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, None)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)], X0=X0,
             sub_x0=X0,  # ndarray, not a list
         )
 
@@ -271,8 +271,8 @@ def test_sub_x0_wrong_shape_raises(model, X0):
     bad_x0 = np.ones((T, 99))  # wrong n_endo
     with pytest.raises(ValueError, match="shape"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, None)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)], X0=X0,
             sub_x0=[bad_x0],
         )
 
@@ -282,8 +282,8 @@ def test_sub_x0_empty_rows_raises(model, X0):
     empty_x0 = np.empty((0, len(VARS_DYN)))
     with pytest.raises(ValueError, match="at least one row"):
         solve_perfect_foresight_expectation_errors(
-            T, X0, PARAMS, SS, model, VARS_DYN,
-            news_shocks=[(1, None)],
+            T, PARAMS, SS, model, VARS_DYN,
+            news_shocks=[(1, None)], X0=X0,
             sub_x0=[empty_x0],
         )
 
@@ -297,8 +297,8 @@ def test_sub_x0_override_second_subsolver(model, X0):
     explicit_x0_2 = np.tile(SS, (T_sub2, 1))
 
     sol = solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS, model, VARS_DYN,
-        news_shocks=[(1, None), (30, None)],
+        T, PARAMS, SS, model, VARS_DYN,
+        news_shocks=[(1, None), (30, None)], X0=X0,
         initial_state=initial_state,
         sub_x0=[None, explicit_x0_2],
     )

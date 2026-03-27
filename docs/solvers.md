@@ -14,7 +14,7 @@ The core solver. Given a model, steady state, and initial condition, it finds th
 from pyperfectforesight import solve_perfect_foresight
 
 sol = solve_perfect_foresight(
-    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    T, params_dict, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
 )
@@ -57,7 +57,7 @@ from pyperfectforesight import solve_perfect_foresight_homotopy
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
 
 sol = solve_perfect_foresight_homotopy(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     n_steps=10,      # number of continuation steps from ss to full shock
@@ -112,7 +112,6 @@ from pyperfectforesight import solve_perfect_foresight_expectation_errors
 
 # Same RBC model with exogenous TFP z as in Getting Started.
 T = 100
-X0 = np.tile(ss, (T, 1))
 
 # Agents initially expect no shock (period 1).
 # At period 3 they learn of a permanent 1% TFP shock.
@@ -124,8 +123,7 @@ news_shocks = [
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
-    T, X0, {}, ss, model_funcs, vars_dyn,
-    news_shocks=news_shocks,
+    T, {}, ss, model_funcs, vars_dyn, news_shocks,
     initial_state=k_neg1,
     stock_var_indices=[1],
 )
@@ -147,8 +145,7 @@ news_shocks = [
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
-    T, X0, {}, ss_new, model_funcs, vars_dyn,
-    news_shocks=news_shocks,
+    T, {}, ss_new, model_funcs, vars_dyn, news_shocks,
     initial_state=k_neg1,
     stock_var_indices=[1],
 )
@@ -192,8 +189,7 @@ sub_x0 = [
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
-    T, X0, params_dict, ss1_vec, model_funcs, vars_dyn,
-    news_shocks=news_shocks,
+    T, params_dict, ss1_vec, model_funcs, vars_dyn, news_shocks,
     sub_x0=sub_x0,
     initial_state=k_neg1,
 )

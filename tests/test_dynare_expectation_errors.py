@@ -133,8 +133,8 @@ def solution(model):
     k_neg1 = np.array([K_SS])  # k_{-1}: pre-simulation capital at z=1 SS
 
     return solve_perfect_foresight_expectation_errors(
-        T, X0, PARAMS, SS_Z1, model, VARS_DYN,
-        news_shocks=news_shocks,
+        T, PARAMS, SS_Z1, model, VARS_DYN,
+        news_shocks=news_shocks, X0=X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
         constant_simulation_length=False,  # Dynare default: shrinking window

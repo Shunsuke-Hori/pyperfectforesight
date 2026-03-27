@@ -62,13 +62,12 @@ ss = np.array([C_SS, K_SS])
 
 # Transition path: k_{-1} (pre-period-0 capital) starts 10% above steady state
 T = 100
-X0 = np.tile(ss, (T, 1))          # warm-start: constant ss path
 
 # initial_state = k_{-1} (pre-period-0 capital, Dynare convention)
 k_neg1 = np.array([K_SS * 1.1])
 
 sol = solve_perfect_foresight(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],         # index of k in vars_dyn
 )
@@ -96,7 +95,6 @@ C_SS = K_SS**ALPHA - K_SS
 ss = np.array([C_SS, K_SS])
 
 T = 100
-X0 = np.tile(ss, (T, 1))
 
 # AR(1) TFP shock: 1% on impact, rho=0.9 decay
 rho = 0.9
@@ -108,7 +106,7 @@ for t in range(1, T):
 k_neg1 = np.array([K_SS])   # k_{-1} starts at steady state
 
 sol = solve_perfect_foresight(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     exog_path=exog,
@@ -126,7 +124,7 @@ from pyperfectforesight import solve_perfect_foresight_homotopy
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
 
 sol = solve_perfect_foresight_homotopy(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     n_steps=10,       # number of homotopy steps from ss to full shock
@@ -158,8 +156,7 @@ news_shocks = [
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
-    T, X0, {}, ss, model_funcs, vars_dyn,
-    news_shocks=news_shocks,
+    T, {}, ss, model_funcs, vars_dyn, news_shocks,
 )
 print(f"Converged: {sol.success}, message: {sol.message}")
 X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
@@ -205,9 +202,9 @@ pyperfectforesight/
 - **`v(name, lag)`**: Create a time-indexed symbolic variable (e.g. `v("k", -1)` for `k_{t-1}`)
 - **`process_model(equations, vars_dyn, ...)`**: Process and compile model equations
 - **`compute_steady_state_numerical(equations, vars_dyn, params_dict, ...)`**: Compute steady state numerically
-- **`solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Solve perfect foresight transition path
-- **`solve_perfect_foresight_homotopy(T, X0, params_dict, ss, model_funcs, vars_dyn, ...)`**: Homotopy continuation for difficult shocks
-- **`solve_perfect_foresight_expectation_errors(T, X0, params_dict, ss, model_funcs, vars_dyn, news_shocks, ...)`**: Multiple surprise (MIT) shocks — replicates Dynare's expectation-errors solver
+- **`solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None, ...)`**: Solve perfect foresight transition path
+- **`solve_perfect_foresight_homotopy(T, params_dict, ss, model_funcs, vars_dyn, X0=None, ...)`**: Homotopy continuation for difficult shocks
+- **`solve_perfect_foresight_expectation_errors(T, params_dict, ss, model_funcs, vars_dyn, news_shocks, X0=None, ...)`**: Multiple surprise (MIT) shocks — replicates Dynare's expectation-errors solver
 
 ### Low-level Functions
 
