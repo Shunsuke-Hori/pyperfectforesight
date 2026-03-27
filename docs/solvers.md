@@ -112,7 +112,6 @@ from pyperfectforesight import solve_perfect_foresight_expectation_errors
 
 # Same RBC model with exogenous TFP z as in Getting Started.
 T = 100
-X0 = np.tile(ss, (T, 1))
 
 # Agents initially expect no shock (period 1).
 # At period 3 they learn of a permanent 1% TFP shock.
@@ -156,7 +155,7 @@ sol = solve_perfect_foresight_expectation_errors(
 
 | Parameter | Default | Description |
 |---|---|---|
-| `news_shocks` | *(required positional)* | List of `(learnt_in, exog_path)` or `(learnt_in, exog_path, endval)` tuples. |
+| `news_shocks` | *(required)* | List of `(learnt_in, exog_path)` or `(learnt_in, exog_path, endval)` tuples. |
 | `initial_state` | `None` | Same semantics as `solve_perfect_foresight`. |
 | `ss_initial` | `None` | Same semantics as `solve_perfect_foresight`. |
 | `stock_var_indices` | `None` | Same semantics as `solve_perfect_foresight`. |

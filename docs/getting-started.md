@@ -76,7 +76,6 @@ ss = np.array([C_SS, K_SS])
 
 # Transition path: k_{-1} starts 10% above steady state
 T = 100
-X0 = np.tile(ss, (T, 1))   # warm-start: constant ss path
 
 # initial_state = k_{-1} (pre-period-0 capital, Dynare convention)
 k_neg1 = np.array([K_SS * 1.1])
@@ -117,7 +116,6 @@ C_SS = K_SS**ALPHA - K_SS
 ss = np.array([C_SS, K_SS])
 
 T = 100
-X0 = np.tile(ss, (T, 1))
 
 # AR(1) TFP shock: 1% on impact, rho=0.9 decay
 rho = 0.9

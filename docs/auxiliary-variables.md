@@ -165,7 +165,6 @@ print(f"Method used: {model_funcs['aux_method']}")
 params = {beta: 0.96, delta: 0.08, alpha: 0.36}
 ss = np.array([1.2, 5.4])   # steady state for [c, k]
 T = 100
-X0 = np.tile(ss, (T, 1))
 exog_path = np.full((T, 1), 0.2)   # constant government spending
 
 sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn,
