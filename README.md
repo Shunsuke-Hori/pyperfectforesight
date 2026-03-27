@@ -37,27 +37,28 @@ pip install pyperfectforesight
 Here's a simple RBC (Real Business Cycle) model in Dynare lag notation:
 
 ```python
+import sympy as sp
 import numpy as np
 from pyperfectforesight import v, process_model, solve_perfect_foresight
 
-# Parameters baked in numerically
-ALPHA = 0.36
-BETA  = 0.99
+# Symbolic parameters — values supplied at solve time via params_dict
+alpha, beta = sp.symbols("alpha beta")
+params = {alpha: 0.36, beta: 0.99}
 
 # Dynare-style equations:
 #   Euler:   1/c_t = beta * alpha * k_t^(alpha-1) / c_{t+1}
 #   Capital: k_t   = k_{t-1}^alpha - c_t
 #
 # k appears at lag -1 in the accumulation equation (Dynare convention).
-eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
+eq_euler = v("c", 0)**(-1) - beta * alpha * v("k", 0)**(alpha-1) * v("c", 1)**(-1)
+eq_kacc  = v("k", 0) - v("k", -1)**alpha + v("c", 0)
 
 vars_dyn = ["c", "k"]
 model_funcs = process_model([eq_euler, eq_kacc], vars_dyn)
 
 # Steady state
-K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
-C_SS = K_SS**ALPHA - K_SS
+K_SS = (params[alpha] * params[beta]) ** (1 / (1 - params[alpha]))
+C_SS = K_SS**params[alpha] - K_SS
 ss = np.array([C_SS, K_SS])
 
 # Transition path: k_{-1} (pre-period-0 capital) starts 10% above steady state
@@ -67,7 +68,7 @@ T = 100
 k_neg1 = np.array([K_SS * 1.1])
 
 sol = solve_perfect_foresight(
-    T, {}, ss, model_funcs, vars_dyn,
+    T, params, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],         # index of k in vars_dyn
 )
@@ -81,17 +82,18 @@ import sympy as sp
 import numpy as np
 from pyperfectforesight import v, process_model, solve_perfect_foresight
 
-ALPHA, BETA = 0.36, 0.99
+alpha, beta = sp.symbols("alpha beta")
+params = {alpha: 0.36, beta: 0.99}
 
 # TFP shock z enters the capital accumulation equation
-eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**ALPHA + v("c", 0)
+eq_euler = v("c", 0)**(-1) - beta * alpha * v("k", 0)**(alpha-1) * v("c", 1)**(-1)
+eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**alpha + v("c", 0)
 
 vars_dyn = ["c", "k"]
 model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=["z"])
 
-K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
-C_SS = K_SS**ALPHA - K_SS
+K_SS = (params[alpha] * params[beta]) ** (1 / (1 - params[alpha]))
+C_SS = K_SS**params[alpha] - K_SS
 ss = np.array([C_SS, K_SS])
 
 T = 100
@@ -106,7 +108,7 @@ for t in range(1, T):
 k_neg1 = np.array([K_SS])   # k_{-1} starts at steady state
 
 sol = solve_perfect_foresight(
-    T, {}, ss, model_funcs, vars_dyn,
+    T, params, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     exog_path=exog,
@@ -120,11 +122,11 @@ When direct Newton fails to converge for large shocks, use homotopy continuation
 ```python
 from pyperfectforesight import solve_perfect_foresight_homotopy
 
-# Same model setup as above...
+# Same model and params as above...
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
 
 sol = solve_perfect_foresight_homotopy(
-    T, {}, ss, model_funcs, vars_dyn,
+    T, params, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     n_steps=10,       # number of homotopy steps from ss to full shock
@@ -141,7 +143,7 @@ Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents a
 import numpy as np
 from pyperfectforesight import solve_perfect_foresight_expectation_errors
 
-# Same RBC model with exogenous TFP z...
+# Same RBC model with exogenous TFP z and params as above...
 # Agents initially expect no shock (period 1), then learn of a
 # persistent TFP shock at period 3.
 T = 100
@@ -156,7 +158,7 @@ news_shocks = [
 ]
 
 sol = solve_perfect_foresight_expectation_errors(
-    T, {}, ss, model_funcs, vars_dyn, news_shocks,
+    T, params, ss, model_funcs, vars_dyn, news_shocks,
 )
 print(f"Converged: {sol.success}, message: {sol.message}")
 X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
@@ -225,6 +227,7 @@ For advanced users who want more control:
 - `eliminate_static_vars=True/False`: Eliminate static variables before solving
 
 ### `solve_perfect_foresight()` options:
+- `X0=None`: Initial guess for the `T × n` path. If omitted, defaults to the terminal steady state (`endval` if provided, otherwise `ss`) tiled over all `T` periods.
 - `exog_path=None`: Exogenous variable path (`T × n_exo` array)
 - `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
 - `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
@@ -234,12 +237,14 @@ For advanced users who want more control:
 - `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
 
 ### `solve_perfect_foresight_homotopy()` options:
-- All options from `solve_perfect_foresight()`, plus:
+- `X0=None`: Accepted for API compatibility; the actual warm start is always `np.tile(ss_initial, (T, 1))`. Shape is validated if provided.
+- All other options from `solve_perfect_foresight()`, plus:
 - `n_steps=10`: Number of homotopy steps (must be a positive integer)
 - `exog_ss=None`: Baseline exogenous path at `λ=0`; defaults to zero
 - `verbose=False`: Print progress at each homotopy step
 
 ### `solve_perfect_foresight_expectation_errors()` options:
+- `X0=None`: Initial guess for the first sub-solve. If omitted, defaults to the effective terminal steady state for the first segment (the `endval` from the first `news_shocks` entry if it is a 3-tuple, otherwise `ss`) tiled over `T` periods. Subsequent sub-solves are warm-started from the previous sub-solve's tail.
 - `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. Do **not** pre-offset it as if row 0 were period 1; the solver handles that alignment internally. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; longer paths (including a full `T`-row array) are accepted and extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
 - `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
