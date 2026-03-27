@@ -1,10 +1,14 @@
 """Benchmark pyperfectforesight against Dynare 6.2 on the RBC model.
 
 Both solvers are timed on the same model and shock:
-  - RBC: resource constraint + Euler equation
+  - RBC: resource constraint + Euler equation + auxiliary equation for z(+1)
   - Parameters: alpha=0.5, sigma=0.5, delta=0.02, beta=1/1.05
   - Shock: z = 1.2 in period 1, z = 1 thereafter
   - Horizons: T = 50, 100, 200, 500, 1000
+
+The Python model explicitly includes the auxiliary variable for z(+1) that
+Dynare adds automatically ("Substitution of exo leads"), so both solvers
+operate on the same 3-equation, 3-variable system.
 
 Only solver time is measured (process_model / perfect_foresight_setup excluded).
 
@@ -26,7 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pyperfectforesight import v, process_model, solve_perfect_foresight
 
 # ---------------------------------------------------------------------------
-# Model: exact match to benchmark_dynare.mod
+# Model: exact match to benchmark_dynare.mod (including Dynare's auxiliary
+# variable substitution for z(+1)).
+#
+# Dynare automatically replaces z(+1) in the Euler equation with an auxiliary
+# endogenous variable zl and appends the equation  zl(0) = z(+1).  We do the
+# same here so both solvers operate on an identical 3×3 system.
 # ---------------------------------------------------------------------------
 ALPHA = 0.5
 SIGMA = 0.5
@@ -41,16 +50,17 @@ EQ_RESOURCE = (
 )
 EQ_EULER = (
     v("c", 0) ** (-SIGMA)
-    - BETA * (ALPHA * v("z", 1) * v("k", 0) ** (ALPHA - 1) + 1 - DELTA)
+    - BETA * (ALPHA * v("zl", 0) * v("k", 0) ** (ALPHA - 1) + 1 - DELTA)
     * v("c", 1) ** (-SIGMA)
 )
+EQ_AUX = v("zl", 0) - v("z", 1)   # zl(t) = z(t+1): mirrors Dynare's exo-lead substitution
 
-VARS_DYN = ["c", "k"]
+VARS_DYN = ["c", "k", "zl"]
 VARS_EXO = ["z"]
 
 K_SS = ((1 / BETA - (1 - DELTA)) / (Z_SS * ALPHA)) ** (1 / (ALPHA - 1))
 C_SS = Z_SS * K_SS ** ALPHA - DELTA * K_SS
-SS   = np.array([C_SS, K_SS])
+SS   = np.array([C_SS, K_SS, Z_SS])
 
 T_VALUES = [50, 100, 200, 500, 1000]
 N_REPS   = 20
@@ -62,7 +72,7 @@ N_REPS   = 20
 def benchmark_python():
     print("Compiling model (process_model)...", flush=True)
     t0 = time.perf_counter()
-    model_funcs = process_model([EQ_RESOURCE, EQ_EULER], VARS_DYN, vars_exo=VARS_EXO)
+    model_funcs = process_model([EQ_RESOURCE, EQ_EULER, EQ_AUX], VARS_DYN, vars_exo=VARS_EXO)
     compile_ms = (time.perf_counter() - t0) * 1000
     print(f"  process_model: {compile_ms:.1f} ms  (one-time cost, not included below)\n")
 
@@ -70,7 +80,7 @@ def benchmark_python():
     for T in T_VALUES:
         exog      = np.ones((T, 1)) * Z_SS
         exog[0, 0] = 1.2
-        k_neg1    = np.array([K_SS])
+        k_neg1    = np.array([K_SS])  # only k is a stock variable
 
         times = []
         for _ in range(N_REPS):
@@ -79,7 +89,7 @@ def benchmark_python():
                 T, {}, SS, model_funcs, VARS_DYN,
                 exog_path=exog,
                 initial_state=k_neg1,
-                stock_var_indices=[1],
+                stock_var_indices=[1],  # k is at index 1 in ["c", "k", "zl"]
                 homotopy_fallback=False,
             )
             times.append(time.perf_counter() - t0)
