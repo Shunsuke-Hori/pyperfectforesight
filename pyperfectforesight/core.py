@@ -1932,8 +1932,25 @@ def solve_perfect_foresight_expectation_errors(
     sub_results = []
     current_initial_state = initial_state
     current_endval = ss   # updated if a 3-tuple provides an endval override
-    # Default initial guess: terminal steady state tiled over all T periods.
-    X0_sub = X0 if X0 is not None else np.tile(ss, (T, 1))
+    # Validate and default X0.  When provided, coerce to a float array and
+    # check shape.  When None, use the effective terminal steady state for the
+    # first segment (the endval override from the first news_shock entry if
+    # present, otherwise ss) tiled over all T periods.
+    if X0 is not None:
+        try:
+            X0 = np.asarray(X0, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"X0 could not be converted to a numeric array: {exc}") from exc
+        if X0.ndim != 2 or X0.shape[1] != n:
+            raise ValueError(
+                f"X0 must be a 2D array with shape (T, {n}); got shape {X0.shape}."
+            )
+        if X0.shape[0] == 0:
+            raise ValueError(f"X0 must have at least one row; got shape {X0.shape}.")
+        X0_sub = X0
+    else:
+        first_endval = parsed[0][2] if parsed[0][2] is not None else ss
+        X0_sub = np.tile(np.asarray(first_endval, dtype=float).ravel(), (T, 1))
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
         # Apply endval override (persists to subsequent segments).

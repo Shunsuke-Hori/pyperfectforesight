@@ -55,10 +55,10 @@ def X0():
 
 
 def test_solve_x0_none_defaults_to_terminal_ss(model):
-    """X0=None constructs the initial guess from the terminal steady state (ss).
+    """X0=None produces the same solution as X0=np.tile(SS, (T, 1)).
 
-    With no shock the solution stays at ss, so both X0=None and
-    X0=np.tile(SS, (T,1)) should produce identical results.
+    Both use the terminal steady state as the initial guess; with the same
+    initial_state perturbation the two solves should converge to the same path.
     """
     k_neg1 = np.array([K_SS * 0.9])
     sol_explicit = solve_perfect_foresight(
@@ -69,7 +69,8 @@ def test_solve_x0_none_defaults_to_terminal_ss(model):
         T, None, PARAMS, SS, model, VARS_DYN,
         initial_state=k_neg1,
     )
-    assert sol_none.success
+    assert sol_explicit.success, f"explicit-X0 solve failed: {sol_explicit.message}"
+    assert sol_none.success, f"X0=None solve failed: {sol_none.message}"
     np.testing.assert_allclose(
         sol_none.x.reshape(T, -1), sol_explicit.x.reshape(T, -1), atol=1e-8
     )
