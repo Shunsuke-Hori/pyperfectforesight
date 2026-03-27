@@ -1400,6 +1400,16 @@ def solve_perfect_foresight(T, X0=None, params_dict=None, ss=None, model_funcs=N
     OptimizeResult : Solution with full path including X[0]
     """
 
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'params_dict'")
+    if ss is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'ss'")
+    if model_funcs is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'model_funcs'")
+    if vars_dyn is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'vars_dyn'")
+
     all_syms = model_funcs['all_syms']
     residual_funcs = model_funcs['residual_funcs']
     block_funcs = model_funcs['block_funcs']
@@ -1413,14 +1423,16 @@ def solve_perfect_foresight(T, X0=None, params_dict=None, ss=None, model_funcs=N
     exo_lags  = model_funcs.get('exo_lags')
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
-    # X0 validation is deferred to after endval is resolved so that the default
-    # (np.tile(endval, (T, 1))) can be constructed when X0 is None.
+    # Only validate X0 when it is explicitly provided. If X0 is None, a default
+    # path based on endval (np.tile(endval, (T, 1))) is constructed later after
+    # endval is resolved.
     if X0 is not None:
         X0 = np.asarray(X0, dtype=float)
-        if X0.shape[1] != n:
+        if X0.ndim != 2 or X0.shape != (T, n):
             raise ValueError(
-                f"X0 has {X0.shape[1]} columns but the model has {n} dynamic variables "
-                f"({vars_dyn}). If process_model fell back to aux_method='dynamic', "
+                f"X0 must be a 2D array with shape (T, n) = ({T}, {n}); "
+                f"got shape {X0.shape}. "
+                f"If process_model fell back to aux_method='dynamic', "
                 f"vars_dyn was extended to include auxiliary variables. "
                 f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
             )
@@ -1789,6 +1801,28 @@ def solve_perfect_foresight_expectation_errors(
     """
     from scipy.optimize import OptimizeResult
 
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'params_dict'"
+        )
+    if ss is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'ss'"
+        )
+    if model_funcs is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'model_funcs'"
+        )
+    if vars_dyn is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'vars_dyn'"
+        )
+    if news_shocks is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'news_shocks'"
+        )
+
     # Use vars_dyn from model_funcs (may be extended by process_model).
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
@@ -2126,6 +2160,16 @@ def solve_perfect_foresight_homotopy(
         If the solver fails to converge at any homotopy step, with the step's
         lam value and solver message included.
     """
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'params_dict'")
+    if ss is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'ss'")
+    if model_funcs is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'model_funcs'")
+    if vars_dyn is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'vars_dyn'")
+
     if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 

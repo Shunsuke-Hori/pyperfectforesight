@@ -54,6 +54,40 @@ def X0():
 # ---------------------------------------------------------------------------
 
 
+def test_solve_x0_none_defaults_to_terminal_ss(model):
+    """X0=None constructs the initial guess from the terminal steady state (ss).
+
+    With no shock the solution stays at ss, so both X0=None and
+    X0=np.tile(SS, (T,1)) should produce identical results.
+    """
+    k_neg1 = np.array([K_SS * 0.9])
+    sol_explicit = solve_perfect_foresight(
+        T, np.tile(SS, (T, 1)), PARAMS, SS, model, VARS_DYN,
+        initial_state=k_neg1,
+    )
+    sol_none = solve_perfect_foresight(
+        T, None, PARAMS, SS, model, VARS_DYN,
+        initial_state=k_neg1,
+    )
+    assert sol_none.success
+    np.testing.assert_allclose(
+        sol_none.x.reshape(T, -1), sol_explicit.x.reshape(T, -1), atol=1e-8
+    )
+
+
+def test_solve_x0_none_with_custom_endval(model):
+    """X0=None uses endval (not ss) as the default initial guess when endval is provided."""
+    k_neg1 = np.array([K_SS * 0.9])
+    ss_shifted = SS * 1.01  # arbitrary non-ss endval
+    sol = solve_perfect_foresight(
+        T, None, PARAMS, SS, model, VARS_DYN,
+        initial_state=k_neg1,
+        endval=ss_shifted,
+    )
+    # Just verify it runs without error and converges.
+    assert sol.success
+
+
 def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
     """solve_perfect_foresight works when stock_var_indices is given without initial_state.
 
