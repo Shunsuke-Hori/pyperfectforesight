@@ -40,7 +40,7 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 `solve_perfect_foresight()` accepts an `endval` keyword argument to override the terminal BVP boundary (right-hand steady state). Defaults to `ss`. Use for permanent shocks where the long-run equilibrium differs from the initial steady state.
 
 ### Function signatures
-All three solvers share the convention: required positional arguments first, optional `X0` last before keyword-only args.
+All three solvers share the convention: required positional arguments first; `X0` comes immediately after `vars_dyn` (or `news_shocks`), followed by other optional positional-or-keyword parameters and then keyword-only args.
 
 ```python
 solve_perfect_foresight(

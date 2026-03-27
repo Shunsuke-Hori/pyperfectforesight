@@ -140,6 +140,7 @@ print(f"Converged: {sol.success}")
 Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents are surprised at each `learnt_in` period and re-solve from that point forward; the full path is stitched from the sub-simulations.
 
 ```python
+import numpy as np
 from pyperfectforesight import solve_perfect_foresight_expectation_errors
 
 # Same RBC model with exogenous TFP z and params as above...
