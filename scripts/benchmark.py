@@ -131,9 +131,13 @@ def benchmark_dynare(dynare_path):
             "Set it with --dynare-path or the DYNARE_PATH environment variable."
         )
 
+    # Escape single quotes for MATLAB string literals (MATLAB uses '' inside '…').
+    def _mesc(p):
+        return p.replace("'", "''")
+
     matlab_cmd = (
-        f"addpath('{dynare_path}'); "
-        f"cd('{SCRIPTS_DIR}'); "
+        f"addpath('{_mesc(dynare_path)}'); "
+        f"cd('{_mesc(SCRIPTS_DIR)}'); "
         f"dynare benchmark_dynare nointeractive nolog; "
         f"exit;"
     )

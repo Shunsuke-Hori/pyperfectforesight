@@ -564,8 +564,8 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
 
     if not rows_list:
         return csr_matrix((neq * T, n * T), dtype=float)
-    rows_coo = np.concatenate(rows_list).astype(np.int32)
-    cols_coo = np.concatenate(cols_list).astype(np.int32)
+    rows_coo = np.concatenate(rows_list)
+    cols_coo = np.concatenate(cols_list)
     data_coo = np.concatenate(data_list)
     return csr_matrix((data_coo, (rows_coo, cols_coo)), shape=(neq * T, n * T))
 
