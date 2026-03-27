@@ -343,18 +343,25 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
         all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
 
-    F = np.zeros((T, neq))
-    for t in range(T):
-        vals = base_vals[:]
-        for sym_idx, var_idx, lag in endo_plan:
-            aug_idx = max(0, min(t + lag + 1, T + 1))
-            vals[sym_idx] = X_aug[aug_idx, var_idx]
-        for sym_idx, var_idx, lag in exo_plan:
-            aug_idx = max(0, min(t + lag + 1, T + 1))
-            vals[sym_idx] = exog_aug[aug_idx, var_idx]
-        for i, func in enumerate(residual_funcs):
-            F[t, i] = func(*vals)
-    return F.ravel()
+    # Build (T, n_syms) array of all input values — one row per time step.
+    t_idx = np.arange(T)
+    all_vals = np.empty((T, n_syms), dtype=float)
+    for j, val in enumerate(base_vals):
+        all_vals[:, j] = val
+    for sym_idx, var_idx, lag in endo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
+    for sym_idx, var_idx, lag in exo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
+
+    # Call each residual function once with all T inputs (lambdify scalar funcs
+    # broadcast correctly over (T,) array arguments).
+    sym_cols = [all_vals[:, j] for j in range(n_syms)]
+    F = np.empty((neq, T), dtype=float)
+    for i, func in enumerate(residual_funcs):
+        F[i] = func(*sym_cols)
+    return F.ravel(order='F')  # column-major: F[eq, t] -> t0eq0,t0eq1,...
 
 # ============================================================
 # 6. Sparse block Jacobian
@@ -449,7 +456,8 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
 
 
 def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None,
+                  block_elem_funcs=None):
     """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
@@ -480,40 +488,61 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
     n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
         all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
 
-    # Pre-allocate COO arrays (upper bound: T * n_blocks * neq * n entries).
-    elem = neq * n
-    ri_off = np.repeat(np.arange(neq), n)   # row offsets within a block
-    ci_off = np.tile(np.arange(n), neq)     # col offsets within a block
-    n_blocks_upper = T * len(block_funcs)
-    rows_coo = np.empty(n_blocks_upper * elem, dtype=np.int32)
-    cols_coo = np.empty(n_blocks_upper * elem, dtype=np.int32)
-    data_coo = np.empty(n_blocks_upper * elem, dtype=float)
-    ptr = 0
+    # Build (T, n_syms) array of all input values — one row per time step.
+    t_idx = np.arange(T)
+    all_vals = np.empty((T, n_syms), dtype=float)
+    for j, val in enumerate(base_vals):
+        all_vals[:, j] = val
+    for sym_idx, var_idx, lag in endo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
+    for sym_idx, var_idx, lag in exo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
 
-    for t in range(T):
-        vals = base_vals[:]
-        for sym_idx, var_idx, lag in endo_plan:
-            aug_idx = max(0, min(t + lag + 1, T + 1))
-            vals[sym_idx] = X_aug[aug_idx, var_idx]
-        for sym_idx, var_idx, lag in exo_plan:
-            aug_idx = max(0, min(t + lag + 1, T + 1))
-            vals[sym_idx] = exog_aug[aug_idx, var_idx]
-        for lag, f in block_funcs.items():
-            col_t = t + lag  # index into X (0-based); skip fixed boundary rows
-            if not (0 <= col_t < T):
-                continue
-            B = np.asarray(f(*vals)).ravel()
-            r0 = t * neq
-            c0 = col_t * n
-            rows_coo[ptr:ptr + elem] = r0 + ri_off
-            cols_coo[ptr:ptr + elem] = c0 + ci_off
-            data_coo[ptr:ptr + elem] = B
-            ptr += elem
+    eq_idx = np.arange(neq)
+    var_idx_arr = np.arange(n)
 
-    return csr_matrix(
-        (data_coo[:ptr], (rows_coo[:ptr], cols_coo[:ptr])),
-        shape=(neq * T, n * T),
-    )
+    rows_list = []
+    cols_list = []
+    data_list = []
+
+    funcs_iter = block_elem_funcs if block_elem_funcs is not None else None
+    for lag in block_funcs:
+        col_t = t_idx + lag
+        valid = (col_t >= 0) & (col_t < T)
+        t_v = t_idx[valid]        # time steps with valid column index
+        col_v = col_t[valid]      # corresponding column block indices
+        T_v = len(t_v)
+        if T_v == 0:
+            continue
+
+        # Row/col index arrays for this block, shape (neq, n, T_v).
+        row_block = (eq_idx[:, None, None] + t_v[None, None, :] * neq)    # (neq, 1, T_v)
+        col_block = (var_idx_arr[None, :, None] + col_v[None, None, :] * n)  # (1, n, T_v)
+        rows_list.append(np.broadcast_to(row_block, (neq, n, T_v)).ravel())
+        cols_list.append(np.broadcast_to(col_block, (neq, n, T_v)).ravel())
+
+        if funcs_iter is not None:
+            # Vectorized path: call each element lambda once with T_v-length arrays.
+            sym_cols_v = [all_vals[valid, j] for j in range(n_syms)]
+            B = np.empty((neq, n, T_v), dtype=float)
+            elem_grid = funcs_iter[lag]
+            for i in range(neq):
+                for j in range(n):
+                    B[i, j, :] = np.asarray(elem_grid[i][j](*sym_cols_v), dtype=float)
+            data_list.append(B.ravel())
+        else:
+            # Fallback scalar path (used if block_elem_funcs not available).
+            f = block_funcs[lag]
+            B_all = np.array([np.asarray(f(*all_vals[t].tolist())).ravel()
+                               for t in t_v])  # (T_v, neq*n)
+            data_list.append(B_all.ravel())
+
+    rows_coo = np.concatenate(rows_list).astype(np.int32)
+    cols_coo = np.concatenate(cols_list).astype(np.int32)
+    data_coo = np.concatenate(data_list)
+    return csr_matrix((data_coo, (rows_coo, cols_coo)), shape=(neq * T, n * T))
 
 # ============================================================
 # 7. Terminal steady-state conditions
@@ -906,6 +935,16 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
             lag: sp.lambdify(all_syms, J, "numpy")
             for lag, J in blocks.items()
         }
+        # Element-wise lambdas for each Jacobian block entry.  Unlike the matrix
+        # lambda above (which returns np.array([[...], ...]) and fails when some
+        # entries are scalar and others are (T,) arrays), these scalar-valued
+        # lambdas broadcast correctly over numpy array inputs.
+        block_elem_funcs = {
+            lag: [[sp.lambdify(all_syms, J[i, j], "numpy")
+                   for j in range(J.shape[1])]
+                  for i in range(J.shape[0])]
+            for lag, J in blocks.items()
+        }
         residual_funcs = [sp.lambdify(all_syms, eq, "numpy") for eq in dynamic_eqs]
     else:
         raise ValueError(f"Unsupported compiler: {compiler}")
@@ -922,6 +961,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         'blocks': blocks,
         'all_syms': all_syms,
         'block_funcs': block_funcs,
+        'block_elem_funcs': block_elem_funcs,
         'residual_funcs': residual_funcs,
         'incidence': incidence,
         'endo_lags': endo_lags,
@@ -1449,6 +1489,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     all_syms = model_funcs['all_syms']
     residual_funcs = model_funcs['residual_funcs']
     block_funcs = model_funcs['block_funcs']
+    block_elem_funcs = model_funcs.get('block_elem_funcs')
     dynamic_eqs = model_funcs['dynamic_eqs']
     vars_exo = model_funcs.get('vars_exo', [])
     # Use vars_dyn from model_funcs — process_model may have extended it (e.g. dynamic fallback)
@@ -1630,6 +1671,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         return _jacobian_bvp(
             X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
+            block_elem_funcs=block_elem_funcs,
         )
 
     sol = _sparse_newton(
