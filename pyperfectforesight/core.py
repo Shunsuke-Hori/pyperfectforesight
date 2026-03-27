@@ -289,13 +289,18 @@ def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
     sym_to_idx = {s: i for i, s in enumerate(all_syms)}
     n_syms = len(all_syms)
 
-    # Detect parameter symbols (non-time-indexed) that are missing from params.
-    # Previously a missing param would raise KeyError during subs dict lookup;
-    # raise explicitly here so the error is not silently swallowed.
-    missing = [
-        s for s in all_syms
-        if _parse_time_symbol(s.name) is None and s not in params
-    ]
+    # Detect parameter symbols that are missing from params.
+    # A symbol is a parameter if it either has no underscore-integer suffix at
+    # all, OR if its base name is not a known dynamic/exogenous variable (e.g.
+    # rho_1 parses as ("rho", 1) but "rho" is not a variable, so it is a
+    # parameter).  Previously a missing param would raise KeyError during subs
+    # dict lookup; raise explicitly here so the error is not silently swallowed.
+    known_vars = set(vars_dyn) | set(vars_exo)
+    def _is_time_indexed(sym):
+        parsed = _parse_time_symbol(sym.name)
+        return parsed is not None and parsed[0] in known_vars
+
+    missing = [s for s in all_syms if not _is_time_indexed(s) and s not in params]
     if missing:
         raise ValueError(
             "Missing parameter values for symbol(s): "
@@ -557,6 +562,8 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             B_all = B_all.reshape(T_v, neq, n).transpose(1, 2, 0)
             data_list.append(B_all.ravel())
 
+    if not rows_list:
+        return csr_matrix((neq * T, n * T), dtype=float)
     rows_coo = np.concatenate(rows_list).astype(np.int32)
     cols_coo = np.concatenate(cols_list).astype(np.int32)
     data_coo = np.concatenate(data_list)
