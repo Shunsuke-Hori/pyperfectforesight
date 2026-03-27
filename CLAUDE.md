@@ -39,6 +39,33 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 ### `endval` parameter
 `solve_perfect_foresight()` accepts an `endval` keyword argument to override the terminal BVP boundary (right-hand steady state). Defaults to `ss`. Use for permanent shocks where the long-run equilibrium differs from the initial steady state.
 
+### Function signatures
+All three solvers share the convention: required positional arguments first, optional `X0` last before keyword-only args.
+
+```python
+solve_perfect_foresight(
+    T, params_dict, ss, model_funcs, vars_dyn,
+    X0=None, exog_path=None, initial_state=None, ss_initial=None,
+    stock_var_indices=None, ..., *, endval=None, ...)
+
+solve_perfect_foresight_homotopy(
+    T, params_dict, ss, model_funcs, vars_dyn,
+    X0=None, exog_path=None, initial_state=None, ss_initial=None,
+    stock_var_indices=None, *, endval=None, ...)
+
+solve_perfect_foresight_expectation_errors(
+    T, params_dict, ss, model_funcs, vars_dyn, news_shocks,
+    X0=None, initial_state=None, ss_initial=None,
+    stock_var_indices=None, ...)
+```
+
+### `X0` default initial guess
+`X0` is optional in all three solvers (default `None`). When omitted, the solver constructs the initial guess automatically:
+
+- `solve_perfect_foresight`: tiles `endval` (or `ss` if `endval` is not provided) over all `T` periods.
+- `solve_perfect_foresight_homotopy`: always warm-starts from `np.tile(ss_initial, (T, 1))` regardless of `X0`; `X0` is validated for shape if provided but otherwise unused.
+- `solve_perfect_foresight_expectation_errors`: tiles the effective terminal steady state for the first segment — the `endval` override from the first `news_shocks` entry if present, otherwise `ss` — over all `T` periods. Subsequent sub-solves are warm-started from the previous sub-solve's tail.
+
 ### Expectation-errors solver
 `solve_perfect_foresight_expectation_errors()` replicates Dynare's `perfect_foresight_with_expectation_errors_setup` / `perfect_foresight_with_expectation_errors_solver`. It accepts a `news_shocks` list of 2- or 3-tuples `(learnt_in, exog_path[, endval])`. At each `learnt_in` the solver re-solves from that period forward and stitches the pieces together. Key design points:
 - `learnt_in` is 1-indexed; the list must be sorted and start with `learnt_in=1`.

@@ -225,6 +225,7 @@ For advanced users who want more control:
 - `eliminate_static_vars=True/False`: Eliminate static variables before solving
 
 ### `solve_perfect_foresight()` options:
+- `X0=None`: Initial guess for the `T × n` path. If omitted, defaults to the terminal steady state (`endval` if provided, otherwise `ss`) tiled over all `T` periods.
 - `exog_path=None`: Exogenous variable path (`T × n_exo` array)
 - `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
 - `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
@@ -234,12 +235,14 @@ For advanced users who want more control:
 - `method` *(deprecated)*: Previously selected the `scipy.optimize.root` backend; now ignored
 
 ### `solve_perfect_foresight_homotopy()` options:
-- All options from `solve_perfect_foresight()`, plus:
+- `X0=None`: Accepted for API compatibility; the actual warm start is always `np.tile(ss_initial, (T, 1))`. Shape is validated if provided.
+- All other options from `solve_perfect_foresight()`, plus:
 - `n_steps=10`: Number of homotopy steps (must be a positive integer)
 - `exog_ss=None`: Baseline exogenous path at `λ=0`; defaults to zero
 - `verbose=False`: Print progress at each homotopy step
 
 ### `solve_perfect_foresight_expectation_errors()` options:
+- `X0=None`: Initial guess for the first sub-solve. If omitted, defaults to the effective terminal steady state for the first segment (the `endval` from the first `news_shocks` entry if it is a 3-tuple, otherwise `ss`) tiled over `T` periods. Subsequent sub-solves are warm-started from the previous sub-solve's tail.
 - `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. Do **not** pre-offset it as if row 0 were period 1; the solver handles that alignment internally. When `constant_simulation_length=False` (default), at least `T - learnt_in + 1` rows are required; longer paths (including a full `T`-row array) are accepted and extra rows are ignored. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
 - `initial_state=None`, `ss_initial=None`, `stock_var_indices=None`: Same semantics as `solve_perfect_foresight()`
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve runs for the full `T` periods.
