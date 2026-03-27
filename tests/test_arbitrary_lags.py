@@ -189,7 +189,7 @@ def test_solve_lag2_bvp_small_shock():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         sol = solve_perfect_foresight(
-            T, X0, {}, SS, model, model["vars_dyn"],
+            T, {}, SS, model, model["vars_dyn"], X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
         )
@@ -211,7 +211,7 @@ def test_solve_lead2_bvp_small_shock():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         sol = solve_perfect_foresight(
-            T, X0, {}, SS, model, model["vars_dyn"],
+            T, {}, SS, model, model["vars_dyn"], X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
         )
@@ -232,7 +232,7 @@ def test_standard_rbc_still_works():
     k_neg1 = np.array([K_SS * 1.1])
 
     sol = solve_perfect_foresight(
-        T, X0, {}, SS, model, model["vars_dyn"],
+        T, {}, SS, model, model["vars_dyn"], X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
     )
@@ -254,7 +254,7 @@ def test_bvp_warns_when_lag_gt_1():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         solve_perfect_foresight(
-            T, X0, {}, SS, model, model["vars_dyn"],
+            T, {}, SS, model, model["vars_dyn"], X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
         )
@@ -274,7 +274,7 @@ def test_bvp_no_warning_for_standard_lags():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         solve_perfect_foresight(
-            T, X0, {}, SS, model, model["vars_dyn"],
+            T, {}, SS, model, model["vars_dyn"], X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
         )
@@ -298,7 +298,7 @@ def test_bvp_warning_emitted_without_explicit_stock_var_indices():
         warnings.simplefilter("always")
         # stock_var_indices omitted → inferred; BVP still active → warning fires
         solve_perfect_foresight(
-            T, X0, {}, SS, model, model["vars_dyn"],
+            T, {}, SS, model, model["vars_dyn"], X0,
             initial_state=k_neg1,
         )
 

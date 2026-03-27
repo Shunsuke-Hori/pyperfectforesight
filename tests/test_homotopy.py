@@ -62,11 +62,11 @@ def test_solve_x0_none_defaults_to_terminal_ss(model):
     """
     k_neg1 = np.array([K_SS * 0.9])
     sol_explicit = solve_perfect_foresight(
-        T, np.tile(SS, (T, 1)), PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, np.tile(SS, (T, 1)),
         initial_state=k_neg1,
     )
     sol_none = solve_perfect_foresight(
-        T, None, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, None,
         initial_state=k_neg1,
     )
     assert sol_explicit.success, f"explicit-X0 solve failed: {sol_explicit.message}"
@@ -85,12 +85,12 @@ def test_solve_x0_none_with_custom_endval(model):
     k_neg1 = np.array([K_SS * 0.9])
     ss_shifted = SS * 1.01  # arbitrary non-ss endval
     sol_explicit = solve_perfect_foresight(
-        T, np.tile(ss_shifted, (T, 1)), PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, np.tile(ss_shifted, (T, 1)),
         initial_state=k_neg1,
         endval=ss_shifted,
     )
     sol_none = solve_perfect_foresight(
-        T, None, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, None,
         initial_state=k_neg1,
         endval=ss_shifted,
     )
@@ -109,7 +109,7 @@ def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0)
     ss_initial == ss, so with no perturbation the solution should remain at ss.
     """
     sol = solve_perfect_foresight(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         stock_var_indices=[1],
         # initial_state intentionally omitted → defaults to ss_initial[1] = K_SS
     )
@@ -122,7 +122,7 @@ def test_raises_when_nothing_to_scale(model, X0):
     """Must provide initial_state or exog_path."""
     with pytest.raises(ValueError, match="nothing to homotopy on"):
         solve_perfect_foresight_homotopy(
-            T, X0, PARAMS, SS, model, VARS_DYN
+            T, PARAMS, SS, model, VARS_DYN, X0
         )
 
 
@@ -132,7 +132,7 @@ def test_raises_on_invalid_n_steps(model, X0):
     for bad in (0, -1, 1.5, "10"):
         with pytest.raises(ValueError, match="n_steps"):
             solve_perfect_foresight_homotopy(
-                T, X0, PARAMS, SS, model, VARS_DYN,
+                T, PARAMS, SS, model, VARS_DYN, X0,
                 initial_state=k_neg1, stock_var_indices=[1],
                 n_steps=bad,
             )
@@ -143,7 +143,7 @@ def test_raises_on_initial_state_length_mismatch(model, X0):
     wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
     with pytest.raises(ValueError, match=r"initial_state has 2 elements?"):
         solve_perfect_foresight_homotopy(
-            T, X0, PARAMS, SS, model, VARS_DYN,
+            T, PARAMS, SS, model, VARS_DYN, X0,
             initial_state=wrong_initial_state, stock_var_indices=[1],
         )
 
@@ -161,7 +161,7 @@ def test_stock_mode_initial_state(model, X0):
     """
     k_neg1 = np.array([K_SS * 1.3])
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
         n_steps=5,
@@ -178,11 +178,11 @@ def test_stock_mode_matches_direct_solve(model, X0):
     k_neg1 = np.array([K_SS * 1.1])
 
     sol_direct = solve_perfect_foresight(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_hom = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=4,
     )
@@ -202,7 +202,7 @@ def test_large_shock_stock_mode(model, X0):
     to solve directly from the steady-state initial guess."""
     k_neg1 = np.array([K_SS * 1.5])
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
         n_steps=8,
@@ -243,7 +243,7 @@ def test_exog_path_mode(X0):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model_z, VARS_DYN,
+        T, PARAMS, SS, model_z, VARS_DYN, X0,
         exog_path=exog,
         initial_state=k_neg1,
         stock_var_indices=[1],
@@ -278,7 +278,7 @@ def test_initial_state_and_exog_path_combined(X0):
     k_neg1 = np.array([K_SS * 1.2])
 
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model_z, VARS_DYN,
+        T, PARAMS, SS, model_z, VARS_DYN, X0,
         exog_path=exog,
         initial_state=k_neg1,
         stock_var_indices=[1],
@@ -316,7 +316,7 @@ def test_exog_path_only_no_initial_state(X0):
         exog[t, 0] = rho_z * exog[t - 1, 0]
 
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model_var, VARS_DYN,
+        T, PARAMS, SS, model_var, VARS_DYN, X0,
         exog_path=exog,
         # initial_state and stock_var_indices intentionally omitted:
         # stock_var_indices is inferred as [] (no negative-lag vars),
@@ -341,13 +341,13 @@ def test_one_step_equals_direct_solve(model, X0):
     k_neg1 = np.array([K_SS * 1.05])
 
     sol_hom = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=1,
     )
     # Direct BVP solve from the same warm start (ss path)
     sol_direct = solve_perfect_foresight(
-        T, np.tile(SS, (T, 1)), PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, np.tile(SS, (T, 1)),
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
@@ -370,7 +370,7 @@ def test_verbose_does_not_raise(model, X0, capsys):
     """verbose=True prints progress without errors."""
     k_neg1 = np.array([K_SS * 1.1])
     solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=3, verbose=True,
     )
@@ -404,7 +404,7 @@ def test_exog_ss_baseline(X0):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, X0, PARAMS, SS, model_z, VARS_DYN,
+        T, PARAMS, SS, model_z, VARS_DYN, X0,
         exog_path=exog_target,
         exog_ss=exog_base,
         initial_state=k_neg1,
@@ -434,7 +434,7 @@ def test_exog_ss_without_exog_path_warns(X0):
 
     with pytest.warns(UserWarning, match="exog_ss"):
         solve_perfect_foresight_homotopy(
-            T, X0, PARAMS, SS, model_z, VARS_DYN,
+            T, PARAMS, SS, model_z, VARS_DYN, X0,
             exog_ss=exog_base,        # provided without exog_path
             initial_state=k_neg1,
             stock_var_indices=[1],
@@ -456,7 +456,7 @@ def test_fallback_triggered_on_newton_failure(model, X0):
     k_neg1 = np.array([K_SS * 1.5])
     with pytest.warns(UserWarning, match="homotopy_fallback=False"):
         sol = solve_perfect_foresight(
-            T, X0, PARAMS, SS, model, VARS_DYN,
+            T, PARAMS, SS, model, VARS_DYN, X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
             solver_options={'maxiter': 0},
@@ -471,7 +471,7 @@ def test_fallback_disabled(model, X0):
     """When homotopy_fallback=False, a Newton failure is returned as-is."""
     k_neg1 = np.array([K_SS * 1.5])
     sol = solve_perfect_foresight(
-        T, X0, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, SS, model, VARS_DYN, X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
         solver_options={'maxiter': 0},
@@ -497,7 +497,7 @@ def test_homotopy_options_forwarded(model, X0, monkeypatch):
     k_neg1 = np.array([K_SS * 1.5])
     with pytest.warns(UserWarning, match="homotopy_fallback=False"):
         sol = solve_perfect_foresight(
-            T, X0, PARAMS, SS, model, VARS_DYN,
+            T, PARAMS, SS, model, VARS_DYN, X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
             solver_options={'maxiter': 0},

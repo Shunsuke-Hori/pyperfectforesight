@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     # Solve with stock/jump variable distinction
     # vars_dyn = ["c", "k"], stock_var_indices = [1] means k is stock
-    sol = solve_perfect_foresight(T, X0, params, ss, model_funcs, vars_dyn,
+    sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn, X0,
                                   initial_state=initial_stock,
                                   stock_var_indices=[1],
                                   method='hybr')
