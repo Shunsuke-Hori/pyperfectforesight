@@ -366,8 +366,7 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     # Build (T, n_syms) array of all input values — one row per time step.
     t_idx = np.arange(T)
     all_vals = np.empty((T, n_syms), dtype=float)
-    for j, val in enumerate(base_vals):
-        all_vals[:, j] = val
+    all_vals[:] = base_vals  # broadcast constant parameter row across all T rows
     for sym_idx, var_idx, lag in endo_plan:
         aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
         all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
@@ -376,11 +375,11 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
 
     # Call each residual function once with all T inputs (lambdify scalar funcs
-    # broadcast correctly over (T,) array arguments).
-    sym_cols = [all_vals[:, j] for j in range(n_syms)]
+    # broadcast correctly over (T,) array arguments).  Unpack all_vals.T so
+    # each column of all_vals becomes a positional argument without a list copy.
     F = np.empty((neq, T), dtype=float)
     for i, func in enumerate(residual_funcs):
-        F[i] = func(*sym_cols)
+        F[i] = func(*all_vals.T)
     return F.ravel(order='F')  # column-major: F[eq, t] -> t0eq0,t0eq1,...
 
 # ============================================================
@@ -511,8 +510,7 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
     # Build (T, n_syms) array of all input values — one row per time step.
     t_idx = np.arange(T)
     all_vals = np.empty((T, n_syms), dtype=float)
-    for j, val in enumerate(base_vals):
-        all_vals[:, j] = val
+    all_vals[:] = base_vals  # broadcast constant parameter row across all T rows
     for sym_idx, var_idx, lag in endo_plan:
         aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
         all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
@@ -545,12 +543,12 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
 
         if funcs_iter is not None:
             # Vectorized path: call each element lambda once with T_v-length arrays.
-            sym_cols_v = [all_vals[valid, j] for j in range(n_syms)]
+            # Unpack all_vals[valid].T so each column becomes a positional arg.
             B = np.empty((neq, n, T_v), dtype=float)
             elem_grid = funcs_iter[lag]
             for i in range(neq):
                 for j in range(n):
-                    B[i, j, :] = np.asarray(elem_grid[i][j](*sym_cols_v), dtype=float)
+                    B[i, j, :] = np.asarray(elem_grid[i][j](*all_vals[valid].T), dtype=float)
             data_list.append(B.ravel())
         else:
             # Fallback scalar path (used if block_elem_funcs not available).
