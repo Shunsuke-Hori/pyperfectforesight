@@ -82,7 +82,7 @@ X0 = np.tile(ss, (T, 1))   # warm-start: constant ss path
 k_neg1 = np.array([K_SS * 1.1])
 
 sol = solve_perfect_foresight(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],    # index of k in vars_dyn
 )
@@ -129,7 +129,7 @@ for t in range(1, T):
 k_neg1 = np.array([K_SS])   # k_{-1} at steady state
 
 sol = solve_perfect_foresight(
-    T, X0, {}, ss, model_funcs, vars_dyn,
+    T, {}, ss, model_funcs, vars_dyn,
     initial_state=k_neg1,
     stock_var_indices=[1],
     exog_path=exog,
