@@ -305,7 +305,10 @@ def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
         raise ValueError(
             "Missing parameter values for symbol(s): "
             + ", ".join(str(s) for s in missing)
-            + ". Pass them via params_dict."
+            + ". Pass them via params_dict. Note: this error also occurs when a"
+            " time-indexed symbol's base name is absent from vars_dyn/vars_exo"
+            " (e.g. a typo or omitted variable), causing it to be treated as a"
+            " parameter here."
         )
 
     base_vals = [0.0] * n_syms
@@ -331,7 +334,8 @@ def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
 
 
 def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None,
+                  vals_plan=None):
     """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
@@ -360,8 +364,9 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
-    n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
-        all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    if vals_plan is None:
+        vals_plan = _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = vals_plan
 
     # Build (T, n_syms) array of all input values — one row per time step.
     t_idx = np.arange(T)
@@ -477,7 +482,7 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
 
 def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
                   vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None,
-                  block_elem_funcs=None):
+                  block_elem_funcs=None, vals_plan=None):
     """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
@@ -505,8 +510,9 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
-    n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
-        all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    if vals_plan is None:
+        vals_plan = _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = vals_plan
 
     # Build (T, n_syms) array of all input values — one row per time step.
     t_idx = np.arange(T)
@@ -1528,6 +1534,11 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    # Precompute vals_plan once here so _residual_bvp/_jacobian_bvp don't
+    # rebuild it on every Newton iteration.  Built after params are validated
+    # but before the Newton closures are constructed.
+    _vals_plan = _build_vals_plan(
+        all_syms, vars_dyn, vars_exo, params_dict, endo_lags, exo_lags)
 
     # Only validate X0 when it is explicitly provided. If X0 is None, a default
     # path based on endval (np.tile(endval, (T, 1))) is constructed later after
@@ -1693,6 +1704,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         return _residual_bvp(
             X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
             vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
+            vals_plan=_vals_plan,
         )
 
     def J_bvp(x):
@@ -1700,7 +1712,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         return _jacobian_bvp(
             X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
-            block_elem_funcs=block_elem_funcs,
+            block_elem_funcs=block_elem_funcs, vals_plan=_vals_plan,
         )
 
     sol = _sparse_newton(

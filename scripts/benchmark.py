@@ -93,7 +93,8 @@ def benchmark_python():
                 homotopy_fallback=False,
             )
             elapsed = time.perf_counter() - t0
-            assert sol.success, f"Solver failed at T={T}: {sol.message}"
+            if not sol.success:
+                raise RuntimeError(f"Solver failed at T={T}: {sol.message}")
             times.append(elapsed)
         med_ms = np.median(times) * 1000
         results[T] = med_ms
