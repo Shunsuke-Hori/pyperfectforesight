@@ -168,7 +168,7 @@ def benchmark_dynare(dynare_path):
 # ---------------------------------------------------------------------------
 def print_table(py_results, dynare_results=None):
     header = f"{'T':>6}  {'Python (ms)':>12}"
-    if dynare_results:
+    if dynare_results is not None:
         header += f"  {'Dynare (ms)':>12}  {'Speedup':>8}"
     print("\n" + "=" * len(header))
     print(header)
@@ -176,7 +176,7 @@ def print_table(py_results, dynare_results=None):
     for T in T_VALUES:
         py_ms  = py_results.get(T)
         row    = f"{T:6d}  {py_ms:12.2f}" if py_ms is not None else f"{T:6d}  {'N/A':>12}"
-        if dynare_results:
+        if dynare_results is not None:
             dyn_ms = dynare_results.get(T)
             if dyn_ms is not None and py_ms is not None:
                 row += f"  {dyn_ms:12.2f}  {dyn_ms/py_ms:7.1f}x"

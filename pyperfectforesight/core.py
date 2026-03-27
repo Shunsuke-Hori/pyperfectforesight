@@ -375,11 +375,12 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
         all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
 
     # Call each residual function once with all T inputs (lambdify scalar funcs
-    # broadcast correctly over (T,) array arguments).  Unpack all_vals.T so
-    # each column of all_vals becomes a positional argument without a list copy.
+    # broadcast correctly over (T,) array arguments).  Cache the transposed
+    # view once so each residual function receives the same unpacked args.
+    vals_T = all_vals.T
     F = np.empty((neq, T), dtype=float)
     for i, func in enumerate(residual_funcs):
-        F[i] = func(*all_vals.T)
+        F[i] = func(*vals_T)
     return F.ravel(order='F')  # column-major: F[eq, t] -> t0eq0,t0eq1,...
 
 # ============================================================
@@ -543,12 +544,14 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
 
         if funcs_iter is not None:
             # Vectorized path: call each element lambda once with T_v-length arrays.
-            # Unpack all_vals[valid].T so each column becomes a positional arg.
+            # Cache the masked/transposed submatrix once per lag to avoid
+            # repeating the boolean fancy-index copy inside the (i,j) loops.
+            vals_valid_T = all_vals[valid].T  # (n_syms, T_v)
             B = np.empty((neq, n, T_v), dtype=float)
             elem_grid = funcs_iter[lag]
             for i in range(neq):
                 for j in range(n):
-                    B[i, j, :] = np.asarray(elem_grid[i][j](*all_vals[valid].T), dtype=float)
+                    B[i, j, :] = np.asarray(elem_grid[i][j](*vals_valid_T), dtype=float)
             data_list.append(B.ravel())
         else:
             # Fallback scalar path (used if block_elem_funcs not available).
