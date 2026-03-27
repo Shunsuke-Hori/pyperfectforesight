@@ -186,9 +186,9 @@ def print_table(py_results, dynare_results=None):
         print(row)
     print("=" * len(header))
     note_py  = f"{N_REPS} runs"
-    note_dyn = "10 runs" if dynare_results else ""
+    note_dyn = "10 runs" if dynare_results is not None else ""
     print(f"Median solve time — Python: {note_py}" +
-          (f", Dynare: {note_dyn}" if note_dyn else "") + ".")
+          (f", Dynare: {note_dyn}" if dynare_results is not None else "") + ".")
     print("Solver only (excludes process_model / perfect_foresight_setup).")
 
 
