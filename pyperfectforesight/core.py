@@ -1293,7 +1293,7 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
             if any(lag < 0 for lag in incidence.get(var, []))]
 
 
-def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
+def solve_perfect_foresight(T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='hybr',
                            solver_options=None, *, endval=None,
@@ -1310,8 +1310,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     -----------
     T : int
         Number of periods
-    X0 : ndarray
-        Initial guess for endogenous state path (T x n_endo)
+    X0 : ndarray or None, optional
+        Initial guess for endogenous state path (T x n_endo).  If None
+        (the default), the path is initialised to the terminal steady state
+        (``endval`` if provided, otherwise ``ss``) tiled over all T periods.
     params_dict : dict
         Parameter values
     ss : ndarray
@@ -1411,13 +1413,17 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     exo_lags  = model_funcs.get('exo_lags')
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
-    if X0.shape[1] != n:
-        raise ValueError(
-            f"X0 has {X0.shape[1]} columns but the model has {n} dynamic variables "
-            f"({vars_dyn}). If process_model fell back to aux_method='dynamic', "
-            f"vars_dyn was extended to include auxiliary variables. "
-            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
-        )
+    # X0 validation is deferred to after endval is resolved so that the default
+    # (np.tile(endval, (T, 1))) can be constructed when X0 is None.
+    if X0 is not None:
+        X0 = np.asarray(X0, dtype=float)
+        if X0.shape[1] != n:
+            raise ValueError(
+                f"X0 has {X0.shape[1]} columns but the model has {n} dynamic variables "
+                f"({vars_dyn}). If process_model fell back to aux_method='dynamic', "
+                f"vars_dyn was extended to include auxiliary variables. "
+                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+            )
     if ss.shape[0] != n:
         raise ValueError(
             f"ss has {ss.shape[0]} elements but the model has {n} dynamic variables "
@@ -1560,6 +1566,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"dynamic variables. endval must be a full state vector."
         )
 
+    # Default initial guess: terminal steady state tiled over T periods.
+    if X0 is None:
+        X0 = np.tile(endval, (T, 1))
+
     def F_bvp(x):
         X = x.reshape(T, n)
         return _residual_bvp(
@@ -1662,8 +1672,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 # ============================================================
 
 def solve_perfect_foresight_expectation_errors(
-    T, X0, params_dict, ss, model_funcs, vars_dyn,
-    news_shocks,
+    T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
+    news_shocks=None,
     initial_state=None,
     ss_initial=None,
     stock_var_indices=None,
@@ -1684,10 +1694,11 @@ def solve_perfect_foresight_expectation_errors(
     ----------
     T : int
         Total simulation length (number of periods in the stitched output).
-    X0 : ndarray, shape (T, n_endo)
+    X0 : ndarray, shape (T, n_endo), or None, optional
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
-        previous sub-solve's solution.
+        previous sub-solve's solution.  If None (the default), the path is
+        initialised to ``ss`` tiled over all T periods.
     params_dict : dict
         Parameter values.
     ss : ndarray, shape (n_endo,)
@@ -1887,7 +1898,8 @@ def solve_perfect_foresight_expectation_errors(
     sub_results = []
     current_initial_state = initial_state
     current_endval = ss   # updated if a 3-tuple provides an endval override
-    X0_sub = X0  # warm-start for first sub-solve
+    # Default initial guess: terminal steady state tiled over all T periods.
+    X0_sub = X0 if X0 is not None else np.tile(ss, (T, 1))
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
         # Apply endval override (persists to subsequent segments).
@@ -2003,7 +2015,7 @@ def solve_perfect_foresight_expectation_errors(
 # ============================================================
 
 def solve_perfect_foresight_homotopy(
-    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
     exog_path=None, initial_state=None, ss_initial=None,
     stock_var_indices=None,
     *,
@@ -2039,9 +2051,10 @@ def solve_perfect_foresight_homotopy(
     ----------
     T : int
         Number of periods.
-    X0 : ndarray (T, n_dyn)
-        Initial guess shape reference; the actual warm start for step 1 is
-        the steady-state path.
+    X0 : ndarray (T, n_dyn) or None, optional
+        Unused by the homotopy solver (the actual warm start for step 1 is
+        always the steady-state path ``np.tile(ss_initial, (T, 1))``).
+        Accepted for API compatibility; pass None to omit.
     params_dict : dict
         Parameter values.
     ss : ndarray (n_dyn,)
@@ -2260,18 +2273,19 @@ def solve_perfect_foresight_homotopy(
         else:
             exog_ss = np.zeros_like(exog_path)
 
-    # Validate X0 shape to catch mismatches early (X0 itself is not used as
-    # the warm start — the steady-state path is — but a shape mismatch usually
-    # indicates a caller error worth flagging immediately).
-    X0 = np.asarray(X0, dtype=float)
-    if X0.shape != (T, n):
-        raise ValueError(
-            f"X0 has shape {X0.shape} but expected ({T}, {n}) "
-            f"(T periods × {n} dynamic variables). "
-            f"If process_model fell back to aux_method='dynamic', vars_dyn was "
-            f"extended to include auxiliary variables. "
-            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
-        )
+    # Validate X0 shape when provided (X0 itself is not used as the warm start
+    # — the steady-state path is — but a shape mismatch usually indicates a
+    # caller error worth flagging immediately).
+    if X0 is not None:
+        X0 = np.asarray(X0, dtype=float)
+        if X0.shape != (T, n):
+            raise ValueError(
+                f"X0 has shape {X0.shape} but expected ({T}, {n}) "
+                f"(T periods × {n} dynamic variables). "
+                f"If process_model fell back to aux_method='dynamic', vars_dyn was "
+                f"extended to include auxiliary variables. "
+                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+            )
 
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
