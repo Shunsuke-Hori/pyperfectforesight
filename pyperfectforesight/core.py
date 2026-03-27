@@ -8,7 +8,7 @@ models. For usage examples, see demo.py.
 
 import sympy as sp
 import numpy as np
-from scipy.sparse import lil_matrix, vstack
+from scipy.sparse import lil_matrix, vstack, csr_matrix
 from scipy.sparse.linalg import spsolve, lsmr
 
 # ============================================================
@@ -276,8 +276,66 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
     return F.ravel()
 
 
+def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
+    """Precompute how to fill the vals array for each time step without SymPy lookups.
+
+    Returns a tuple (n_syms, endo_plan, exo_plan, base_vals) where:
+      - n_syms    : total number of symbols (= len(all_syms))
+      - endo_plan : list of (sym_idx, var_idx, lag) for endogenous variables
+      - exo_plan  : list of (sym_idx, var_idx, lag) for exogenous variables
+      - base_vals : float list of length n_syms with parameter values pre-filled
+                    (time-varying entries are 0.0 placeholders)
+    """
+    sym_to_idx = {s: i for i, s in enumerate(all_syms)}
+    n_syms = len(all_syms)
+
+    # Detect parameter symbols that are missing from params.
+    # A symbol is a parameter if it either has no underscore-integer suffix at
+    # all, OR if its base name is not a known dynamic/exogenous variable (e.g.
+    # rho_1 parses as ("rho", 1) but "rho" is not a variable, so it is a
+    # parameter).  Previously a missing param would raise KeyError during subs
+    # dict lookup; raise explicitly here so the error is not silently swallowed.
+    known_vars = set(vars_dyn) | set(vars_exo)
+    def _is_time_indexed(sym):
+        parsed = _parse_time_symbol(sym.name)
+        return parsed is not None and parsed[0] in known_vars
+
+    missing = [s for s in all_syms if not _is_time_indexed(s) and s not in params]
+    if missing:
+        raise ValueError(
+            "Missing parameter values for symbol(s): "
+            + ", ".join(str(s) for s in missing)
+            + ". Pass them via params_dict. Note: this error also occurs when a"
+            " time-indexed symbol's base name is absent from vars_dyn/vars_exo"
+            " (e.g. a typo or omitted variable), causing it to be treated as a"
+            " parameter here."
+        )
+
+    base_vals = [0.0] * n_syms
+    for sym, val in params.items():
+        if sym in sym_to_idx:
+            base_vals[sym_to_idx[sym]] = float(val)
+
+    endo_plan = []
+    for i, var in enumerate(vars_dyn):
+        for lag in endo_lags:
+            sym = v(var, lag)
+            if sym in sym_to_idx:
+                endo_plan.append((sym_to_idx[sym], i, lag))
+
+    exo_plan = []
+    for i, var in enumerate(vars_exo):
+        for lag in exo_lags:
+            sym = v(var, lag)
+            if sym in sym_to_idx:
+                exo_plan.append((sym_to_idx[sym], i, lag))
+
+    return n_syms, endo_plan, exo_plan, base_vals
+
+
 def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None,
+                  vals_plan=None):
     """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
@@ -306,23 +364,29 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    if vals_plan is None:
+        vals_plan = _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = vals_plan
 
-    F = np.zeros((T, neq))
-    for t in range(T):
-        subs = {}
-        for i, var in enumerate(vars_dyn):
-            for lag in endo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = X_aug[aug_idx, i]
-        for i, var in enumerate(vars_exo):
-            for lag in exo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = exog_aug[aug_idx, i]
-        subs.update(params)
-        vals = [subs[s] for s in all_syms]
-        for i, func in enumerate(residual_funcs):
-            F[t, i] = func(*vals)
-    return F.ravel()
+    # Build (T, n_syms) array of all input values — one row per time step.
+    t_idx = np.arange(T)
+    all_vals = np.empty((T, n_syms), dtype=float)
+    all_vals[:] = base_vals  # broadcast constant parameter row across all T rows
+    for sym_idx, var_idx, lag in endo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
+    for sym_idx, var_idx, lag in exo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
+
+    # Call each residual function once with all T inputs (lambdify scalar funcs
+    # broadcast correctly over (T,) array arguments).  Cache the transposed
+    # view once so each residual function receives the same unpacked args.
+    vals_T = all_vals.T
+    F = np.empty((neq, T), dtype=float)
+    for i, func in enumerate(residual_funcs):
+        F[i] = func(*vals_T)
+    return F.ravel(order='F')  # column-major: F[eq, t] -> t0eq0,t0eq1,...
 
 # ============================================================
 # 6. Sparse block Jacobian
@@ -417,7 +481,8 @@ def sparse_jacobian(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs, var
 
 
 def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
-                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
+                  vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None,
+                  block_elem_funcs=None, vals_plan=None):
     """Build the (T*neq × T*n) BVP Jacobian on the T+2-row augmented path.
 
     Internal helper for the stock/jump BVP branch of solve_perfect_foresight.
@@ -445,29 +510,78 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    if vals_plan is None:
+        vals_plan = _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = vals_plan
 
-    J = lil_matrix((neq * T, n * T))
-    for t in range(T):
-        subs = {}
-        for i, var in enumerate(vars_dyn):
-            for lag in endo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = X_aug[aug_idx, i]
-        for i, var in enumerate(vars_exo):
-            for lag in exo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = exog_aug[aug_idx, i]
-        subs.update(params)
-        vals = [subs[s] for s in all_syms]
-        for lag, f in block_funcs.items():
-            col_t = t + lag  # index into X (0-based); skip fixed boundary rows
-            if not (0 <= col_t < T):
-                continue
-            B = f(*vals)
-            r0 = t * neq
-            c0 = col_t * n
-            J[r0:r0+neq, c0:c0+n] = B
-    return J.tocsr()
+    # Build (T, n_syms) array of all input values — one row per time step.
+    t_idx = np.arange(T)
+    all_vals = np.empty((T, n_syms), dtype=float)
+    all_vals[:] = base_vals  # broadcast constant parameter row across all T rows
+    for sym_idx, var_idx, lag in endo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = X_aug[aug_idx, var_idx]
+    for sym_idx, var_idx, lag in exo_plan:
+        aug_idx = np.clip(t_idx + lag + 1, 0, T + 1)
+        all_vals[:, sym_idx] = exog_aug[aug_idx, var_idx]
+
+    eq_idx = np.arange(neq)
+    var_idx_arr = np.arange(n)
+
+    rows_list = []
+    cols_list = []
+    data_list = []
+
+    funcs_iter = block_elem_funcs if block_elem_funcs is not None else None
+    for lag in block_funcs:
+        col_t = t_idx + lag
+        valid = (col_t >= 0) & (col_t < T)
+        t_v = t_idx[valid]        # time steps with valid column index
+        col_v = col_t[valid]      # corresponding column block indices
+        T_v = len(t_v)
+        if T_v == 0:
+            continue
+
+        # Row/col index arrays for this block, shape (neq, 1, T_v) / (1, n, T_v).
+        row_block = (eq_idx[:, None, None] + t_v[None, None, :] * neq)    # (neq, 1, T_v)
+        col_block = (var_idx_arr[None, :, None] + col_v[None, None, :] * n)  # (1, n, T_v)
+
+        if funcs_iter is not None:
+            # Vectorized path: skip structural zeros (None entries), append
+            # rows/cols/data per (i,j) pair so zero entries add no COO entries.
+            vals_valid_T = all_vals[valid].T  # (n_syms, T_v) — cached once per lag
+            elem_grid = funcs_iter[lag]
+            for i in range(neq):
+                for j in range(n):
+                    elem = elem_grid[i][j]
+                    if elem is None:
+                        continue  # structural zero — no COO entry needed
+                    rows_list.append(np.broadcast_to(row_block[i, 0, :], (T_v,)).copy())
+                    cols_list.append(np.broadcast_to(col_block[0, j, :], (T_v,)).copy())
+                    # Use array assignment to broadcast constant-valued lambdas
+                    # (which return a Python scalar) to the full T_v length.
+                    d = np.empty(T_v, dtype=float)
+                    d[:] = elem(*vals_valid_T)
+                    data_list.append(d)
+        else:
+            # Fallback scalar path (used if block_elem_funcs not available).
+            # Dense evaluation — push all (i,j) entries including zeros.
+            rows_list.append(np.broadcast_to(row_block, (neq, n, T_v)).ravel())
+            cols_list.append(np.broadcast_to(col_block, (neq, n, T_v)).ravel())
+            f = block_funcs[lag]
+            B_all = np.array([np.asarray(f(*all_vals[t].tolist())).ravel()
+                               for t in t_v])  # (T_v, neq*n)
+            # Reshape to (neq, n, T_v) so ravel() matches the (eq, var, t)
+            # order used by rows_list/cols_list above.
+            B_all = B_all.reshape(T_v, neq, n).transpose(1, 2, 0)
+            data_list.append(B_all.ravel())
+
+    if not rows_list:
+        return csr_matrix((neq * T, n * T), dtype=float)
+    rows_coo = np.concatenate(rows_list)
+    cols_coo = np.concatenate(cols_list)
+    data_coo = np.concatenate(data_list)
+    return csr_matrix((data_coo, (rows_coo, cols_coo)), shape=(neq * T, n * T))
 
 # ============================================================
 # 7. Terminal steady-state conditions
@@ -622,7 +736,10 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         - 'dynamic_eqs': Processed dynamic equations
         - 'blocks': Symbolic Jacobian blocks
         - 'all_syms': Sorted list of all symbols
-        - 'block_funcs': Compiled Jacobian block functions
+        - 'block_funcs': Compiled Jacobian block functions (lag → matrix lambda)
+        - 'block_elem_funcs': Per-element scalar lambdas for each Jacobian block
+          (lag → neq×n list of scalar-valued lambdas); broadcast correctly over
+          numpy array inputs, unlike the matrix lambda in block_funcs
         - 'residual_funcs': Compiled residual functions
         - 'incidence': Lead/lag incidence information
         - 'vars_dyn': List of dynamic variable names
@@ -860,6 +977,19 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
             lag: sp.lambdify(all_syms, J, "numpy")
             for lag, J in blocks.items()
         }
+        # Element-wise lambdas for each Jacobian block entry.  Unlike the matrix
+        # lambda above (which returns np.array([[...], ...]) and fails when some
+        # entries are scalar and others are (T,) arrays), these scalar-valued
+        # lambdas broadcast correctly over numpy array inputs.
+        # Store None for structurally-zero entries so _jacobian_bvp can skip
+        # them entirely (no lambdify overhead, no COO entry).
+        block_elem_funcs = {
+            lag: [[None if J[i, j].is_zero
+                   else sp.lambdify(all_syms, J[i, j], "numpy")
+                   for j in range(J.shape[1])]
+                  for i in range(J.shape[0])]
+            for lag, J in blocks.items()
+        }
         residual_funcs = [sp.lambdify(all_syms, eq, "numpy") for eq in dynamic_eqs]
     else:
         raise ValueError(f"Unsupported compiler: {compiler}")
@@ -876,6 +1006,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         'blocks': blocks,
         'all_syms': all_syms,
         'block_funcs': block_funcs,
+        'block_elem_funcs': block_elem_funcs,
         'residual_funcs': residual_funcs,
         'incidence': incidence,
         'endo_lags': endo_lags,
@@ -1403,6 +1534,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     all_syms = model_funcs['all_syms']
     residual_funcs = model_funcs['residual_funcs']
     block_funcs = model_funcs['block_funcs']
+    block_elem_funcs = model_funcs.get('block_elem_funcs')
     dynamic_eqs = model_funcs['dynamic_eqs']
     vars_exo = model_funcs.get('vars_exo', [])
     # Use vars_dyn from model_funcs — process_model may have extended it (e.g. dynamic fallback)
@@ -1412,6 +1544,11 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    # Precompute vals_plan once here so _residual_bvp/_jacobian_bvp don't
+    # rebuild it on every Newton iteration.  Built after params are validated
+    # but before the Newton closures are constructed.
+    _vals_plan = _build_vals_plan(
+        all_syms, vars_dyn, vars_exo, params_dict, endo_lags, exo_lags)
 
     # Only validate X0 when it is explicitly provided. If X0 is None, a default
     # path based on endval (np.tile(endval, (T, 1))) is constructed later after
@@ -1577,6 +1714,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         return _residual_bvp(
             X, params_dict, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
             vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
+            vals_plan=_vals_plan,
         )
 
     def J_bvp(x):
@@ -1584,6 +1722,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         return _jacobian_bvp(
             X, params_dict, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             vars_exo, exog_path, initval, endval, endo_lags, exo_lags,
+            block_elem_funcs=block_elem_funcs, vals_plan=_vals_plan,
         )
 
     sol = _sparse_newton(
