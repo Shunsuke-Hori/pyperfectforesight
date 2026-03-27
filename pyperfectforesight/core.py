@@ -288,6 +288,21 @@ def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
     """
     sym_to_idx = {s: i for i, s in enumerate(all_syms)}
     n_syms = len(all_syms)
+
+    # Detect parameter symbols (non-time-indexed) that are missing from params.
+    # Previously a missing param would raise KeyError during subs dict lookup;
+    # raise explicitly here so the error is not silently swallowed.
+    missing = [
+        s for s in all_syms
+        if _parse_time_symbol(s.name) is None and s not in params
+    ]
+    if missing:
+        raise ValueError(
+            "Missing parameter values for symbol(s): "
+            + ", ".join(str(s) for s in missing)
+            + ". Pass them via params_dict."
+        )
+
     base_vals = [0.0] * n_syms
     for sym, val in params.items():
         if sym in sym_to_idx:
@@ -537,6 +552,9 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
             f = block_funcs[lag]
             B_all = np.array([np.asarray(f(*all_vals[t].tolist())).ravel()
                                for t in t_v])  # (T_v, neq*n)
+            # Reshape to (neq, n, T_v) so ravel() matches the (eq, var, t)
+            # order used by rows_list/cols_list above.
+            B_all = B_all.reshape(T_v, neq, n).transpose(1, 2, 0)
             data_list.append(B_all.ravel())
 
     rows_coo = np.concatenate(rows_list).astype(np.int32)
@@ -697,7 +715,10 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         - 'dynamic_eqs': Processed dynamic equations
         - 'blocks': Symbolic Jacobian blocks
         - 'all_syms': Sorted list of all symbols
-        - 'block_funcs': Compiled Jacobian block functions
+        - 'block_funcs': Compiled Jacobian block functions (lag → matrix lambda)
+        - 'block_elem_funcs': Per-element scalar lambdas for each Jacobian block
+          (lag → neq×n list of scalar-valued lambdas); broadcast correctly over
+          numpy array inputs, unlike the matrix lambda in block_funcs
         - 'residual_funcs': Compiled residual functions
         - 'incidence': Lead/lag incidence information
         - 'vars_dyn': List of dynamic variable names

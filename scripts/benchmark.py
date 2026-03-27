@@ -105,18 +105,34 @@ def benchmark_python():
 # ---------------------------------------------------------------------------
 # Dynare benchmark (via MATLAB subprocess)
 # ---------------------------------------------------------------------------
-DYNARE_PATH = r"C:\dynare\6.2\matlab"
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 MOD_FILE    = os.path.join(SCRIPTS_DIR, "benchmark_dynare.mod")
 CSV_OUT     = os.path.join(SCRIPTS_DIR, "benchmark_dynare_times.csv")
 
+_DEFAULT_DYNARE_PATH = r"C:\dynare\6.2\matlab"
 
-def benchmark_dynare():
+
+def _resolve_dynare_path(cli_arg):
+    """Return the Dynare MATLAB path, preferring CLI arg > env var > default."""
+    if cli_arg:
+        return cli_arg
+    env = os.environ.get("DYNARE_PATH")
+    if env:
+        return env
+    return _DEFAULT_DYNARE_PATH
+
+
+def benchmark_dynare(dynare_path):
     if not os.path.exists(MOD_FILE):
         raise FileNotFoundError(f"Dynare .mod file not found: {MOD_FILE}")
+    if not os.path.isdir(dynare_path):
+        raise FileNotFoundError(
+            f"Dynare MATLAB path not found: {dynare_path}\n"
+            "Set it with --dynare-path or the DYNARE_PATH environment variable."
+        )
 
     matlab_cmd = (
-        f"addpath('{DYNARE_PATH}'); "
+        f"addpath('{dynare_path}'); "
         f"cd('{SCRIPTS_DIR}'); "
         f"dynare benchmark_dynare nointeractive nolog; "
         f"exit;"
@@ -179,6 +195,9 @@ if __name__ == "__main__":
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dynare", action="store_true",
                         help="Also run Dynare benchmark (requires MATLAB with Dynare 6.2)")
+    parser.add_argument("--dynare-path", default=None,
+                        help="Path to the Dynare MATLAB directory "
+                             "(default: DYNARE_PATH env var, then C:\\dynare\\6.2\\matlab)")
     args = parser.parse_args()
 
     print("=== pyperfectforesight benchmark ===\n")
@@ -187,6 +206,6 @@ if __name__ == "__main__":
     dynare_results = None
     if args.dynare:
         print("\n=== Dynare 6.2 benchmark ===\n")
-        dynare_results = benchmark_dynare()
+        dynare_results = benchmark_dynare(_resolve_dynare_path(args.dynare_path))
 
     print_table(py_results, dynare_results)
