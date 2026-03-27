@@ -8,7 +8,7 @@ models. For usage examples, see demo.py.
 
 import sympy as sp
 import numpy as np
-from scipy.sparse import lil_matrix, vstack
+from scipy.sparse import lil_matrix, vstack, csr_matrix
 from scipy.sparse.linalg import spsolve, lsmr
 
 # ============================================================
@@ -276,6 +276,40 @@ def residual(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs, vars_ex
     return F.ravel()
 
 
+def _build_vals_plan(all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags):
+    """Precompute how to fill the vals array for each time step without SymPy lookups.
+
+    Returns a tuple (n_syms, endo_plan, exo_plan, base_vals) where:
+      - n_syms    : total number of symbols (= len(all_syms))
+      - endo_plan : list of (sym_idx, var_idx, lag) for endogenous variables
+      - exo_plan  : list of (sym_idx, var_idx, lag) for exogenous variables
+      - base_vals : float list of length n_syms with parameter values pre-filled
+                    (time-varying entries are 0.0 placeholders)
+    """
+    sym_to_idx = {s: i for i, s in enumerate(all_syms)}
+    n_syms = len(all_syms)
+    base_vals = [0.0] * n_syms
+    for sym, val in params.items():
+        if sym in sym_to_idx:
+            base_vals[sym_to_idx[sym]] = float(val)
+
+    endo_plan = []
+    for i, var in enumerate(vars_dyn):
+        for lag in endo_lags:
+            sym = v(var, lag)
+            if sym in sym_to_idx:
+                endo_plan.append((sym_to_idx[sym], i, lag))
+
+    exo_plan = []
+    for i, var in enumerate(vars_exo):
+        for lag in exo_lags:
+            sym = v(var, lag)
+            if sym in sym_to_idx:
+                exo_plan.append((sym_to_idx[sym], i, lag))
+
+    return n_syms, endo_plan, exo_plan, base_vals
+
+
 def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
                   vars_exo, exog_path, initval, endval, endo_lags=None, exo_lags=None):
     """Evaluate T BVP residuals on the T+2-row augmented path [initval, X, endval].
@@ -306,20 +340,18 @@ def _residual_bvp(X, params, all_syms, residual_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
+        all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
 
     F = np.zeros((T, neq))
     for t in range(T):
-        subs = {}
-        for i, var in enumerate(vars_dyn):
-            for lag in endo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = X_aug[aug_idx, i]
-        for i, var in enumerate(vars_exo):
-            for lag in exo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = exog_aug[aug_idx, i]
-        subs.update(params)
-        vals = [subs[s] for s in all_syms]
+        vals = base_vals[:]
+        for sym_idx, var_idx, lag in endo_plan:
+            aug_idx = max(0, min(t + lag + 1, T + 1))
+            vals[sym_idx] = X_aug[aug_idx, var_idx]
+        for sym_idx, var_idx, lag in exo_plan:
+            aug_idx = max(0, min(t + lag + 1, T + 1))
+            vals[sym_idx] = exog_aug[aug_idx, var_idx]
         for i, func in enumerate(residual_funcs):
             F[t, i] = func(*vals)
     return F.ravel()
@@ -445,29 +477,43 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
     else:
         exog_aug = exog_path
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
+    n_syms, endo_plan, exo_plan, base_vals = _build_vals_plan(
+        all_syms, vars_dyn, vars_exo, params, endo_lags, exo_lags)
 
-    J = lil_matrix((neq * T, n * T))
+    # Pre-allocate COO arrays (upper bound: T * n_blocks * neq * n entries).
+    elem = neq * n
+    ri_off = np.repeat(np.arange(neq), n)   # row offsets within a block
+    ci_off = np.tile(np.arange(n), neq)     # col offsets within a block
+    n_blocks_upper = T * len(block_funcs)
+    rows_coo = np.empty(n_blocks_upper * elem, dtype=np.int32)
+    cols_coo = np.empty(n_blocks_upper * elem, dtype=np.int32)
+    data_coo = np.empty(n_blocks_upper * elem, dtype=float)
+    ptr = 0
+
     for t in range(T):
-        subs = {}
-        for i, var in enumerate(vars_dyn):
-            for lag in endo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = X_aug[aug_idx, i]
-        for i, var in enumerate(vars_exo):
-            for lag in exo_lags:
-                aug_idx = max(0, min(t + lag + 1, T + 1))
-                subs[v(var, lag)] = exog_aug[aug_idx, i]
-        subs.update(params)
-        vals = [subs[s] for s in all_syms]
+        vals = base_vals[:]
+        for sym_idx, var_idx, lag in endo_plan:
+            aug_idx = max(0, min(t + lag + 1, T + 1))
+            vals[sym_idx] = X_aug[aug_idx, var_idx]
+        for sym_idx, var_idx, lag in exo_plan:
+            aug_idx = max(0, min(t + lag + 1, T + 1))
+            vals[sym_idx] = exog_aug[aug_idx, var_idx]
         for lag, f in block_funcs.items():
             col_t = t + lag  # index into X (0-based); skip fixed boundary rows
             if not (0 <= col_t < T):
                 continue
-            B = f(*vals)
+            B = np.asarray(f(*vals)).ravel()
             r0 = t * neq
             c0 = col_t * n
-            J[r0:r0+neq, c0:c0+n] = B
-    return J.tocsr()
+            rows_coo[ptr:ptr + elem] = r0 + ri_off
+            cols_coo[ptr:ptr + elem] = c0 + ci_off
+            data_coo[ptr:ptr + elem] = B
+            ptr += elem
+
+    return csr_matrix(
+        (data_coo[:ptr], (rows_coo[:ptr], cols_coo[:ptr])),
+        shape=(neq * T, n * T),
+    )
 
 # ============================================================
 # 7. Terminal steady-state conditions
