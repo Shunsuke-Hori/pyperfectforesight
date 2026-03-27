@@ -542,25 +542,32 @@ def _jacobian_bvp(X, params, all_syms, block_funcs, vars_dyn, dynamic_eqs,
         if T_v == 0:
             continue
 
-        # Row/col index arrays for this block, shape (neq, n, T_v).
+        # Row/col index arrays for this block, shape (neq, 1, T_v) / (1, n, T_v).
         row_block = (eq_idx[:, None, None] + t_v[None, None, :] * neq)    # (neq, 1, T_v)
         col_block = (var_idx_arr[None, :, None] + col_v[None, None, :] * n)  # (1, n, T_v)
-        rows_list.append(np.broadcast_to(row_block, (neq, n, T_v)).ravel())
-        cols_list.append(np.broadcast_to(col_block, (neq, n, T_v)).ravel())
 
         if funcs_iter is not None:
-            # Vectorized path: call each element lambda once with T_v-length arrays.
-            # Cache the masked/transposed submatrix once per lag to avoid
-            # repeating the boolean fancy-index copy inside the (i,j) loops.
-            vals_valid_T = all_vals[valid].T  # (n_syms, T_v)
-            B = np.empty((neq, n, T_v), dtype=float)
+            # Vectorized path: skip structural zeros (None entries), append
+            # rows/cols/data per (i,j) pair so zero entries add no COO entries.
+            vals_valid_T = all_vals[valid].T  # (n_syms, T_v) — cached once per lag
             elem_grid = funcs_iter[lag]
             for i in range(neq):
                 for j in range(n):
-                    B[i, j, :] = np.asarray(elem_grid[i][j](*vals_valid_T), dtype=float)
-            data_list.append(B.ravel())
+                    elem = elem_grid[i][j]
+                    if elem is None:
+                        continue  # structural zero — no COO entry needed
+                    rows_list.append(np.broadcast_to(row_block[i, 0, :], (T_v,)).copy())
+                    cols_list.append(np.broadcast_to(col_block[0, j, :], (T_v,)).copy())
+                    # Use array assignment to broadcast constant-valued lambdas
+                    # (which return a Python scalar) to the full T_v length.
+                    d = np.empty(T_v, dtype=float)
+                    d[:] = elem(*vals_valid_T)
+                    data_list.append(d)
         else:
             # Fallback scalar path (used if block_elem_funcs not available).
+            # Dense evaluation — push all (i,j) entries including zeros.
+            rows_list.append(np.broadcast_to(row_block, (neq, n, T_v)).ravel())
+            cols_list.append(np.broadcast_to(col_block, (neq, n, T_v)).ravel())
             f = block_funcs[lag]
             B_all = np.array([np.asarray(f(*all_vals[t].tolist())).ravel()
                                for t in t_v])  # (T_v, neq*n)
@@ -974,8 +981,11 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         # lambda above (which returns np.array([[...], ...]) and fails when some
         # entries are scalar and others are (T,) arrays), these scalar-valued
         # lambdas broadcast correctly over numpy array inputs.
+        # Store None for structurally-zero entries so _jacobian_bvp can skip
+        # them entirely (no lambdify overhead, no COO entry).
         block_elem_funcs = {
-            lag: [[sp.lambdify(all_syms, J[i, j], "numpy")
+            lag: [[None if J[i, j].is_zero
+                   else sp.lambdify(all_syms, J[i, j], "numpy")
                    for j in range(J.shape[1])]
                   for i in range(J.shape[0])]
             for lag, J in blocks.items()

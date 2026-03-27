@@ -142,6 +142,10 @@ def benchmark_dynare(dynare_path):
         f"dynare benchmark_dynare nointeractive nolog; "
         f"exit;"
     )
+    # Remove any stale CSV so a failed MATLAB run cannot silently reuse old data.
+    if os.path.exists(CSV_OUT):
+        os.remove(CSV_OUT)
+
     print("Running Dynare benchmark via MATLAB (this may take a minute)...", flush=True)
     result = subprocess.run(
         ["matlab", "-batch", matlab_cmd],
