@@ -92,9 +92,9 @@ def benchmark_python():
                 stock_var_indices=[1],  # k is at index 1 in ["c", "k", "zl"]
                 homotopy_fallback=False,
             )
-            times.append(time.perf_counter() - t0)
-
-        assert sol.success, f"Solver failed at T={T}: {sol.message}"
+            elapsed = time.perf_counter() - t0
+            assert sol.success, f"Solver failed at T={T}: {sol.message}"
+            times.append(elapsed)
         med_ms = np.median(times) * 1000
         results[T] = med_ms
         print(f"  T={T:5d}: {med_ms:8.2f} ms  (median of {N_REPS} runs)")
