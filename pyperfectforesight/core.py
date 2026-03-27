@@ -1293,7 +1293,7 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
             if any(lag < 0 for lag in incidence.get(var, []))]
 
 
-def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
+def solve_perfect_foresight(T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='hybr',
                            solver_options=None, *, endval=None,
@@ -1310,8 +1310,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     -----------
     T : int
         Number of periods
-    X0 : ndarray
-        Initial guess for endogenous state path (T x n_endo)
+    X0 : ndarray or None, optional
+        Initial guess for endogenous state path (T x n_endo).  If None
+        (the default), the path is initialised to the terminal steady state
+        (``endval`` if provided, otherwise ``ss``) tiled over all T periods.
     params_dict : dict
         Parameter values
     ss : ndarray
@@ -1398,6 +1400,16 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     OptimizeResult : Solution with full path including X[0]
     """
 
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'params_dict'")
+    if ss is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'ss'")
+    if model_funcs is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'model_funcs'")
+    if vars_dyn is None:
+        raise TypeError("solve_perfect_foresight() missing required argument: 'vars_dyn'")
+
     all_syms = model_funcs['all_syms']
     residual_funcs = model_funcs['residual_funcs']
     block_funcs = model_funcs['block_funcs']
@@ -1411,13 +1423,19 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
     exo_lags  = model_funcs.get('exo_lags')
     endo_lags, exo_lags = _resolve_lag_sets(all_syms, vars_dyn, vars_exo, endo_lags, exo_lags)
 
-    if X0.shape[1] != n:
-        raise ValueError(
-            f"X0 has {X0.shape[1]} columns but the model has {n} dynamic variables "
-            f"({vars_dyn}). If process_model fell back to aux_method='dynamic', "
-            f"vars_dyn was extended to include auxiliary variables. "
-            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
-        )
+    # Only validate X0 when it is explicitly provided. If X0 is None, a default
+    # path based on endval (np.tile(endval, (T, 1))) is constructed later after
+    # endval is resolved.
+    if X0 is not None:
+        X0 = np.asarray(X0, dtype=float)
+        if X0.ndim != 2 or X0.shape != (T, n):
+            raise ValueError(
+                f"X0 must be a 2D array with shape (T, n) = ({T}, {n}); "
+                f"got shape {X0.shape}. "
+                f"If process_model fell back to aux_method='dynamic', "
+                f"vars_dyn was extended to include auxiliary variables. "
+                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+            )
     if ss.shape[0] != n:
         raise ValueError(
             f"ss has {ss.shape[0]} elements but the model has {n} dynamic variables "
@@ -1560,6 +1578,10 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
             f"dynamic variables. endval must be a full state vector."
         )
 
+    # Default initial guess: terminal steady state tiled over T periods.
+    if X0 is None:
+        X0 = np.tile(endval, (T, 1))
+
     def F_bvp(x):
         X = x.reshape(T, n)
         return _residual_bvp(
@@ -1662,8 +1684,8 @@ def solve_perfect_foresight(T, X0, params_dict, ss, model_funcs, vars_dyn,
 # ============================================================
 
 def solve_perfect_foresight_expectation_errors(
-    T, X0, params_dict, ss, model_funcs, vars_dyn,
-    news_shocks,
+    T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
+    news_shocks=None,
     initial_state=None,
     ss_initial=None,
     stock_var_indices=None,
@@ -1684,10 +1706,13 @@ def solve_perfect_foresight_expectation_errors(
     ----------
     T : int
         Total simulation length (number of periods in the stitched output).
-    X0 : ndarray, shape (T, n_endo)
+    X0 : ndarray, shape (T, n_endo), or None, optional
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
-        previous sub-solve's solution.
+        previous sub-solve's solution.  If None (the default), the path is
+        initialised to the effective terminal steady state for the first
+        segment (``ss`` unless overridden by the first ``news_shocks`` entry's
+        ``endval``) tiled over all ``T`` periods.
     params_dict : dict
         Parameter values.
     ss : ndarray, shape (n_endo,)
@@ -1777,6 +1802,28 @@ def solve_perfect_foresight_expectation_errors(
             Names of auxiliary variables (empty list if none).
     """
     from scipy.optimize import OptimizeResult
+
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'params_dict'"
+        )
+    if ss is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'ss'"
+        )
+    if model_funcs is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'model_funcs'"
+        )
+    if vars_dyn is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'vars_dyn'"
+        )
+    if news_shocks is None:
+        raise TypeError(
+            "solve_perfect_foresight_expectation_errors() missing required argument: 'news_shocks'"
+        )
 
     # Use vars_dyn from model_funcs (may be extended by process_model).
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
@@ -1887,7 +1934,41 @@ def solve_perfect_foresight_expectation_errors(
     sub_results = []
     current_initial_state = initial_state
     current_endval = ss   # updated if a 3-tuple provides an endval override
-    X0_sub = X0  # warm-start for first sub-solve
+    # Validate and default X0.  When provided, coerce to a float array and
+    # check shape.  When None, use the effective terminal steady state for the
+    # first segment (the endval override from the first news_shock entry if
+    # present, otherwise ss) tiled over all T periods.
+    if X0 is not None:
+        try:
+            X0 = np.asarray(X0, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"X0 could not be converted to a numeric array: {exc}") from exc
+        if X0.ndim != 2 or X0.shape[1] != n:
+            raise ValueError(
+                f"X0 must be a 2D array with {n} columns (one per dynamic variable); "
+                f"got shape {X0.shape}. Rows are trimmed/padded per sub-solve horizon."
+            )
+        if X0.shape[0] == 0:
+            raise ValueError(f"X0 must have at least one row; got shape {X0.shape}.")
+        X0_sub = X0
+    else:
+        _first_endval_raw = parsed[0][2] if parsed[0][2] is not None else ss
+        _source = (
+            "the endval override in the first news_shocks entry"
+            if parsed[0][2] is not None
+            else "the steady-state vector ss"
+        )
+        try:
+            first_endval = np.asarray(_first_endval_raw, dtype=float).ravel()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{_source} could not be converted to a numeric array: {exc}"
+            ) from exc
+        if first_endval.size != n:
+            raise ValueError(
+                f"{_source} must have length {n}; got length {first_endval.size}."
+            )
+        X0_sub = np.tile(first_endval, (T, 1))
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
         # Apply endval override (persists to subsequent segments).
@@ -2003,7 +2084,7 @@ def solve_perfect_foresight_expectation_errors(
 # ============================================================
 
 def solve_perfect_foresight_homotopy(
-    T, X0, params_dict, ss, model_funcs, vars_dyn,
+    T, X0=None, params_dict=None, ss=None, model_funcs=None, vars_dyn=None,
     exog_path=None, initial_state=None, ss_initial=None,
     stock_var_indices=None,
     *,
@@ -2039,9 +2120,10 @@ def solve_perfect_foresight_homotopy(
     ----------
     T : int
         Number of periods.
-    X0 : ndarray (T, n_dyn)
-        Initial guess shape reference; the actual warm start for step 1 is
-        the steady-state path.
+    X0 : ndarray (T, n_dyn) or None, optional
+        Unused by the homotopy solver (the actual warm start for step 1 is
+        always the steady-state path ``np.tile(ss_initial, (T, 1))``).
+        Accepted for API compatibility; pass None to omit.
     params_dict : dict
         Parameter values.
     ss : ndarray (n_dyn,)
@@ -2113,6 +2195,16 @@ def solve_perfect_foresight_homotopy(
         If the solver fails to converge at any homotopy step, with the step's
         lam value and solver message included.
     """
+    # Guard required args that were given None defaults to keep X0 optional.
+    if params_dict is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'params_dict'")
+    if ss is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'ss'")
+    if model_funcs is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'model_funcs'")
+    if vars_dyn is None:
+        raise TypeError("solve_perfect_foresight_homotopy() missing required argument: 'vars_dyn'")
+
     if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
@@ -2260,18 +2352,19 @@ def solve_perfect_foresight_homotopy(
         else:
             exog_ss = np.zeros_like(exog_path)
 
-    # Validate X0 shape to catch mismatches early (X0 itself is not used as
-    # the warm start — the steady-state path is — but a shape mismatch usually
-    # indicates a caller error worth flagging immediately).
-    X0 = np.asarray(X0, dtype=float)
-    if X0.shape != (T, n):
-        raise ValueError(
-            f"X0 has shape {X0.shape} but expected ({T}, {n}) "
-            f"(T periods × {n} dynamic variables). "
-            f"If process_model fell back to aux_method='dynamic', vars_dyn was "
-            f"extended to include auxiliary variables. "
-            f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
-        )
+    # Validate X0 shape when provided (X0 itself is not used as the warm start
+    # — the steady-state path is — but a shape mismatch usually indicates a
+    # caller error worth flagging immediately).
+    if X0 is not None:
+        X0 = np.asarray(X0, dtype=float)
+        if X0.shape != (T, n):
+            raise ValueError(
+                f"X0 has shape {X0.shape} but expected ({T}, {n}) "
+                f"(T periods × {n} dynamic variables). "
+                f"If process_model fell back to aux_method='dynamic', vars_dyn was "
+                f"extended to include auxiliary variables. "
+                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+            )
 
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
