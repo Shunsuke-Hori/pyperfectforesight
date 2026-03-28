@@ -730,37 +730,51 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     ss_syms = [sp.Symbol(f"{var}_ss") for var in vars_dyn]
     ss_sym_set = set(ss_syms)
 
-    # Auto-detect all lags for endogenous variables
-    endo_set = set(vars_dyn)
-    all_lags = set()
-    for eq in equations:
-        for s in eq.free_symbols:
-            parsed = _parse_time_symbol(s.name)
-            if parsed is not None and parsed[0] in endo_set:
-                all_lags.add(parsed[1])
+    # Use shared helpers to detect lags — keeps behaviour consistent with the
+    # rest of the codebase and avoids reimplementing the scanning logic.
+    all_syms_set = {s for eq in equations for s in eq.free_symbols}
+    endo_lags, exo_lags = _compute_lag_sets(all_syms_set, vars_dyn, vars_exo)
 
     # Collapse all time-indexed endogenous variables to their ss symbol,
     # and zero out exogenous variables (steady-state assumption).
     subs_map = {}
     for var, ss_sym in zip(vars_dyn, ss_syms):
-        for lag in all_lags:
+        for lag in endo_lags:
             subs_map[v(var, lag)] = ss_sym
-    exo_set = set(vars_exo)
-    exo_lags = set()
-    for eq in equations:
-        for s in eq.free_symbols:
-            parsed = _parse_time_symbol(s.name)
-            if parsed is not None and parsed[0] in exo_set:
-                exo_lags.add(parsed[1])
     for var in vars_exo:
         for lag in exo_lags:
             subs_map[v(var, lag)] = 0
 
     ss_equations = [eq.subs(subs_map) for eq in equations]
 
-    # Parameter symbols: free symbols remaining after collapsing time-indexed vars
+    # Parameter symbols: free symbols remaining after collapsing time-indexed vars.
+    # Validate that no orphaned time-indexed symbols remain — these indicate a
+    # typo or a variable declared in the equations but missing from vars_dyn/vars_exo.
+    known_vars = set(vars_dyn) | set(vars_exo)
+    remaining_syms = {s for eq in ss_equations for s in eq.free_symbols} - ss_sym_set
+    orphaned = [
+        s for s in remaining_syms
+        if _parse_time_symbol(s.name) is not None
+        and _parse_time_symbol(s.name)[0] in known_vars
+    ]
+    # A remaining time-indexed symbol whose base name IS in known_vars means the
+    # lag was not covered by the detected lag sets — should not happen, but guard.
+    # More importantly, detect symbols whose base name looks like a variable but
+    # was not declared (e.g. a typo like v("kk", -1) when only "k" is in vars_dyn).
+    undeclared = [
+        s for s in remaining_syms
+        if _parse_time_symbol(s.name) is not None
+        and _parse_time_symbol(s.name)[0] not in known_vars
+    ]
+    if undeclared:
+        raise ValueError(
+            "compile_steady_state_funcs: time-indexed symbol(s) remain after "
+            "substitution whose base name is not in vars_dyn or vars_exo: "
+            + ", ".join(str(s) for s in sorted(undeclared, key=lambda s: s.name))
+            + ". This usually indicates a typo in a variable name inside an equation."
+        )
     param_syms = sorted(
-        {s for eq in ss_equations for s in eq.free_symbols} - ss_sym_set,
+        remaining_syms - set(orphaned),
         key=lambda s: s.name,
     )
 
@@ -811,10 +825,11 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None):
     try:
         param_vals = [float(params_dict[s]) for s in param_syms]
     except KeyError as e:
+        missing = e.args[0] if e.args else e
         raise ValueError(
-            f"Missing parameter value for {e}. params_dict must contain "
+            f"Missing parameter value for {missing}. params_dict must contain "
             "all model parameters detected during compilation."
-        )
+        ) from e
 
     def residual_ss(x):
         args = list(x) + param_vals
