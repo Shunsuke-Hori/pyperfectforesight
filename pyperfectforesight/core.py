@@ -752,31 +752,24 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     # typo or a variable declared in the equations but missing from vars_dyn/vars_exo.
     known_vars = set(vars_dyn) | set(vars_exo)
     remaining_syms = {s for eq in ss_equations for s in eq.free_symbols} - ss_sym_set
-    orphaned = [
+    # Any remaining time-indexed symbol after substitution is an error: either
+    # the base name is undeclared (typo) or it belongs to a known variable but
+    # was somehow missed by lag detection (should not happen, but guard anyway).
+    # In both cases the lambdified functions would reference an unbound symbol,
+    # causing a NameError or silent mis-evaluation at solve time.
+    leftover_time_indexed = [
         s for s in remaining_syms
         if _parse_time_symbol(s.name) is not None
-        and _parse_time_symbol(s.name)[0] in known_vars
     ]
-    # A remaining time-indexed symbol whose base name IS in known_vars means the
-    # lag was not covered by the detected lag sets — should not happen, but guard.
-    # More importantly, detect symbols whose base name looks like a variable but
-    # was not declared (e.g. a typo like v("kk", -1) when only "k" is in vars_dyn).
-    undeclared = [
-        s for s in remaining_syms
-        if _parse_time_symbol(s.name) is not None
-        and _parse_time_symbol(s.name)[0] not in known_vars
-    ]
-    if undeclared:
+    if leftover_time_indexed:
         raise ValueError(
             "compile_steady_state_funcs: time-indexed symbol(s) remain after "
-            "substitution whose base name is not in vars_dyn or vars_exo: "
-            + ", ".join(str(s) for s in sorted(undeclared, key=lambda s: s.name))
-            + ". This usually indicates a typo in a variable name inside an equation."
+            "substitution: "
+            + ", ".join(str(s) for s in sorted(leftover_time_indexed, key=lambda s: s.name))
+            + ". Check for typos in variable names inside equations, or ensure "
+            "all time-indexed variables are declared in vars_dyn/vars_exo."
         )
-    param_syms = sorted(
-        remaining_syms - set(orphaned),
-        key=lambda s: s.name,
-    )
+    param_syms = sorted(remaining_syms, key=lambda s: s.name)
 
     all_args = ss_syms + param_syms
     funcs = [sp.lambdify(all_args, eq, "numpy") for eq in ss_equations]
