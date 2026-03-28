@@ -65,3 +65,8 @@ htmlcov/
 
 docs/_build/
 docs/generated/
+
+# Dynare benchmark outputs
+scripts/+benchmark_dynare/
+scripts/benchmark_dynare/
+scripts/benchmark_dynare_times.csv
