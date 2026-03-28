@@ -687,6 +687,145 @@ def compute_steady_state_numerical(equations, vars_dyn, params_dict, initial_gue
 
     return solution
 
+def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
+    """Compile steady-state residual functions once for repeated use with different parameters.
+
+    Separates the symbolic work (SymPy substitutions and lambdification) from the
+    numerical solving so that parameter sweeps pay the symbolic cost only once.
+
+    Parameters
+    ----------
+    equations : list
+        List of model equations (same as passed to process_model).
+    vars_dyn : list
+        List of endogenous variable names.
+    vars_exo : list, optional
+        List of exogenous variable names (default: None).  Exogenous variables
+        are substituted to zero at the steady state (standard assumption).
+
+    Returns
+    -------
+    dict
+        Compiled steady-state bundle to be passed to solve_steady_state():
+
+        - ``'funcs'``: list of lambdified residual functions
+        - ``'ss_syms'``: list of SymPy symbols for steady-state values
+          (one per variable in vars_dyn, in the same order)
+        - ``'param_syms'``: sorted list of SymPy parameter symbols detected
+          in the equations after time-indexed variables are collapsed
+        - ``'vars_dyn'``: copy of the vars_dyn list
+
+    Examples
+    --------
+    Compile once, then sweep over parameter values:
+
+    >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn)
+    >>> for params in param_grid:
+    ...     ss = solve_steady_state(compiled_ss, params)
+    ...     result = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn)
+    """
+    if vars_exo is None:
+        vars_exo = []
+
+    ss_syms = [sp.Symbol(f"{var}_ss") for var in vars_dyn]
+    ss_sym_set = set(ss_syms)
+
+    # Auto-detect all lags for endogenous variables
+    endo_set = set(vars_dyn)
+    all_lags = set()
+    for eq in equations:
+        for s in eq.free_symbols:
+            parsed = _parse_time_symbol(s.name)
+            if parsed is not None and parsed[0] in endo_set:
+                all_lags.add(parsed[1])
+
+    # Collapse all time-indexed endogenous variables to their ss symbol,
+    # and zero out exogenous variables (steady-state assumption).
+    subs_map = {}
+    for var, ss_sym in zip(vars_dyn, ss_syms):
+        for lag in all_lags:
+            subs_map[v(var, lag)] = ss_sym
+    exo_set = set(vars_exo)
+    exo_lags = set()
+    for eq in equations:
+        for s in eq.free_symbols:
+            parsed = _parse_time_symbol(s.name)
+            if parsed is not None and parsed[0] in exo_set:
+                exo_lags.add(parsed[1])
+    for var in vars_exo:
+        for lag in exo_lags:
+            subs_map[v(var, lag)] = 0
+
+    ss_equations = [eq.subs(subs_map) for eq in equations]
+
+    # Parameter symbols: free symbols remaining after collapsing time-indexed vars
+    param_syms = sorted(
+        {s for eq in ss_equations for s in eq.free_symbols} - ss_sym_set,
+        key=lambda s: s.name,
+    )
+
+    all_args = ss_syms + param_syms
+    funcs = [sp.lambdify(all_args, eq, "numpy") for eq in ss_equations]
+
+    return {
+        'funcs': funcs,
+        'ss_syms': ss_syms,
+        'param_syms': param_syms,
+        'vars_dyn': list(vars_dyn),
+    }
+
+
+def solve_steady_state(compiled_ss, params_dict, initial_guess=None):
+    """Solve for the steady state using pre-compiled functions.
+
+    Uses the bundle produced by compile_steady_state_funcs() so that no
+    symbolic work is repeated.  Intended for parameter sweeps where the
+    model structure is fixed but parameter values change across calls.
+
+    Parameters
+    ----------
+    compiled_ss : dict
+        Bundle returned by compile_steady_state_funcs().
+    params_dict : dict
+        Parameter values.  Must contain every parameter symbol detected
+        during compilation (i.e., every key in compiled_ss['param_syms']).
+    initial_guess : ndarray, optional
+        Initial guess for steady-state values (default: ones).
+
+    Returns
+    -------
+    ndarray
+        Steady-state values for each variable in vars_dyn order.
+
+    Raises
+    ------
+    ValueError
+        If params_dict is missing a required parameter symbol.
+    """
+    from scipy.optimize import fsolve
+
+    funcs = compiled_ss['funcs']
+    param_syms = compiled_ss['param_syms']
+    vars_dyn = compiled_ss['vars_dyn']
+
+    try:
+        param_vals = [float(params_dict[s]) for s in param_syms]
+    except KeyError as e:
+        raise ValueError(
+            f"Missing parameter value for {e}. params_dict must contain "
+            "all model parameters detected during compilation."
+        )
+
+    def residual_ss(x):
+        args = list(x) + param_vals
+        return np.array([float(f(*args)) for f in funcs])
+
+    if initial_guess is None:
+        initial_guess = np.ones(len(vars_dyn))
+
+    return fsolve(residual_ss, initial_guess)
+
+
 # ============================================================
 # 9. Model processing pipeline
 # ============================================================
