@@ -22,6 +22,8 @@ from pyperfectforesight.core import (
 
     # Steady state
     compute_steady_state_numerical,
+    compile_steady_state_funcs,
+    solve_steady_state,
 
     # Solver components
     residual,
@@ -52,6 +54,8 @@ __all__ = [
     "compute_auxiliary_variables",
     # Steady state
     "compute_steady_state_numerical",
+    "compile_steady_state_funcs",
+    "solve_steady_state",
     # Solver components
     "residual",
     "sparse_jacobian",
