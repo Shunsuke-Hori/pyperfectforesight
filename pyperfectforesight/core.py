@@ -726,11 +726,15 @@ class SteadyState:
     # ndarray is expected without any changes in calling code.
     # ------------------------------------------------------------------
 
-    def __array__(self, dtype=None):
-        """Return the underlying values array; called by np.asarray(ss_obj)."""
-        if dtype is not None:
-            return self.values.astype(dtype)
-        return self.values
+    def __array__(self, dtype=None, copy=None):
+        """Return the underlying values array; called by np.asarray(ss_obj).
+
+        The ``copy`` parameter is accepted for NumPy 2.x compatibility.
+        """
+        arr = self.values if dtype is None else self.values.astype(dtype)
+        if copy:
+            return arr.copy()
+        return arr
 
     def __len__(self):
         return len(self.values)

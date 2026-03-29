@@ -241,9 +241,7 @@ ss_initial  = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.0]))
 ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.05]))
 
 print(ss_terminal)
-# SteadyState(values={c: 2.972, k: 40.999},
-#             params={alpha: 0.36, beta: 0.99, delta: 0.025},
-#             exog_ss={z: 0.05})
+# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99, delta: 0.025}, exog_ss={z: 0.05})
 
 # Access provenance at any time
 ss_terminal.values    # endogenous values as ndarray

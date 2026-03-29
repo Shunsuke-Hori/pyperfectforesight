@@ -137,9 +137,7 @@ ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.05]))
 
 # Each SteadyState carries its provenance
 print(ss_terminal)
-# SteadyState(values={c: 2.972, k: 40.999},
-#             params={alpha: 0.36, beta: 0.99, delta: 0.025},
-#             exog_ss={z: 0.05})
+# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99, delta: 0.025}, exog_ss={z: 0.05})
 
 T = 100
 exog_path = np.full((T, 1), 0.05)   # permanent shock
