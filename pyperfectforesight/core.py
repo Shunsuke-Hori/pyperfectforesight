@@ -709,6 +709,18 @@ class SteadyState:
         self.vars_dyn = list(vars_dyn) if vars_dyn is not None else None
         self.vars_exo = list(vars_exo) if vars_exo is not None else None
 
+        if self.vars_dyn is not None and len(self.vars_dyn) != len(self.values):
+            raise ValueError(
+                f"vars_dyn has {len(self.vars_dyn)} name(s) but values has "
+                f"{len(self.values)} element(s); lengths must match."
+            )
+        if (self.exog_ss is not None and self.vars_exo is not None
+                and len(self.vars_exo) != len(self.exog_ss)):
+            raise ValueError(
+                f"vars_exo has {len(self.vars_exo)} name(s) but exog_ss has "
+                f"{len(self.exog_ss)} element(s); lengths must match."
+            )
+
     # ------------------------------------------------------------------
     # numpy interoperability — lets SteadyState be used wherever a plain
     # ndarray is expected without any changes in calling code.
@@ -1055,11 +1067,14 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None, exog_ss=Non
         ) from e
 
     # Resolve exogenous steady-state values.
-    if n_exo == 0:
-        exo_vals = []
-    elif exog_ss is None:
-        exo_vals = [0.0] * n_exo
+    if exog_ss is None:
+        exo_vals = [0.0] * n_exo  # empty list when n_exo == 0
     elif isinstance(exog_ss, dict):
+        if n_exo == 0 and exog_ss:
+            raise ValueError(
+                f"exog_ss dict contains keys {list(exog_ss)!r} but the compiled "
+                "bundle has no exogenous variables. Pass exog_ss=None or omit it."
+            )
         exo_vals = [float(exog_ss.get(var, 0.0)) for var in vars_exo]
     else:
         exo_arr = np.asarray(exog_ss, dtype=float).ravel()
