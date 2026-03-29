@@ -78,15 +78,26 @@ def test_compile_bundle_keys(compiled_ss):
 
 
 # ---------------------------------------------------------------------------
-# 2. solve_steady_state at z=1 (default exog_ss=None → zeros)
+# 2. solve_steady_state — basic checks
 # ---------------------------------------------------------------------------
 
-def test_solve_ss_at_zero_exog(compiled_ss):
-    """exog_ss=None defaults to 0; steady state matches analytical formula."""
-    ss = solve_steady_state(compiled_ss, PARAMS)
-    expected = _analytical_ss(0.0)
-    # z=0 means k=0, c=0; the fsolve may not converge well — just check type
+def test_solve_ss_returns_steady_state_type(compiled_ss):
+    """solve_steady_state returns a SteadyState instance."""
+    expected = _analytical_ss(1.0)
+    ss = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                            initial_guess=expected)
     assert isinstance(ss, SteadyState)
+
+
+def test_solve_ss_different_exog_gives_different_ss(compiled_ss):
+    """Two different exogenous levels produce two different steady states."""
+    guess1 = _analytical_ss(1.0)
+    guess2 = _analytical_ss(1.05)
+    ss1 = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                             initial_guess=guess1)
+    ss2 = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.05]),
+                             initial_guess=guess2)
+    assert not np.allclose(np.asarray(ss1), np.asarray(ss2), atol=1e-6)
 
 
 def test_solve_ss_at_nonzero_exog_array(compiled_ss):

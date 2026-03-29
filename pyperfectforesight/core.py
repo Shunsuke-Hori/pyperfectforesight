@@ -2989,8 +2989,11 @@ def solve_perfect_foresight_homotopy(
     X_warm = np.tile(ss_initial, (T, 1))
 
     # Auto-compute endval from the terminal exogenous level when compiled_ss is
-    # provided, endval is omitted, and an exog_path is available.
-    if endval is None and compiled_ss is not None and exog_path is not None:
+    # provided, endval is omitted, and the caller explicitly supplied exog_path.
+    # Gate on _exog_path_user_provided (not exog_path is not None) so that the
+    # all-zero default path created for models with exo vars does not trigger
+    # auto-computation — the user didn't supply a meaningful terminal exo level.
+    if endval is None and compiled_ss is not None and _exog_path_user_provided:
         endval = solve_steady_state(
             compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
             initial_guess=np.asarray(ss),

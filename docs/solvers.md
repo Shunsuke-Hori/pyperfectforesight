@@ -34,7 +34,7 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
 | `ss_initial` | `None` | Initial steady-state values used for the `initval` boundary row. Defaults to `ss`. Set this when the model starts from a *different* steady state than `ss`. |
 | `endval` | `None` | Terminal steady state (right BVP boundary). If `None` and `compiled_ss` is provided and `exog_path` is not `None`, automatically computed from `exog_path[-1]`. Otherwise defaults to `ss`. Pass a pre-computed value for repeated simulations to avoid recomputation. |
-| `compiled_ss` | `None` | Pre-compiled steady-state bundle from `compile_steady_state_funcs()`. Enables automatic `endval` computation from the terminal exogenous level. See [Terminal steady state](#terminal-steady-state). |
+| `compiled_ss` | `None` | Pre-compiled steady-state bundle from `compile_steady_state_funcs()`. Enables automatic `endval` computation from the terminal exogenous level (see the *Terminal steady state* section below). |
 | `solver_options` | `None` | Dict of sparse Newton solver options: `maxiter`, `ftol`, `xtol`, `maxfev`. |
 
 ---
