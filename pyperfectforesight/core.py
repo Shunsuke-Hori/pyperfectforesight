@@ -2338,9 +2338,14 @@ def solve_perfect_foresight_expectation_errors(
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
         previous sub-solve's solution.  If None (the default), the path is
-        initialised to the effective terminal steady state for the first
-        segment (``ss`` unless overridden by the first ``news_shocks`` entry's
-        ``endval``) tiled over all ``T`` periods.
+        tiled from the effective terminal steady state for the first segment,
+        determined by the following priority order:
+
+        1. The explicit ``endval`` in the first ``news_shocks`` 3-tuple.
+        2. Auto-computed from ``compiled_ss`` at the last row of the first
+           segment's ``exog_path`` (when ``compiled_ss`` is provided and the
+           first segment has a non-None ``exog_path``).
+        3. ``ss`` (the steady state passed as the second positional argument).
     initial_state : ndarray, optional
         Pre-period-0 stock variable values (``k_{-1}`` in Dynare notation).
         Defaults to ``ss_initial[stock_var_indices]``.
