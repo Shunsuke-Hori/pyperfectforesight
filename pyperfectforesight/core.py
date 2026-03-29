@@ -1018,7 +1018,7 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None, exog_ss=Non
     ------
     ValueError
         If ``params_dict`` is missing a required parameter symbol, or if
-        ``exog_ss`` cannot be broadcast to the expected shape ``(n_exo,)``.
+        ``exog_ss`` cannot be converted/flattened to a 1D array of length ``n_exo``.
 
     Examples
     --------
@@ -1890,7 +1890,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         If None, inferred automatically from the lead-lag incidence table in
         ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
-    endval : ndarray, optional
+    endval : array-like (including SteadyState), optional
         Terminal boundary values for all endogenous variables (the fixed right
         boundary row of the augmented path, appended at ``t = T``).
 
@@ -2769,7 +2769,7 @@ def solve_perfect_foresight_homotopy(
         Indices of stock (predetermined) variables in ``vars_dyn``.  Non-stock
         variables are free to jump at t=0.  If None, inferred automatically
         from the lead-lag incidence table in ``model_funcs['incidence']``.
-    endval : ndarray, optional
+    endval : array-like (including SteadyState), optional
         Terminal boundary values (the fixed right boundary row of the augmented
         path).
 
