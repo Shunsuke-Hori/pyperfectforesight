@@ -663,11 +663,11 @@ class SteadyState:
     >>> ss.vars_exo          # exogenous variable names
     ['z']
 
-    Pass directly as ``endval`` or ``ss_initial`` — callers see a plain array:
+    Pass directly as ``endval`` — callers see a plain array:
 
     >>> result = solve_perfect_foresight(
-    ...     T, params, ss_initial, model_funcs, vars_dyn,
-    ...     exog_path=exog_path, ss_initial=ss_initial, endval=ss,
+    ...     T, params, ss_terminal, model_funcs, vars_dyn,
+    ...     exog_path=exog_path, ss_initial=ss_initial, endval=ss_terminal,
     ... )
 
     You can also construct one manually to annotate a pre-computed vector:
@@ -678,7 +678,8 @@ class SteadyState:
     ... )
     """
 
-    __slots__ = ('values', 'params', 'exog_ss', 'vars_dyn', 'vars_exo')
+    # No __slots__: avoids duplicate-attribute Sphinx warnings while keeping
+    # the class simple and picklable.
 
     def __init__(self, values, params=None, exog_ss=None,
                  vars_dyn=None, vars_exo=None):
@@ -1007,8 +1008,11 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None, exog_ss=Non
 
     Returns
     -------
-    ndarray
-        Steady-state values for each variable in ``vars_dyn`` order.
+    SteadyState
+        Steady-state values for each variable in ``vars_dyn`` order, wrapped
+        in a :class:`SteadyState` object that records the parameter values and
+        exogenous levels used.  Transparently usable as a plain ndarray via
+        ``__array__``.
 
     Raises
     ------
@@ -1921,7 +1925,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         First call: ``endval`` is auto-computed from ``exog_path[-1]``.
 
         >>> result = solve_perfect_foresight(
-        ...     T, params, ss_initial, model_funcs, vars_dyn,
+        ...     T, params, ss_terminal, model_funcs, vars_dyn,
         ...     exog_path=exog_path, ss_initial=ss_initial,
         ...     compiled_ss=compiled_ss,
         ... )
@@ -1932,7 +1936,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=exog_path[-1])
         >>> for shock in shocks:
         ...     result = solve_perfect_foresight(
-        ...         T, params, ss_initial, model_funcs, vars_dyn,
+        ...         T, params, ss_terminal, model_funcs, vars_dyn,
         ...         exog_path=shock, ss_initial=ss_initial,
         ...         endval=ss_terminal,
         ...     )
@@ -2036,7 +2040,8 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     # long-run exogenous values (exog_path[-1]).
     if endval is None and compiled_ss is not None and exog_path is not None:
         endval = solve_steady_state(
-            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1]
+            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
+            initial_guess=np.asarray(ss),
         )
 
     _orig_endval = endval
@@ -2553,6 +2558,7 @@ def solve_perfect_foresight_expectation_errors(
             _first_endval_raw = solve_steady_state(
                 compiled_ss, params_dict,
                 exog_ss=np.asarray(_first_exog_path, dtype=float)[-1],
+                initial_guess=np.asarray(ss),
             )
             _source = "the auto-computed terminal steady state for the first segment"
         else:
@@ -2580,7 +2586,8 @@ def solve_perfect_foresight_expectation_errors(
             # segment's exog_path (the agents' long-run exogenous belief).
             exog_terminal = np.asarray(exog_path_i, dtype=float)[-1]
             current_endval = solve_steady_state(
-                compiled_ss, params_dict, exog_ss=exog_terminal
+                compiled_ss, params_dict, exog_ss=exog_terminal,
+                initial_guess=np.asarray(current_endval),
             )
 
         # Number of periods to keep from this sub-solve's output.
@@ -2985,7 +2992,8 @@ def solve_perfect_foresight_homotopy(
     # provided, endval is omitted, and an exog_path is available.
     if endval is None and compiled_ss is not None and exog_path is not None:
         endval = solve_steady_state(
-            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1]
+            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
+            initial_guess=np.asarray(ss),
         )
 
     # Validate and resolve endval.  Track whether the caller supplied it

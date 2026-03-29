@@ -227,13 +227,12 @@ sol = solve_perfect_foresight_expectation_errors(
 
 ## Terminal steady state
 
-(#terminal-steady-state)
-
 For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `compile_steady_state_funcs` + `solve_steady_state` compute it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
 
 ### `SteadyState`
 
 ```python
+import numpy as np
 from pyperfectforesight import compile_steady_state_funcs, solve_steady_state
 
 compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
