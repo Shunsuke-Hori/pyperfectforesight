@@ -24,11 +24,25 @@ Complete API reference for all public functions in `pyperfectforesight`.
    :nosignatures:
 
    pyperfectforesight.process_model
-   pyperfectforesight.compute_steady_state_numerical
    pyperfectforesight.lead_lag_incidence
    pyperfectforesight.is_static
    pyperfectforesight.eliminate_static
    pyperfectforesight.local_blocks
+```
+
+---
+
+## Steady state
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   pyperfectforesight.SteadyState
+   pyperfectforesight.compile_steady_state_funcs
+   pyperfectforesight.solve_steady_state
+   pyperfectforesight.compute_steady_state_numerical
 ```
 
 ---

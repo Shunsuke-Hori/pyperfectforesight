@@ -33,7 +33,8 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 | `initial_state` | `None` | Pre-period-0 values of stock variables ($k_{-1}$ in Dynare notation). Defaults to `ss_initial[stock_var_indices]` (economy starts at steady state). |
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
 | `ss_initial` | `None` | Initial steady-state values used for the `initval` boundary row. Defaults to `ss`. Set this when the model starts from a *different* steady state than `ss`. |
-| `endval` | `None` | Terminal steady state (right BVP boundary). Defaults to `ss`. Set this for permanent shocks that shift the long-run equilibrium. |
+| `endval` | `None` | Terminal steady state (right BVP boundary). If `None` and `compiled_ss` is provided and `exog_path` is not `None`, automatically computed from `exog_path[-1]`. Otherwise defaults to `ss`. Pass a pre-computed value for repeated simulations to avoid recomputation. |
+| `compiled_ss` | `None` | Pre-compiled steady-state bundle from `compile_steady_state_funcs()`. Enables automatic `endval` computation from the terminal exogenous level (see the *Terminal steady state* section below). |
 | `solver_options` | `None` | Dict of sparse Newton solver options: `maxiter`, `ftol`, `xtol`, `maxfev`. |
 
 ---
@@ -75,6 +76,7 @@ All options from `solve_perfect_foresight` are accepted, plus:
 | `n_steps` | `10` | Number of homotopy steps. Larger values are more robust but slower. Must be a positive integer. |
 | `exog_ss` | `None` | Baseline exogenous path at $\lambda=0$ (no shock). Defaults to all zeros. |
 | `verbose` | `False` | Print convergence status at each step. |
+| `compiled_ss` | `None` | Same as `solve_perfect_foresight`: enables auto-computation of `endval` from `exog_path[-1]`. The computed `endval` is then interpolated across homotopy steps from `ss_initial` to the terminal value. |
 
 The solver raises `RuntimeError` if any intermediate step fails to converge. In that case, try increasing `n_steps`.
 
@@ -103,6 +105,8 @@ For a sub-solve starting at `learnt_in=k`, the solver uses rows `0` through `T-k
 ### `endval` persistence
 
 An `endval` supplied in a 3-tuple applies to that sub-solve and remains the terminal boundary for **all later segments** unless overridden by another 3-tuple further down the list. This mirrors Dynare's `endval(learnt_in=k)` semantics for permanent shocks.
+
+When `compiled_ss` is provided, the same persistence rule applies to auto-computed `endval`s: each segment with an `exog_path` automatically updates the terminal boundary from that path's last row; a segment without an `exog_path` reuses the previous segment's value.
 
 ### Usage example
 
@@ -134,7 +138,9 @@ X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
 
 ### Example with changing terminal steady state
 
-When the shock is permanent and shifts the long-run equilibrium, pass the new steady state as `endval` in a 3-tuple:
+When the shock is permanent and shifts the long-run equilibrium, you can either pass the new steady state explicitly in a 3-tuple, or let `compiled_ss` compute it automatically from `exog_path[-1]`.
+
+**Option A — explicit `endval` in a 3-tuple** (useful when the terminal steady state is pre-computed):
 
 ```python
 ss_new = np.array([C_SS_NEW, K_SS_NEW])  # new steady state under permanent shock
@@ -151,6 +157,27 @@ sol = solve_perfect_foresight_expectation_errors(
 )
 ```
 
+**Option B — automatic via `compiled_ss`** (endval computed from `exog_surprise[-1]`):
+
+```python
+from pyperfectforesight import compile_steady_state_funcs, solve_steady_state
+
+compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
+ss_initial = solve_steady_state(compiled_ss, params)  # at z=0
+
+news_shocks = [
+    (1, None),           # 2-tuple: no exog_path, keeps current endval (ss_initial)
+    (3, exog_surprise),  # 2-tuple: endval auto-computed from exog_surprise[-1]
+]
+
+sol = solve_perfect_foresight_expectation_errors(
+    T, params, ss_initial, model_funcs, vars_dyn, news_shocks,
+    initial_state=k_neg1,
+    stock_var_indices=[1],
+    compiled_ss=compiled_ss,   # enables auto-computation
+)
+```
+
 ### Options
 
 | Parameter | Default | Description |
@@ -162,6 +189,7 @@ sol = solve_perfect_foresight_expectation_errors(
 | `constant_simulation_length` | `False` | If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True` (Dynare's `constant_simulation_length` option), every sub-solve uses the full `T` periods. |
 | `solver_options` | `None` | Forwarded to each sub-solve. Same keys as `solve_perfect_foresight`. |
 | `sub_x0` | `None` | Per-sub-solve initial guesses. A list or tuple of the same length as `news_shocks`; each entry is either `None` (use the automatic warm-start) or an `(T_sub, n_endo)` array to use as the warm-start for that sub-solve. Rows are trimmed or padded to `T_sub` if needed. |
+| `compiled_ss` | `None` | Pre-compiled steady-state bundle from `compile_steady_state_funcs()`. When provided, `endval` for each sub-solve is automatically computed from the last row of that segment's `exog_path`, unless the 3-tuple already supplies an explicit `endval`. Persists across segments. |
 
 ### Supplying per-sub-solve initial guesses (`sub_x0`)
 
@@ -193,4 +221,59 @@ sol = solve_perfect_foresight_expectation_errors(
     sub_x0=sub_x0,
     initial_state=k_neg1,
 )
+```
+
+---
+
+## Terminal steady state
+
+For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `compile_steady_state_funcs` + `solve_steady_state` compute it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
+
+### `SteadyState`
+
+```python
+import numpy as np
+from pyperfectforesight import compile_steady_state_funcs, solve_steady_state
+
+compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
+
+ss_initial  = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.0]))
+ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.05]))
+
+print(ss_terminal)
+# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99, delta: 0.025}, exog_ss={z: 0.05})
+
+# Access provenance at any time
+ss_terminal.values    # endogenous values as ndarray
+ss_terminal.params    # {'alpha': 0.36, ...}
+ss_terminal.exog_ss   # array([0.05])
+ss_terminal.vars_exo  # ['z']
+```
+
+`SteadyState` is a drop-in replacement for any plain `ndarray` used as `ss`, `ss_initial`, or `endval`.
+
+### Auto-computing `endval` from `exog_path[-1]`
+
+Pass `compiled_ss` to any solver and omit `endval` — the terminal boundary is computed automatically from the last row of `exog_path`, guaranteeing a valid steady state:
+
+```python
+T = 100
+exog_path = np.full((T, 1), 0.05)  # permanent shock
+
+sol = solve_perfect_foresight(
+    T, params, ss_terminal, model_funcs, vars_dyn,
+    exog_path=exog_path, ss_initial=ss_initial,
+    compiled_ss=compiled_ss,          # endval auto-computed from exog_path[-1]
+)
+```
+
+For repeated simulations with the same terminal exogenous level, pass `endval` explicitly to skip the steady-state solve:
+
+```python
+for shock in shock_list:
+    sol = solve_perfect_foresight(
+        T, params, ss_terminal, model_funcs, vars_dyn,
+        exog_path=shock, ss_initial=ss_initial,
+        endval=ss_terminal,   # already computed, no recomputation needed
+    )
 ```

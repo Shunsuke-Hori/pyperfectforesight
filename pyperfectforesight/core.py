@@ -624,6 +624,174 @@ def append_terminal_conditions(F, J, X, ss):
 # 8. Steady state computation
 # ============================================================
 
+class SteadyState:
+    """A steady-state solution with full provenance (params and exogenous values).
+
+    Wraps a numpy array of endogenous steady-state values and records the
+    model parameters and exogenous variable levels at which they were computed.
+    Transparently interoperates with numpy — a ``SteadyState`` can be passed
+    wherever a plain ``ndarray`` is expected (``endval``, ``ss``,
+    ``ss_initial``, etc.) without any code changes in the callers.
+
+    Attributes
+    ----------
+    values : ndarray, shape (n_endo,)
+        Endogenous variable steady-state values in ``vars_dyn`` order.
+    params : dict {str: float}
+        Model parameter values (string-keyed) used to compute this steady
+        state.
+    exog_ss : ndarray of shape (n_exo,) or None
+        Exogenous variable values at which this steady state was computed.
+        ``None`` when the model has no exogenous variables.
+    vars_dyn : list of str or None
+        Names of the endogenous variables in the same order as ``values``.
+    vars_exo : list of str or None
+        Names of the exogenous variables in the same order as ``exog_ss``.
+
+    Examples
+    --------
+    ``solve_steady_state`` returns a ``SteadyState`` automatically:
+
+    >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
+    >>> ss = solve_steady_state(compiled_ss, params, exog_ss=np.array([1.05]))
+    >>> ss.values            # endogenous steady-state values
+    array([2.972514, 40.998601])
+    >>> ss.exog_ss           # exogenous level this steady state corresponds to
+    array([1.05])
+    >>> ss.params            # parameters used
+    {'alpha': 0.36, 'beta': 0.99, 'delta': 0.025}
+    >>> ss.vars_exo          # exogenous variable names
+    ['z']
+
+    Pass directly as ``endval`` — callers see a plain array:
+
+    >>> result = solve_perfect_foresight(
+    ...     T, params, ss_terminal, model_funcs, vars_dyn,
+    ...     exog_path=exog_path, ss_initial=ss_initial, endval=ss_terminal,
+    ... )
+
+    You can also construct one manually to annotate a pre-computed vector:
+
+    >>> ss = SteadyState(
+    ...     my_ss_values, params={"alpha": 0.36, "beta": 0.99},
+    ...     exog_ss=np.array([1.05]), vars_dyn=["c", "k"], vars_exo=["z"],
+    ... )
+    """
+
+    # No __slots__: avoids duplicate-attribute Sphinx warnings while keeping
+    # the class simple and picklable.
+
+    def __init__(self, values, params=None, exog_ss=None,
+                 vars_dyn=None, vars_exo=None):
+        """
+        Parameters
+        ----------
+        values : array-like, shape (n_endo,)
+            Endogenous variable steady-state values.
+        params : dict {str: float}, optional
+            Model parameter values (string-keyed) used to compute this steady
+            state.  Storing these alongside the solution makes it easy to
+            verify which calibration produced a given steady state.
+        exog_ss : array-like of shape (n_exo,), optional
+            Exogenous variable values at which this steady state was computed.
+            Pass ``None`` (default) when the model has no exogenous variables
+            or when the exogenous level is zero by convention.
+        vars_dyn : list of str, optional
+            Names of the endogenous variables in the same order as ``values``.
+        vars_exo : list of str, optional
+            Names of the exogenous variables in the same order as ``exog_ss``.
+        """
+        self.values = np.asarray(values, dtype=float).ravel()
+        self.params = dict(params) if params is not None else {}
+        self.exog_ss = (
+            np.asarray(exog_ss, dtype=float).ravel() if exog_ss is not None else None
+        )
+        self.vars_dyn = list(vars_dyn) if vars_dyn is not None else None
+        self.vars_exo = list(vars_exo) if vars_exo is not None else None
+
+        if self.vars_dyn is not None and len(self.vars_dyn) != len(self.values):
+            raise ValueError(
+                f"vars_dyn has {len(self.vars_dyn)} name(s) but values has "
+                f"{len(self.values)} element(s); lengths must match."
+            )
+        if (self.exog_ss is not None and self.vars_exo is not None
+                and len(self.vars_exo) != len(self.exog_ss)):
+            raise ValueError(
+                f"vars_exo has {len(self.vars_exo)} name(s) but exog_ss has "
+                f"{len(self.exog_ss)} element(s); lengths must match."
+            )
+
+    # ------------------------------------------------------------------
+    # numpy interoperability — lets SteadyState be used wherever a plain
+    # ndarray is expected without any changes in calling code.
+    # ------------------------------------------------------------------
+
+    def __array__(self, dtype=None, copy=None):
+        """Return the underlying values array; called by np.asarray(ss_obj).
+
+        The ``copy`` parameter is accepted for NumPy 2.x compatibility.
+        """
+        arr = self.values if dtype is None else self.values.astype(dtype)
+        if copy:
+            return arr.copy()
+        return arr
+
+    def __len__(self):
+        return len(self.values)
+
+    @property
+    def shape(self):
+        """Shape of the values array, e.g. ``(n_endo,)``."""
+        return self.values.shape
+
+    @property
+    def size(self):
+        """Total number of elements in the values array."""
+        return self.values.size
+
+    def __getitem__(self, idx):
+        """Index into the values array (scalar, slice, or fancy indexing)."""
+        return self.values[idx]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    # ------------------------------------------------------------------
+    # display
+    # ------------------------------------------------------------------
+
+    def __repr__(self):
+        if self.vars_dyn is not None:
+            endo_str = (
+                "{" + ", ".join(
+                    f"{var}: {x:.6g}" for var, x in zip(self.vars_dyn, self.values)
+                ) + "}"
+            )
+        else:
+            endo_str = repr(self.values)
+
+        parts = [f"values={endo_str}"]
+
+        if self.params:
+            params_str = (
+                "{" + ", ".join(f"{k}: {v:.6g}" for k, v in self.params.items()) + "}"
+            )
+            parts.append(f"params={params_str}")
+
+        if self.exog_ss is not None:
+            if self.vars_exo is not None:
+                exo_str = (
+                    "{" + ", ".join(
+                        f"{var}: {x:.6g}"
+                        for var, x in zip(self.vars_exo, self.exog_ss)
+                    ) + "}"
+                )
+            else:
+                exo_str = repr(self.exog_ss)
+            parts.append(f"exog_ss={exo_str}")
+
+        return f"SteadyState({', '.join(parts)})"
+
 def compute_steady_state_numerical(equations, vars_dyn, params_dict, initial_guess=None):
     """
     Compute steady state numerically by solving the system where all
@@ -693,6 +861,12 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     Separates the symbolic work (SymPy substitutions and lambdification) from the
     numerical solving so that parameter sweeps pay the symbolic cost only once.
 
+    Exogenous variables are treated as free parameters in the compiled functions
+    so that ``solve_steady_state`` can evaluate the steady state at any given
+    exogenous level — not just at zero.  Pass the desired exogenous values via
+    the ``exog_ss`` argument of ``solve_steady_state``; omitting it defaults to
+    zero (the standard assumption for deviation-from-steady-state models).
+
     Parameters
     ----------
     equations : list
@@ -700,29 +874,44 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     vars_dyn : list
         List of endogenous variable names.
     vars_exo : list, optional
-        List of exogenous variable names (default: None).  Exogenous variables
-        are substituted to zero at the steady state (standard assumption).
+        List of exogenous variable names (default: None).  Each exogenous
+        variable is represented by a steady-state symbol ``{var}_exo_ss`` in
+        the compiled functions.  Their numerical values are supplied at solve
+        time via ``solve_steady_state(..., exog_ss=...)``.
 
     Returns
     -------
     dict
-        Compiled steady-state bundle to be passed to solve_steady_state():
+        Compiled steady-state bundle to be passed to ``solve_steady_state()``:
 
-        - ``'funcs'``: list of lambdified residual functions
-        - ``'ss_syms'``: list of SymPy symbols for steady-state values
-          (one per variable in vars_dyn, in the same order)
+        - ``'funcs'``: list of lambdified residual functions.  Each function
+          signature is ``f(*ss_vals, *param_vals, *exo_ss_vals)`` in the
+          variable orders given by ``ss_syms``, ``param_syms``, and
+          ``exo_ss_syms`` respectively.
+        - ``'ss_syms'``: list of SymPy symbols for steady-state endogenous
+          values (one per variable in vars_dyn, in the same order).
         - ``'param_syms'``: sorted list of SymPy parameter symbols detected
-          in the equations after time-indexed variables are collapsed
-        - ``'vars_dyn'``: copy of the vars_dyn list
+          in the equations after time-indexed variables are collapsed.
+        - ``'exo_ss_syms'``: list of SymPy symbols for the exogenous
+          steady-state values (one per variable in vars_exo, in order).
+          Empty list when vars_exo is None or empty.
+        - ``'vars_dyn'``: copy of the vars_dyn list.
+        - ``'vars_exo'``: copy of the vars_exo list (empty list if None).
 
     Examples
     --------
-    Compile once, then sweep over parameter values:
+    Compile once, then sweep over parameter values (exogenous variables at zero):
 
     >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn)
     >>> for params in param_grid:
     ...     ss = solve_steady_state(compiled_ss, params)
     ...     result = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn)
+
+    Compile once, then solve the steady state at a non-zero exogenous level
+    (e.g. after a permanent technology shock where ``z`` settles at 1.05):
+
+    >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
+    >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([1.05]))
     """
     if vars_exo is None:
         vars_exo = []
@@ -730,28 +919,40 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     ss_syms = [sp.Symbol(f"{var}_ss") for var in vars_dyn]
     ss_sym_set = set(ss_syms)
 
+    # One steady-state symbol per exogenous variable.  These are plain (non-time-
+    # indexed) symbols so they survive the time-indexed-symbol validation below
+    # and are included as free arguments in the lambdified functions.
+    exo_ss_syms = [sp.Symbol(f"{var}_exo_ss") for var in vars_exo]
+    exo_ss_sym_set = set(exo_ss_syms)
+
     # Use shared helpers to detect lags — keeps behaviour consistent with the
     # rest of the codebase and avoids reimplementing the scanning logic.
     all_syms_set = {s for eq in equations for s in eq.free_symbols}
     endo_lags, exo_lags = _compute_lag_sets(all_syms_set, vars_dyn, vars_exo)
 
-    # Collapse all time-indexed endogenous variables to their ss symbol,
-    # and zero out exogenous variables (steady-state assumption).
+    # Collapse all time-indexed endogenous variables to their ss symbol.
+    # Replace each time-indexed exogenous variable with its steady-state symbol
+    # so the compiled functions accept the exogenous level as a free argument.
     subs_map = {}
     for var, ss_sym in zip(vars_dyn, ss_syms):
         for lag in endo_lags:
             subs_map[v(var, lag)] = ss_sym
-    for var in vars_exo:
+    for var, exo_sym in zip(vars_exo, exo_ss_syms):
         for lag in exo_lags:
-            subs_map[v(var, lag)] = 0
+            subs_map[v(var, lag)] = exo_sym
 
     ss_equations = [eq.subs(subs_map) for eq in equations]
 
-    # Parameter symbols: free symbols remaining after collapsing time-indexed vars.
+    # Parameter symbols: free symbols remaining after collapsing time-indexed vars,
+    # excluding both the endogenous ss symbols and the exogenous ss symbols.
     # Validate that no orphaned time-indexed symbols remain — these indicate a
     # typo or a variable declared in the equations but missing from vars_dyn/vars_exo.
     known_vars = set(vars_dyn) | set(vars_exo)
-    remaining_syms = {s for eq in ss_equations for s in eq.free_symbols} - ss_sym_set
+    remaining_syms = (
+        {s for eq in ss_equations for s in eq.free_symbols}
+        - ss_sym_set
+        - exo_ss_sym_set
+    )
     # Any remaining time-indexed symbol after substitution is an error: either
     # the base name is undeclared (typo) or it belongs to a known variable but
     # was somehow missed by lag detection (should not happen, but guard anyway).
@@ -771,49 +972,94 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
         )
     param_syms = sorted(remaining_syms, key=lambda s: s.name)
 
-    all_args = ss_syms + param_syms
+    # Argument order: endogenous ss values, then model parameters, then exogenous ss values.
+    all_args = ss_syms + param_syms + exo_ss_syms
     funcs = [sp.lambdify(all_args, eq, "numpy") for eq in ss_equations]
 
     return {
         'funcs': funcs,
         'ss_syms': ss_syms,
         'param_syms': param_syms,
+        'exo_ss_syms': exo_ss_syms,
+        'vars_exo': list(vars_exo),
         'vars_dyn': list(vars_dyn),
     }
 
 
-def solve_steady_state(compiled_ss, params_dict, initial_guess=None):
+def solve_steady_state(compiled_ss, params_dict, initial_guess=None, exog_ss=None):
     """Solve for the steady state using pre-compiled functions.
 
-    Uses the bundle produced by compile_steady_state_funcs() so that no
+    Uses the bundle produced by ``compile_steady_state_funcs()`` so that no
     symbolic work is repeated.  Intended for parameter sweeps where the
-    model structure is fixed but parameter values change across calls.
+    model structure is fixed but parameter values change across calls, and
+    for computing terminal steady states at non-zero exogenous levels.
 
     Parameters
     ----------
     compiled_ss : dict
-        Bundle returned by compile_steady_state_funcs().
+        Bundle returned by ``compile_steady_state_funcs()``.
     params_dict : dict
         Parameter values.  Must contain every parameter symbol detected
-        during compilation (i.e., every key in compiled_ss['param_syms']).
+        during compilation (i.e., every key in ``compiled_ss['param_syms']``).
     initial_guess : ndarray, optional
-        Initial guess for steady-state values (default: ones).
+        Initial guess for steady-state values (default: ones vector of length
+        ``n_endo``).  When the model has multiple steady states or the solver
+        struggles to converge, providing a better initial guess (e.g. a nearby
+        known steady state) can help.
+    exog_ss : array-like of shape (n_exo,) or dict {str: float}, optional
+        Steady-state values for the exogenous variables.  Determines the
+        long-run equilibrium at which the steady state is computed.
+
+        * **array-like** — values in the same order as ``vars_exo`` passed
+          to ``compile_steady_state_funcs()``.
+        * **dict** — maps exogenous variable names (strings) to their
+          steady-state values; missing variables default to zero.
+        * **None** (default) — all exogenous variables are set to zero,
+          which is the standard assumption for deviation models.
+
+        Pass the last row of an ``exog_path`` here to compute the terminal
+        steady state implied by the long-run exogenous level:
+
+        >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=exog_path[-1])
 
     Returns
     -------
-    ndarray
-        Steady-state values for each variable in vars_dyn order.
+    SteadyState
+        Steady-state values for each variable in ``vars_dyn`` order, wrapped
+        in a :class:`SteadyState` object that records the parameter values and
+        exogenous levels used.  Transparently usable as a plain ndarray via
+        ``__array__``.
 
     Raises
     ------
     ValueError
-        If params_dict is missing a required parameter symbol.
+        If ``params_dict`` is missing a required parameter symbol, or if
+        ``exog_ss`` cannot be converted/flattened to a 1D array of length ``n_exo``.
+
+    Examples
+    --------
+    Standard use — exogenous variables at zero (deviation model):
+
+    >>> ss = solve_steady_state(compiled_ss, params)
+
+    Permanent technology shock — compute new terminal steady state at z=1.05:
+
+    >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
+    >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([1.05]))
+    >>> result = solve_perfect_foresight(
+    ...     T, params, ss_terminal, model_funcs, vars_dyn,
+    ...     exog_path=exog_path, ss_initial=ss_initial,
+    ...     endval=ss_terminal,
+    ... )
     """
     from scipy.optimize import fsolve
 
     funcs = compiled_ss['funcs']
     param_syms = compiled_ss['param_syms']
+    exo_ss_syms = compiled_ss.get('exo_ss_syms', [])
+    vars_exo = compiled_ss.get('vars_exo', [])
     vars_dyn = compiled_ss['vars_dyn']
+    n_exo = len(exo_ss_syms)
 
     try:
         param_vals = [float(params_dict[s]) for s in param_syms]
@@ -824,14 +1070,49 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None):
             "all model parameters detected during compilation."
         ) from e
 
+    # Resolve exogenous steady-state values.
+    if exog_ss is None:
+        exo_vals = [0.0] * n_exo  # empty list when n_exo == 0
+    elif isinstance(exog_ss, dict):
+        if n_exo == 0 and exog_ss:
+            raise ValueError(
+                f"exog_ss dict contains keys {list(exog_ss)!r} but the compiled "
+                "bundle has no exogenous variables. Pass exog_ss=None or omit it."
+            )
+        exo_vals = [float(exog_ss.get(var, 0.0)) for var in vars_exo]
+    else:
+        exo_arr = np.asarray(exog_ss, dtype=float).ravel()
+        if exo_arr.size != n_exo:
+            raise ValueError(
+                f"exog_ss has {exo_arr.size} element(s) but the model has "
+                f"{n_exo} exogenous variable(s) ({vars_exo}). "
+                "Pass an array of shape (n_exo,) or a dict mapping variable "
+                "names to values."
+            )
+        exo_vals = list(exo_arr)
+
     def residual_ss(x):
-        args = list(x) + param_vals
+        args = list(x) + param_vals + exo_vals
         return np.array([float(f(*args)) for f in funcs])
 
     if initial_guess is None:
         initial_guess = np.ones(len(vars_dyn))
 
-    return fsolve(residual_ss, initial_guess)
+    result = fsolve(residual_ss, initial_guess)
+
+    # Convert SymPy-keyed params_dict to plain {str: float} for storage.
+    params_str = {str(s): float(params_dict[s]) for s in param_syms}
+
+    # Normalise exog_ss to a float array for storage (None when no exo vars).
+    exo_ss_stored = np.array(exo_vals) if n_exo > 0 else None
+
+    return SteadyState(
+        result,
+        params=params_str,
+        exog_ss=exo_ss_stored,
+        vars_dyn=vars_dyn,
+        vars_exo=vars_exo if vars_exo else None,
+    )
 
 
 # ============================================================
@@ -1575,6 +1856,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='hybr',
                            solver_options=None, *, endval=None,
+                           compiled_ss=None,
                            homotopy_fallback=True, homotopy_options=None):
     """
     Solve the perfect foresight problem using an augmented-path BVP formulation.
@@ -1627,18 +1909,56 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         If None, inferred automatically from the lead-lag incidence table in
         ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
-    endval : ndarray, optional
+    endval : array-like (including SteadyState), optional
         Terminal boundary values for all endogenous variables (the fixed right
-        boundary row of the augmented path, appended at ``t = T``).  If None,
-        defaults to ``ss``.  Override this for **permanent shock** scenarios
-        where the economy converges to a different steady state than ``ss``:
-        compute the new steady state (e.g. via
-        ``compute_steady_state_numerical``) and pass it as ``endval``.
+        boundary row of the augmented path, appended at ``t = T``).
+
+        * If **provided**, it is used as-is and ``compiled_ss`` is ignored for
+          ``endval`` resolution.  Use this when you have already computed the
+          terminal steady state (e.g. for repeated simulations where you want
+          to avoid recomputing it).
+        * If **None** and ``compiled_ss`` is provided and ``exog_path`` is not
+          None, the terminal steady state is automatically computed by solving
+          the steady-state equations at the exogenous values ``exog_path[-1]``
+          (the last row of the path, representing the long-run exogenous level).
+          This guarantees that the terminal boundary is a true steady state
+          consistent with the terminal exogenous values.
+        * If **None** and no ``compiled_ss`` is given (or ``exog_path`` is
+          None), defaults to ``ss``.
+
         Must match the **effective** dynamic variable vector used internally
         by the solver — ``model_funcs['vars_dyn']`` when present (e.g. when
         ``aux_method='dynamic'`` extends the variable list), falling back to
         the ``vars_dyn`` argument otherwise.  Construct ``endval`` consistently
         with ``ss`` and ``X0`` using that same variable ordering.
+    compiled_ss : dict, optional
+        Pre-compiled steady-state bundle returned by
+        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
+        Required for automatic ``endval`` computation from ``exog_path[-1]``
+        (see ``endval`` above).
+
+        Compile the bundle once and reuse it across multiple solver calls:
+
+        >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
+
+        First call: ``endval`` is auto-computed from ``exog_path[-1]``.
+
+        >>> result = solve_perfect_foresight(
+        ...     T, params, ss_terminal, model_funcs, vars_dyn,
+        ...     exog_path=exog_path, ss_initial=ss_initial,
+        ...     compiled_ss=compiled_ss,
+        ... )
+
+        Repeated call with the same terminal exogenous level: pass the
+        pre-computed ``endval`` directly to skip the steady-state solve.
+
+        >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=exog_path[-1])
+        >>> for shock in shocks:
+        ...     result = solve_perfect_foresight(
+        ...         T, params, ss_terminal, model_funcs, vars_dyn,
+        ...         exog_path=shock, ss_initial=ss_initial,
+        ...         endval=ss_terminal,
+        ...     )
     method : str
         Deprecated. Previously selected the scipy.optimize.root method. The
         solver now always uses the sparse Newton method (_sparse_newton)
@@ -1732,6 +2052,17 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     # None vs. an explicit array (the distinction matters for homotopy's
     # endval interpolation and its "nothing to scale" guard).
     _orig_initial_state = initial_state
+
+    # Auto-compute endval from the terminal exogenous level when compiled_ss is
+    # provided, endval is omitted, and an exog_path is available.  This ensures
+    # the terminal boundary is a genuine steady state consistent with the
+    # long-run exogenous values (exog_path[-1]).
+    if endval is None and compiled_ss is not None and exog_path is not None:
+        endval = solve_steady_state(
+            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
+            initial_guess=np.asarray(ss),
+        )
+
     _orig_endval = endval
 
     neq = len(dynamic_eqs)
@@ -1914,6 +2245,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                     ss_initial=ss_initial,
                     stock_var_indices=stock_var_indices,
                     endval=_homotopy_endval,
+                    compiled_ss=compiled_ss,
                     **homotopy_opts,
                 )
             except RuntimeError as exc:
@@ -1967,6 +2299,7 @@ def solve_perfect_foresight_expectation_errors(
     constant_simulation_length=False,
     solver_options=None,
     sub_x0=None,
+    compiled_ss=None,
 ):
     """
     Solve a perfect foresight model with multiple surprise (MIT) shocks.
@@ -2013,7 +2346,10 @@ def solve_perfect_foresight_expectation_errors(
           steady state) for this sub-solve *and all subsequent ones*.  Use this
           to replicate Dynare's ``endval(learnt_in=k)`` block, which signals a
           **permanent** shock that changes the terminal steady state.  If
-          omitted the current ``endval`` (initialised to ``ss``) is reused.
+          omitted and ``compiled_ss`` is provided, the terminal steady state is
+          automatically computed from the last row of that segment's
+          ``exog_path`` (the long-run exogenous level).  If neither is given,
+          the current ``endval`` (initialised to ``ss``) is reused.
 
         The list must be sorted by ``learnt_in`` and the first entry must have
         ``learnt_in == 1``.
@@ -2021,9 +2357,14 @@ def solve_perfect_foresight_expectation_errors(
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
         previous sub-solve's solution.  If None (the default), the path is
-        initialised to the effective terminal steady state for the first
-        segment (``ss`` unless overridden by the first ``news_shocks`` entry's
-        ``endval``) tiled over all ``T`` periods.
+        tiled from the effective terminal steady state for the first segment,
+        determined by the following priority order:
+
+        1. The explicit ``endval`` in the first ``news_shocks`` 3-tuple.
+        2. Auto-computed from ``compiled_ss`` at the last row of the first
+           segment's ``exog_path`` (when ``compiled_ss`` is provided and the
+           first segment has a non-None ``exog_path``).
+        3. ``ss`` (the steady state passed as the second positional argument).
     initial_state : ndarray, optional
         Pre-period-0 stock variable values (``k_{-1}`` in Dynare notation).
         Defaults to ``ss_initial[stock_var_indices]``.
@@ -2054,6 +2395,29 @@ def solve_perfect_foresight_expectation_errors(
 
         If ``sub_x0`` is ``None`` (the default) the automatic warm-start is
         used for every sub-solve.
+    compiled_ss : dict, optional
+        Pre-compiled steady-state bundle returned by
+        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
+        When provided, the terminal steady state for each sub-solve is
+        automatically computed from the last row of that segment's ``exog_path``
+        (i.e. ``exog_path[-1]`` before trimming to ``T_sub``), unless the
+        ``news_shocks`` entry already supplies an explicit ``endval`` in a
+        3-tuple.  This ensures every sub-solve's terminal boundary is a true
+        steady state consistent with the agents' long-run exogenous beliefs.
+
+        The computed ``endval`` persists to subsequent segments (same semantics
+        as an explicit 3-tuple ``endval``): if segment *k* auto-computes an
+        ``endval`` and segment *k+1* provides neither an explicit ``endval`` nor
+        an ``exog_path``, segment *k+1* reuses the value from segment *k*.
+
+        Compile the bundle once and reuse across many simulations:
+
+        >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
+        >>> result = solve_perfect_foresight_expectation_errors(
+        ...     T, params, ss_initial, model_funcs, vars_dyn,
+        ...     news_shocks=[(1, exog_path_1), (6, exog_path_2)],
+        ...     compiled_ss=compiled_ss,
+        ... )
 
     Returns
     -------
@@ -2205,12 +2569,25 @@ def solve_perfect_foresight_expectation_errors(
             raise ValueError(f"X0 must have at least one row; got shape {X0.shape}.")
         X0_sub = X0
     else:
-        _first_endval_raw = parsed[0][2] if parsed[0][2] is not None else ss
-        _source = (
-            "the endval override in the first news_shocks entry"
-            if parsed[0][2] is not None
-            else "the steady-state vector ss"
-        )
+        # Determine the effective terminal steady state for the first segment,
+        # used to tile the default initial guess X0.  Priority:
+        #   1. Explicit endval in the first news_shocks 3-tuple.
+        #   2. Auto-computed from compiled_ss at exog_path[-1] of the first segment.
+        #   3. The default steady state ss.
+        _first_exog_path = parsed[0][1]
+        if parsed[0][2] is not None:
+            _first_endval_raw = parsed[0][2]
+            _source = "the endval override in the first news_shocks entry"
+        elif compiled_ss is not None and _first_exog_path is not None:
+            _first_endval_raw = solve_steady_state(
+                compiled_ss, params_dict,
+                exog_ss=np.asarray(_first_exog_path, dtype=float)[-1],
+                initial_guess=np.asarray(ss),
+            )
+            _source = "the auto-computed terminal steady state for the first segment"
+        else:
+            _first_endval_raw = ss
+            _source = "the steady-state vector ss"
         try:
             first_endval = np.asarray(_first_endval_raw, dtype=float).ravel()
         except (TypeError, ValueError) as exc:
@@ -2225,8 +2602,17 @@ def solve_perfect_foresight_expectation_errors(
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
         # Apply endval override (persists to subsequent segments).
+        # Priority: explicit 3-tuple endval > auto-computed from compiled_ss > previous value.
         if endval_override is not None:
             current_endval = np.asarray(endval_override, dtype=float).ravel()
+        elif compiled_ss is not None and exog_path_i is not None:
+            # Auto-compute terminal steady state from the last row of this
+            # segment's exog_path (the agents' long-run exogenous belief).
+            exog_terminal = np.asarray(exog_path_i, dtype=float)[-1]
+            current_endval = solve_steady_state(
+                compiled_ss, params_dict, exog_ss=exog_terminal,
+                initial_guess=np.asarray(current_endval),
+            )
 
         # Number of periods to keep from this sub-solve's output.
         next_learnt_in = parsed[i + 1][0] if i + 1 < len(parsed) else T + 1
@@ -2342,6 +2728,7 @@ def solve_perfect_foresight_homotopy(
     stock_var_indices=None,
     *,
     endval=None,
+    compiled_ss=None,
     solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
     method='hybr',
@@ -2406,12 +2793,25 @@ def solve_perfect_foresight_homotopy(
         Indices of stock (predetermined) variables in ``vars_dyn``.  Non-stock
         variables are free to jump at t=0.  If None, inferred automatically
         from the lead-lag incidence table in ``model_funcs['incidence']``.
-    endval : ndarray, optional
+    endval : array-like (including SteadyState), optional
         Terminal boundary values (the fixed right boundary row of the augmented
-        path).  If None, defaults to ``ss`` and is held fixed at ``ss`` for
-        every homotopy step.  For permanent shocks, pass the new terminal
-        steady state here; in that case ``endval`` is interpolated from
-        ``ss_initial`` at ``lam=0`` to the provided value at ``lam=1``.
+        path).
+
+        * If **provided**, it is used as the homotopy target and interpolated
+          from ``ss_initial`` at ``lam=0`` to the provided value at ``lam=1``.
+          Use this when you have already computed the terminal steady state.
+        * If **None** and ``compiled_ss`` is provided and ``exog_path`` is not
+          None, the terminal steady state is automatically computed by solving
+          the steady-state equations at ``exog_path[-1]`` (the long-run
+          exogenous level).  The computed ``endval`` is then interpolated across
+          homotopy steps exactly as if it had been provided explicitly.
+        * If **None** and no ``compiled_ss`` is given (or ``exog_path`` is
+          None), defaults to ``ss`` and is held fixed for every homotopy step.
+    compiled_ss : dict, optional
+        Pre-compiled steady-state bundle returned by
+        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
+        Required for automatic ``endval`` computation from ``exog_path[-1]``.
+        See ``endval`` above and ``compile_steady_state_funcs`` for details.
 
     The remaining parameters are **keyword-only** (enforced by ``*`` in
     the signature):
@@ -2612,9 +3012,20 @@ def solve_perfect_foresight_homotopy(
     # Warm start for the first step: full steady-state path
     X_warm = np.tile(ss_initial, (T, 1))
 
+    # Auto-compute endval from the terminal exogenous level when compiled_ss is
+    # provided, endval is omitted, and the caller explicitly supplied exog_path.
+    # Gate on _exog_path_user_provided (not exog_path is not None) so that the
+    # all-zero default path created for models with exo vars does not trigger
+    # auto-computation — the user didn't supply a meaningful terminal exo level.
+    if endval is None and compiled_ss is not None and _exog_path_user_provided:
+        endval = solve_steady_state(
+            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
+            initial_guess=np.asarray(ss),
+        )
+
     # Validate and resolve endval.  Track whether the caller supplied it
-    # explicitly so we can (a) interpolate only when meaningful and
-    # (b) emit a clearer error message when the root cause is a wrong-length ss.
+    # explicitly (or it was auto-computed) so we can (a) interpolate only when
+    # meaningful and (b) emit a clearer error message for a wrong-length ss.
     _endval_user_supplied = endval is not None
     if endval is None:
         endval = ss
