@@ -21,6 +21,7 @@ from pyperfectforesight.core import (
     compute_auxiliary_variables,
 
     # Steady state
+    SteadyState,
     compute_steady_state_numerical,
     compile_steady_state_funcs,
     solve_steady_state,
@@ -53,6 +54,7 @@ __all__ = [
     "solve_auxiliary_nested",
     "compute_auxiliary_variables",
     # Steady state
+    "SteadyState",
     "compute_steady_state_numerical",
     "compile_steady_state_funcs",
     "solve_steady_state",

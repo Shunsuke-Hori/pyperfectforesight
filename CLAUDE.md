@@ -36,8 +36,26 @@ Private helpers `_residual_bvp()` and `_jacobian_bvp()` implement this. `use_ter
 ### Arbitrary lag/lead support
 `residual()`, `sparse_jacobian()`, `_residual_bvp()`, and `_jacobian_bvp()` derive lag sets dynamically from `all_syms` via `_resolve_lag_sets()` / `_compute_lag_sets()`. Models with `|lag| > 1` are supported; in BVP mode a `UserWarning` is emitted because pre-sample values beyond `initval` are clamped.
 
-### `endval` parameter
-`solve_perfect_foresight()` accepts an `endval` keyword argument to override the terminal BVP boundary (right-hand steady state). Defaults to `ss`. Use for permanent shocks where the long-run equilibrium differs from the initial steady state.
+### `endval` parameter and auto-computation
+`solve_perfect_foresight()`, `solve_perfect_foresight_homotopy()`, and `solve_perfect_foresight_expectation_errors()` all accept a `compiled_ss` keyword argument (a bundle from `compile_steady_state_funcs()`). When `compiled_ss` is provided and `endval` is omitted:
+- `solve_perfect_foresight` / `solve_perfect_foresight_homotopy`: `endval` is automatically computed by calling `solve_steady_state(compiled_ss, params_dict, exog_ss=exog_path[-1])`.
+- `solve_perfect_foresight_expectation_errors`: for each segment, `endval` is auto-computed from the last row of that segment's `exog_path`, unless a 3-tuple already supplies an explicit `endval`.
+
+When `endval` is provided explicitly, `compiled_ss` is ignored for `endval` resolution (the pre-computed value is used as-is). This allows skipping recomputation in repeated simulations.
+
+### `SteadyState` class
+`solve_steady_state()` returns a `SteadyState` object (not a plain ndarray). It carries:
+- `.values`: endogenous variable values (numpy array)
+- `.params`: `{str: float}` dict of parameter values used
+- `.exog_ss`: exogenous variable values at which the SS was computed (array or None)
+- `.vars_dyn`, `.vars_exo`: variable name lists
+
+`SteadyState` is transparently usable as a numpy array everywhere (`__array__`, `__len__`, `.shape`, `.size`, `__getitem__`, `__iter__` are all implemented). No changes needed in calling code.
+
+### `compile_steady_state_funcs` — exogenous variables as free parameters
+Exogenous variables are **not** substituted to zero at compile time. Instead, each exo var `z` gets a symbol `z_exo_ss` that becomes a free argument in the lambdified functions. `solve_steady_state(..., exog_ss=...)` passes those values at solve time. Backward compatibility is maintained: old callers omitting `exog_ss` get zeros.
+
+The compiled bundle now has two extra keys: `exo_ss_syms` (list of SymPy symbols) and `vars_exo` (list of strings).
 
 ### Function signatures
 All three solvers share the convention: required positional arguments first; `X0` comes immediately after `vars_dyn` (or `news_shocks`), followed by other optional positional-or-keyword parameters and then keyword-only args.
@@ -46,17 +64,17 @@ All three solvers share the convention: required positional arguments first; `X0
 solve_perfect_foresight(
     T, params_dict, ss, model_funcs, vars_dyn,
     X0=None, exog_path=None, initial_state=None, ss_initial=None,
-    stock_var_indices=None, ..., *, endval=None, ...)
+    stock_var_indices=None, ..., *, endval=None, compiled_ss=None, ...)
 
 solve_perfect_foresight_homotopy(
     T, params_dict, ss, model_funcs, vars_dyn,
     X0=None, exog_path=None, initial_state=None, ss_initial=None,
-    stock_var_indices=None, *, endval=None, ...)
+    stock_var_indices=None, *, endval=None, compiled_ss=None, ...)
 
 solve_perfect_foresight_expectation_errors(
     T, params_dict, ss, model_funcs, vars_dyn, news_shocks,
     X0=None, initial_state=None, ss_initial=None,
-    stock_var_indices=None, ...)
+    stock_var_indices=None, ..., compiled_ss=None)
 ```
 
 ### `X0` default initial guess
@@ -64,7 +82,7 @@ solve_perfect_foresight_expectation_errors(
 
 - `solve_perfect_foresight`: tiles `endval` (or `ss` if `endval` is not provided) over all `T` periods.
 - `solve_perfect_foresight_homotopy`: always warm-starts from `np.tile(ss_initial, (T, 1))` regardless of `X0`; `X0` is validated for shape if provided but otherwise unused.
-- `solve_perfect_foresight_expectation_errors`: tiles the effective terminal steady state for the first segment — the `endval` override from the first `news_shocks` entry if present, otherwise `ss` — over all `T` periods. Subsequent sub-solves are warm-started from the previous sub-solve's tail.
+- `solve_perfect_foresight_expectation_errors`: tiles the effective terminal steady state for the first segment — the `endval` from the first `news_shocks` 3-tuple if present, else the auto-computed SS from `compiled_ss` at `exog_path[-1]` of the first segment if `compiled_ss` is provided, else `ss` — over all `T` periods. Subsequent sub-solves are warm-started from the previous sub-solve's tail.
 
 ### Expectation-errors solver
 `solve_perfect_foresight_expectation_errors()` replicates Dynare's `perfect_foresight_with_expectation_errors_setup` / `perfect_foresight_with_expectation_errors_solver`. It accepts a `news_shocks` list of 2- or 3-tuples `(learnt_in, exog_path[, endval])`. At each `learnt_in` the solver re-solves from that period forward and stitches the pieces together. Key design points:
