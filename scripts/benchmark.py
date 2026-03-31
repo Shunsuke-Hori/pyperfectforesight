@@ -244,7 +244,8 @@ def print_table(py_results, dynare_results=None, dynare_nreps=N_REPS):
 # Plot
 # ---------------------------------------------------------------------------
 def plot_benchmark(py_results, dynare_results, out_path,
-                   dynare_source="live", dynare_measured_on=None, dynare_nreps=N_REPS):
+                   dynare_source="live", dynare_measured_on=None, dynare_nreps=N_REPS,
+                   show=True):
     """
     Parameters
     ----------
@@ -252,11 +253,26 @@ def plot_benchmark(py_results, dynare_results, out_path,
         Whether Dynare timings came from a fresh MATLAB run or a saved CSV.
     dynare_measured_on : str or None
         Human-readable timestamp for when the CSV was recorded.
+    show : bool
+        Call plt.show() after saving. Set False for headless/CI environments.
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.ticker as ticker
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
+    except ImportError:
+        print(
+            "Error: plotting requires matplotlib. "
+            "Install it with: pip install matplotlib  (or pip install -e '.[dev]')",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
 
     Ts = [T for T in T_VALUES if T in py_results and T in dynare_results]
+    if not Ts:
+        raise ValueError(
+            "No overlapping horizons between py_results and dynare_results. "
+            f"Python has T={list(py_results)}, Dynare has T={list(dynare_results)}."
+        )
 
     py_med  = [py_results[T][0]     for T in Ts]
     py_q25  = [py_results[T][1]     for T in Ts]
@@ -351,12 +367,13 @@ def plot_benchmark(py_results, dynare_results, out_path,
         ts_str = f" measured {dynare_measured_on}" if dynare_measured_on else ""
         note_parts.append(f"Dynare timings from saved CSV{ts_str}; Python timings are fresh.")
     note = "  ".join(note_parts)
-    fig.text(0.5, -0.01, note, ha="center", fontsize=8, color="#555555", style="italic")
+    fig.subplots_adjust(bottom=0.15)
+    fig.text(0.5, 0.02, note, ha="center", fontsize=8, color="#555555", style="italic")
 
-    fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"\nPlot saved to: {out_path}")
-    plt.show()
+    if show:
+        plt.show()
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +393,9 @@ if __name__ == "__main__":
     parser.add_argument("--plot-out", default=None,
                         help="Output path for the plot PNG "
                              "(default: docs/benchmark_plot.png)")
+    parser.add_argument("--no-show", action="store_true",
+                        help="Save the plot without calling plt.show() "
+                             "(useful in headless/CI environments)")
     args = parser.parse_args()
 
     print("=== pyperfectforesight benchmark ===\n")
@@ -414,4 +434,5 @@ if __name__ == "__main__":
             plot_benchmark(py_results, dynare_results, out,
                            dynare_source=dynare_source,
                            dynare_measured_on=dynare_measured_on,
-                           dynare_nreps=dynare_nreps)
+                           dynare_nreps=dynare_nreps,
+                           show=not args.no_show)
