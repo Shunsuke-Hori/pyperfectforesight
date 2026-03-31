@@ -233,8 +233,10 @@ def print_table(py_results, dynare_results=None, dynare_nreps=N_REPS):
                 row += f"  {'N/A':>12}  {'N/A':>8}"
         print(row)
     print("=" * len(header))
+    dyn_reps_str = (f", Dynare: {dynare_nreps} runs" if dynare_nreps is not None
+                    else ", Dynare: runs unknown (loaded from CSV)")
     print(f"Median solve time — Python: {N_REPS} runs" +
-          (f", Dynare: {dynare_nreps} runs" if dynare_results is not None else "") + ".")
+          (dyn_reps_str if dynare_results is not None else "") + ".")
     print("Solver only (excludes process_model / perfect_foresight_setup).")
 
 
@@ -339,9 +341,11 @@ def plot_benchmark(py_results, dynare_results, out_path,
         )
 
     # --- Footnote -----------------------------------------------------------
+    dyn_reps_str = (f"{dynare_nreps} runs" if dynare_nreps is not None
+                    else "runs unknown")
     note_parts = [
         f"Python: {N_REPS} runs each T.",
-        f"Dynare: {dynare_nreps} runs each T.",
+        f"Dynare: {dyn_reps_str} each T.",
     ]
     if dynare_source == "csv":
         ts_str = f" measured {dynare_measured_on}" if dynare_measured_on else ""
@@ -371,16 +375,16 @@ if __name__ == "__main__":
                              "either from --dynare or a saved benchmark_dynare_times.csv)")
     parser.add_argument("--plot-out", default=None,
                         help="Output path for the plot PNG "
-                             "(default: scripts/benchmark_plot.png)")
+                             "(default: docs/benchmark_plot.png)")
     args = parser.parse_args()
 
     print("=== pyperfectforesight benchmark ===\n")
     py_results = benchmark_python()
 
-    dynare_results   = None
-    dynare_source    = "live"
+    dynare_results     = None
+    dynare_source      = "live"
     dynare_measured_on = None
-    dynare_nreps     = N_REPS   # updated below if loading from old CSV
+    dynare_nreps       = N_REPS   # live run always uses N_REPS; CSV source is unknown
 
     if args.dynare:
         print("\n=== Dynare 6.2 benchmark ===\n")
@@ -389,8 +393,8 @@ if __name__ == "__main__":
         print(f"\nLoading saved Dynare timings from {CSV_OUT}")
         dynare_results, dynare_measured_on = load_dynare_csv()
         dynare_source = "csv"
-        # Infer rep count from the .mod file comment if possible; default 20.
-        dynare_nreps = N_REPS
+        # Rep count is not stored in the CSV — report as unknown.
+        dynare_nreps = None
         for T, entry in sorted(dynare_results.items()):
             med, q25, q75 = entry
             iqr_str = f"  [IQR {q25:.2f}–{q75:.2f}]" if q25 is not None else ""

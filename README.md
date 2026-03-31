@@ -20,7 +20,7 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 
 ## Performance
 
-pyperfectforesight is **20–65× faster** than Dynare 6.2 on the same RBC model, measured on the solver step alone (excludes one-time compilation/setup on both sides).
+pyperfectforesight is **~23–61× faster** than Dynare 6.2 on the same RBC model, measured on the solver step alone (excludes one-time compilation/setup on both sides).
 
 ![Benchmark: pyperfectforesight vs Dynare 6.2](docs/benchmark_plot.png)
 
