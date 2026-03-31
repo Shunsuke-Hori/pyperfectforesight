@@ -49,7 +49,7 @@ perfect_foresight_setup(periods=200);
 %% Benchmark: time perfect_foresight_solver at several horizon lengths.
 %% -----------------------------------------------------------------------
 T_vals    = [50, 100, 200, 500, 1000];
-N_reps    = 10;
+N_reps    = 20;
 n_T       = length(T_vals);
 all_times = zeros(n_T, N_reps);
 
@@ -69,11 +69,14 @@ for ti = 1:n_T
         all_times(ti, ri) = toc(t0);
     end
 
-    fprintf('Dynare T=%4d: %7.2f ms (median over %d runs)\n', ...
-            T, median(all_times(ti,:)) * 1000, N_reps);
+    med_ms = median(all_times(ti,:)) * 1000;
+    q25_ms = quantile(all_times(ti,:), 0.25) * 1000;
+    q75_ms = quantile(all_times(ti,:), 0.75) * 1000;
+    fprintf('Dynare T=%4d: %7.2f ms  [IQR %.2f-%.2f]  (median over %d runs)\n', ...
+            T, med_ms, q25_ms, q75_ms, N_reps);
 end
 
-% Save [T, median_seconds] to CSV so benchmark.py can read it.
-output = [T_vals(:), median(all_times, 2)];
+% Save [T, median_s, q25_s, q75_s] to CSV so benchmark.py can read it.
+output = [T_vals(:), median(all_times, 2), quantile(all_times, 0.25, 2), quantile(all_times, 0.75, 2)];
 writematrix(output, 'benchmark_dynare_times.csv');
 fprintf('Saved to benchmark_dynare_times.csv\n');
