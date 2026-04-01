@@ -178,10 +178,12 @@ def load_dynare_csv():
     Returns
     -------
     results : dict  {T: (median_ms, q25_ms, q75_ms)}
-    measured_on : str  human-readable file-modification timestamp
+    measured_on : str  ISO-8601 UTC file-modification timestamp
     """
     mtime = os.path.getmtime(CSV_OUT)
-    measured_on = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+    measured_on = datetime.datetime.fromtimestamp(
+        mtime, tz=datetime.timezone.utc
+    ).isoformat(timespec="minutes")
     results = _parse_dynare_csv(CSV_OUT)
     return results, measured_on
 
@@ -363,10 +365,9 @@ def plot_benchmark(py_results, dynare_results, out_path,
     ax2.set_title("Speedup of pyperfectforesight over Dynare", fontsize=11)
     ax2.axhline(1.0, color="gray", linewidth=0.8, linestyle="--")
     ax2.grid(True, axis="y", linestyle="--", linewidth=0.5, alpha=0.7)
-    # Y-axis floor: show variation between bars, not just height from zero
+    # Y-axis: keep baseline at zero to avoid exaggerating differences
     margin = (max(speedup) - min(speedup)) * 0.5
-    ax2.set_ylim(bottom=max(0, min(speedup) - margin),
-                 top=max(speedup) + margin + 3)
+    ax2.set_ylim(bottom=0, top=max(speedup) + margin + 3)
     for bar, val in zip(bars, speedup):
         ax2.text(
             bar.get_x() + bar.get_width() / 2,
