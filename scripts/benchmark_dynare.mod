@@ -49,7 +49,7 @@ perfect_foresight_setup(periods=200);
 %% Benchmark: time perfect_foresight_solver at several horizon lengths.
 %% -----------------------------------------------------------------------
 T_vals    = [50, 100, 200, 500, 1000];
-N_reps    = 10;
+N_reps    = 20;
 n_T       = length(T_vals);
 all_times = zeros(n_T, N_reps);
 
@@ -69,11 +69,31 @@ for ti = 1:n_T
         all_times(ti, ri) = toc(t0);
     end
 
-    fprintf('Dynare T=%4d: %7.2f ms (median over %d runs)\n', ...
-            T, median(all_times(ti,:)) * 1000, N_reps);
+    med_ms = median(all_times(ti,:)) * 1000;
+    q25_ms = interp_quantile(all_times(ti,:), 0.25) * 1000;
+    q75_ms = interp_quantile(all_times(ti,:), 0.75) * 1000;
+    fprintf('Dynare T=%4d: %7.2f ms  [IQR %.2f-%.2f]  (median over %d runs)\n', ...
+            T, med_ms, q25_ms, q75_ms, N_reps);
 end
 
-% Save [T, median_seconds] to CSV so benchmark.py can read it.
-output = [T_vals(:), median(all_times, 2)];
+% Save [T, median_s, q25_s, q75_s] to CSV so benchmark.py can read it.
+q25_all = arrayfun(@(i) interp_quantile(all_times(i,:), 0.25), 1:n_T)';
+q75_all = arrayfun(@(i) interp_quantile(all_times(i,:), 0.75), 1:n_T)';
+output = [T_vals(:), median(all_times, 2), q25_all, q75_all];
 writematrix(output, 'benchmark_dynare_times.csv');
 fprintf('Saved to benchmark_dynare_times.csv\n');
+
+%% -----------------------------------------------------------------------
+%% Helper: linear-interpolation quantile (no Statistics Toolbox required).
+%% Matches the behaviour of quantile(x, p) for a vector x.
+%% Local functions must appear after all executable script code in MATLAB.
+%% -----------------------------------------------------------------------
+function q = interp_quantile(x, p)
+    x    = sort(x(:))';           % sort into ascending row vector
+    n    = length(x);
+    idx  = 1 + p * (n - 1);      % 1-based linear interpolation index
+    lo   = floor(idx);
+    hi   = ceil(idx);
+    frac = idx - lo;
+    q    = x(lo) * (1 - frac) + x(hi) * frac;
+end
