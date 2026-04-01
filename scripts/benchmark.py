@@ -124,6 +124,20 @@ CSV_OUT     = os.path.join(SCRIPTS_DIR, "benchmark_dynare_times.csv")
 _DEFAULT_DYNARE_PATH = r"C:\dynare\6.2\matlab"
 
 
+def _read_dynare_nreps():
+    """Parse N_reps from benchmark_dynare.mod so Python and MATLAB stay in sync."""
+    import re
+    try:
+        with open(MOD_FILE) as fh:
+            for line in fh:
+                m = re.match(r"\s*N_reps\s*=\s*(\d+)\s*;", line)
+                if m:
+                    return int(m.group(1))
+    except OSError:
+        pass
+    return None
+
+
 def _resolve_dynare_path(cli_arg):
     """Return the Dynare MATLAB path, preferring CLI arg > env var > default."""
     if cli_arg:
@@ -409,10 +423,11 @@ if __name__ == "__main__":
     dynare_results     = None
     dynare_source      = "live"
     dynare_measured_on = None
-    dynare_nreps       = N_REPS   # live run always uses N_REPS; CSV source is unknown
+    dynare_nreps       = None   # set from .mod file for live runs; unknown for CSV
 
     if args.dynare:
         print("\n=== Dynare 6.2 benchmark ===\n")
+        dynare_nreps   = _read_dynare_nreps()   # reads N_reps from .mod file
         dynare_results = benchmark_dynare(_resolve_dynare_path(args.dynare_path))
     elif args.plot and os.path.exists(CSV_OUT):
         print(f"\nLoading saved Dynare timings from {CSV_OUT}")
