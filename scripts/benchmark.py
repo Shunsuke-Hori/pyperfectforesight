@@ -145,11 +145,16 @@ def _parse_dynare_csv(path):
     data = np.loadtxt(path, delimiter=",")
     if data.ndim == 1:          # single-row file
         data = data.reshape(1, -1)
-    if data.shape[1] >= 4:
+    n_cols = data.shape[1]
+    if n_cols == 4:
         return {int(row[0]): (row[1] * 1000, row[2] * 1000, row[3] * 1000)
                 for row in data}
-    else:
+    if n_cols == 2:
         return {int(row[0]): (row[1] * 1000, None, None) for row in data}
+    raise ValueError(
+        f"Unexpected column count {n_cols} in Dynare CSV {path!r}; "
+        f"expected 2 (legacy) or 4 columns. Detected shape: {data.shape}."
+    )
 
 
 def load_dynare_csv():
@@ -425,8 +430,10 @@ if __name__ == "__main__":
 
     if args.plot:
         if dynare_results is None:
-            print("\nWarning: no Dynare results available — skipping plot. "
-                  "Pass --dynare or ensure benchmark_dynare_times.csv exists.")
+            print("\nError: --plot was requested but no Dynare results are available. "
+                  "Pass --dynare or ensure benchmark_dynare_times.csv exists.",
+                  file=sys.stderr)
+            sys.exit(1)
         else:
             out = args.plot_out or os.path.join(
                 os.path.dirname(SCRIPTS_DIR), "docs", "benchmark_plot.png"
