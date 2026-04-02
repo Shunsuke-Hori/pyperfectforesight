@@ -1691,6 +1691,10 @@ _SOLVER_METHOD_ALIASES = {'hybr': 'sparse_newton'}
 
 def _resolve_solver_method(method):
     """Normalise *method*, warning on deprecated aliases, raising on unknowns."""
+    if not isinstance(method, str):
+        raise ValueError(
+            f"method must be a string; got {type(method).__name__!r}."
+        )
     if method in _SOLVER_METHOD_ALIASES:
         import warnings
         canonical = _SOLVER_METHOD_ALIASES[method]
