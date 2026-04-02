@@ -54,6 +54,49 @@ def X0():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+@pytest.mark.parametrize("bad_method", ["lm", "broyden", ""])
+def test_invalid_method_raises(model, solver, bad_method):
+    """Unknown method values raise ValueError with a helpful message."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method=bad_method)
+    with pytest.raises(ValueError, match="not supported"):
+        solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+@pytest.mark.parametrize("bad_method", [None, ["sparse_newton"], 42])
+def test_non_string_method_raises(model, solver, bad_method):
+    """Non-string method values raise ValueError."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method=bad_method)
+    with pytest.raises(ValueError, match="must be a string"):
+        solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+def test_valid_method_accepted(model, solver):
+    """method='sparse_newton' (the default) is accepted without error."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method='sparse_newton')
+    if solver is solve_perfect_foresight_homotopy:
+        kwargs['n_steps'] = 2
+    sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+    assert sol.success
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+def test_hybr_alias_emits_deprecation_warning(model, solver):
+    """method='hybr' (legacy default) is accepted with a DeprecationWarning."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method='hybr')
+    if solver is solve_perfect_foresight_homotopy:
+        kwargs['n_steps'] = 2
+    with pytest.warns(DeprecationWarning, match="deprecated alias"):
+        sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+    assert sol.success
+
+
 def test_solve_x0_none_defaults_to_terminal_ss(model):
     """X0=None produces the same solution as X0=np.tile(SS, (T, 1)).
 

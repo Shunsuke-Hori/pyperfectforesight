@@ -1684,6 +1684,34 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
 # 10. Perfect foresight solver
 # ============================================================
 
+_VALID_SOLVER_METHODS = ('sparse_newton',)
+# Legacy scipy method names that map to the current implementation.
+_SOLVER_METHOD_ALIASES = {'hybr': 'sparse_newton'}
+
+
+def _resolve_solver_method(method):
+    """Normalise *method*, warning on deprecated aliases, raising on unknowns."""
+    if not isinstance(method, str):
+        raise ValueError(
+            f"method must be a string; got {type(method).__name__!r}."
+        )
+    if method in _SOLVER_METHOD_ALIASES:
+        import warnings
+        canonical = _SOLVER_METHOD_ALIASES[method]
+        warnings.warn(
+            f"method={method!r} is a deprecated alias; use {canonical!r} instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return canonical
+    if method not in _VALID_SOLVER_METHODS:
+        raise ValueError(
+            f"method={method!r} is not supported. "
+            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
+        )
+    return method
+
+
 def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                    overdetermined=False, solver_options=None):
     """
@@ -1854,7 +1882,7 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
 
 def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                            exog_path=None, initial_state=None, ss_initial=None,
-                           stock_var_indices=None, method='hybr',
+                           stock_var_indices=None, method='sparse_newton',
                            solver_options=None, *, endval=None,
                            compiled_ss=None,
                            homotopy_fallback=True, homotopy_options=None):
@@ -1959,10 +1987,11 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         ...         exog_path=shock, ss_initial=ss_initial,
         ...         endval=ss_terminal,
         ...     )
-    method : str
-        Deprecated. Previously selected the scipy.optimize.root method. The
-        solver now always uses the sparse Newton method (_sparse_newton)
-        regardless of this parameter. Kept for backward compatibility.
+    method : str, default ``'sparse_newton'``
+        Solution algorithm. ``'sparse_newton'`` is the only fully supported
+        value. ``'hybr'`` is accepted as a deprecated alias for backward
+        compatibility and emits a ``DeprecationWarning``. Any other value
+        raises a ``ValueError``.
     solver_options : dict
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
@@ -1988,8 +2017,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         * ``endval`` (ndarray, optional): terminal boundary override for the
           homotopy solver; if provided, it is interpolated from ``ss_initial``
           at lam=0 to this value at lam=1.
-        * ``method`` (str, optional): deprecated; forwarded for backward
-          compatibility only.
+        * ``method`` (str, optional): solution algorithm forwarded to the
+          homotopy solver. ``'sparse_newton'`` is the only fully supported
+          value; ``'hybr'`` is accepted as a deprecated alias and emits a
+          ``DeprecationWarning``.
 
         Ignored when ``homotopy_fallback=False`` or when Newton succeeds.
 
@@ -2036,14 +2067,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             f"({vars_dyn}). Reconstruct ss using model_funcs['vars_dyn']."
         )
 
-    if method != 'hybr':
-        import warnings
-        warnings.warn(
-            f"The 'method' parameter is deprecated and ignored. The solver always uses "
-            f"the sparse Newton method regardless of method={method!r}.",
-            DeprecationWarning,
-            stacklevel=2
-        )
+    method = _resolve_solver_method(method)
 
     if solver_options is None:
         solver_options = {}
@@ -2731,7 +2755,7 @@ def solve_perfect_foresight_homotopy(
     compiled_ss=None,
     solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
-    method='hybr',
+    method='sparse_newton',
 ):
     """
     Solve a perfect foresight model using homotopy (parameter continuation).
@@ -2827,12 +2851,11 @@ def solve_perfect_foresight_homotopy(
         Steady-state exogenous path (lam=0 value). Defaults to zeros, which
         is appropriate when ``exog_path`` represents deviations from a
         zero-shock baseline.
-    method : str, optional
-        Deprecated and ignored; kept only for backward compatibility.
-        The solver always uses the internal sparse Newton implementation
-        (``_sparse_newton``), regardless of the value passed. Providing
-        any non-default value emits a ``DeprecationWarning``. This
-        parameter will be removed in a future release.
+    method : str, default ``'sparse_newton'``
+        Solution algorithm. ``'sparse_newton'`` is the only fully supported
+        value. ``'hybr'`` is accepted as a deprecated alias for backward
+        compatibility and emits a ``DeprecationWarning``. Any other value
+        raises a ``ValueError``.
 
     Returns
     -------
@@ -2851,14 +2874,7 @@ def solve_perfect_foresight_homotopy(
     if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
-    if method != 'hybr':
-        import warnings
-        warnings.warn(
-            f"The 'method' parameter is deprecated and ignored. The solver always "
-            f"uses the sparse Newton method regardless of method={method!r}.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+    method = _resolve_solver_method(method)
 
     if initial_state is None and exog_path is None:
         raise ValueError(
@@ -3073,7 +3089,7 @@ def solve_perfect_foresight_homotopy(
             stock_var_indices=stock_var_indices,
             endval=endval_lam,
             solver_options=solver_options,
-            method='hybr',  # already warned above; suppress per-step warnings
+            method=method,
             homotopy_fallback=False,  # prevent infinite recursion
         )
 
