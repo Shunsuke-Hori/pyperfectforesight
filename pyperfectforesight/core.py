@@ -1984,8 +1984,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         ...         endval=ss_terminal,
         ...     )
     method : str, default ``'sparse_newton'``
-        Solution algorithm. Currently ``'sparse_newton'`` is the only supported
-        value. Passing any other string raises a ``ValueError``.
+        Solution algorithm. ``'sparse_newton'`` is the only fully supported
+        value. ``'hybr'`` is accepted as a deprecated alias for backward
+        compatibility and emits a ``DeprecationWarning``. Any other value
+        raises a ``ValueError``.
     solver_options : dict
         Options forwarded to _sparse_newton. Supported keys:
         'maxiter' (max Newton iterations), 'ftol' (f-norm tolerance),
@@ -2844,8 +2846,10 @@ def solve_perfect_foresight_homotopy(
         is appropriate when ``exog_path`` represents deviations from a
         zero-shock baseline.
     method : str, default ``'sparse_newton'``
-        Solution algorithm. Currently ``'sparse_newton'`` is the only supported
-        value. Passing any other string raises a ``ValueError``.
+        Solution algorithm. ``'sparse_newton'`` is the only fully supported
+        value. ``'hybr'`` is accepted as a deprecated alias for backward
+        compatibility and emits a ``DeprecationWarning``. Any other value
+        raises a ``ValueError``.
 
     Returns
     -------
