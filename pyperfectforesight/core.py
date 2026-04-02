@@ -2017,8 +2017,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         * ``endval`` (ndarray, optional): terminal boundary override for the
           homotopy solver; if provided, it is interpolated from ``ss_initial``
           at lam=0 to this value at lam=1.
-        * ``method`` (str, optional): deprecated; forwarded for backward
-          compatibility only.
+        * ``method`` (str, optional): solution algorithm forwarded to the
+          homotopy solver. ``'sparse_newton'`` is the only fully supported
+          value; ``'hybr'`` is accepted as a deprecated alias and emits a
+          ``DeprecationWarning``.
 
         Ignored when ``homotopy_fallback=False`` or when Newton succeeds.
 
