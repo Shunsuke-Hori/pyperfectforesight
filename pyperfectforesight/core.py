@@ -1684,6 +1684,8 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
 # 10. Perfect foresight solver
 # ============================================================
 
+_VALID_SOLVER_METHODS = ('sparse_newton',)
+
 def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                    overdetermined=False, solver_options=None):
     """
@@ -2035,11 +2037,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             f"({vars_dyn}). Reconstruct ss using model_funcs['vars_dyn']."
         )
 
-    _VALID_METHODS = ('sparse_newton',)
-    if method not in _VALID_METHODS:
+    if method not in _VALID_SOLVER_METHODS:
         raise ValueError(
             f"method={method!r} is not supported. "
-            f"Valid options: {_VALID_METHODS}."
+            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
         )
 
     if solver_options is None:
@@ -2845,11 +2846,10 @@ def solve_perfect_foresight_homotopy(
     if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
-    _VALID_METHODS = ('sparse_newton',)
-    if method not in _VALID_METHODS:
+    if method not in _VALID_SOLVER_METHODS:
         raise ValueError(
             f"method={method!r} is not supported. "
-            f"Valid options: {_VALID_METHODS}."
+            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
         )
 
     if initial_state is None and exog_path is None:
