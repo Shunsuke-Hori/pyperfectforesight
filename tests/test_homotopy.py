@@ -55,9 +55,9 @@ def X0():
 
 
 @pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
-@pytest.mark.parametrize("bad_method", ["hybr", "lm", "broyden", ""])
+@pytest.mark.parametrize("bad_method", ["lm", "broyden", ""])
 def test_invalid_method_raises(model, solver, bad_method):
-    """Unsupported method values raise ValueError with a helpful message."""
+    """Unknown method values raise ValueError with a helpful message."""
     k_neg1 = np.array([K_SS * 0.9])
     kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method=bad_method)
     with pytest.raises(ValueError, match="not supported"):
@@ -70,6 +70,16 @@ def test_valid_method_accepted(model, solver):
     k_neg1 = np.array([K_SS * 0.9])
     kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method='sparse_newton')
     sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+    assert sol.success
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+def test_hybr_alias_emits_deprecation_warning(model, solver):
+    """method='hybr' (legacy default) is accepted with a DeprecationWarning."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method='hybr')
+    with pytest.warns(DeprecationWarning, match="deprecated alias"):
+        sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
     assert sol.success
 
 

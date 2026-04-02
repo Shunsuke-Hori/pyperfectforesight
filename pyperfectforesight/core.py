@@ -1685,6 +1685,28 @@ def compute_auxiliary_variables(X_dyn, params_dict, model_funcs, vars_dyn, exog_
 # ============================================================
 
 _VALID_SOLVER_METHODS = ('sparse_newton',)
+# Legacy scipy method names that map to the current implementation.
+_SOLVER_METHOD_ALIASES = {'hybr': 'sparse_newton'}
+
+
+def _resolve_solver_method(method):
+    """Normalise *method*, warning on deprecated aliases, raising on unknowns."""
+    if method in _SOLVER_METHOD_ALIASES:
+        import warnings
+        canonical = _SOLVER_METHOD_ALIASES[method]
+        warnings.warn(
+            f"method={method!r} is a deprecated alias; use {canonical!r} instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return canonical
+    if method not in _VALID_SOLVER_METHODS:
+        raise ValueError(
+            f"method={method!r} is not supported. "
+            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
+        )
+    return method
+
 
 def _sparse_newton(F_func, J_sparse_func, x0, tol=1e-8, max_iter=50,
                    overdetermined=False, solver_options=None):
@@ -2037,11 +2059,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             f"({vars_dyn}). Reconstruct ss using model_funcs['vars_dyn']."
         )
 
-    if method not in _VALID_SOLVER_METHODS:
-        raise ValueError(
-            f"method={method!r} is not supported. "
-            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
-        )
+    method = _resolve_solver_method(method)
 
     if solver_options is None:
         solver_options = {}
@@ -2846,11 +2864,7 @@ def solve_perfect_foresight_homotopy(
     if not isinstance(n_steps, (int, np.integer)) or n_steps < 1:
         raise ValueError(f"n_steps must be an int >= 1, got {n_steps!r}.")
 
-    if method not in _VALID_SOLVER_METHODS:
-        raise ValueError(
-            f"method={method!r} is not supported. "
-            f"Valid options: {', '.join(_VALID_SOLVER_METHODS)}."
-        )
+    method = _resolve_solver_method(method)
 
     if initial_state is None and exog_path is None:
         raise ValueError(
@@ -3065,7 +3079,7 @@ def solve_perfect_foresight_homotopy(
             stock_var_indices=stock_var_indices,
             endval=endval_lam,
             solver_options=solver_options,
-            method='sparse_newton',
+            method=method,
             homotopy_fallback=False,  # prevent infinite recursion
         )
 
