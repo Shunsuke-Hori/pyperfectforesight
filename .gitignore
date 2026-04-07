@@ -70,3 +70,6 @@ docs/generated/
 scripts/+benchmark_dynare/
 scripts/benchmark_dynare/
 scripts/benchmark_dynare_times.csv
+
+# YAML model specs (reference/scratch, not part of the package)
+examples/*.yaml
