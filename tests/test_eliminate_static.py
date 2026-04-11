@@ -93,6 +93,28 @@ def test_core_partial_elimination():
     assert len(eqs) == 2
 
 
+def test_core_overdetermined_candidate_system_skips_elimination():
+    """Two static equations for the same candidate var → overdetermined → no elimination.
+
+    If candidate_static_eqs is overdetermined, sp.solve might still return a
+    solution but we would drop more equations than variables, breaking the
+    square invariant.  The squareness guard must catch this.
+    """
+    k_m, k_0, y_0 = v("k", -1), v("k", 0), v("y", 0)
+
+    # Two equations both involving y_0 (overdetermined for 1 unknown)
+    eq_static1 = y_0 - k_0**2
+    eq_static2 = y_0 - 1
+    eq_dyn = k_0 - (1 - delta) * k_m
+
+    eqs, eliminated = _eliminate_static_core(
+        [eq_static1, eq_static2], [eq_dyn], vars_dyn=["k", "y"], vars_exo=[]
+    )
+
+    assert eliminated == frozenset(), "overdetermined candidate system must not be eliminated"
+    assert len(eqs) == 3   # all equations returned unchanged
+
+
 # ── _eliminate_static_core: no-op paths ──────────────────────────────────────
 
 def test_core_skips_var_with_lead():

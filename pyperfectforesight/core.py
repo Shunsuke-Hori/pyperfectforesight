@@ -261,6 +261,13 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
         if not any(s in eq.free_symbols for s in candidate_set)
     ]
 
+    # Guard: candidate system must be exactly square.  If it is overdetermined
+    # (e.g. two equations both containing the same candidate variable), sp.solve
+    # could still return a solution, but we would drop more equations than
+    # variables and break the square invariant of the processed model.
+    if len(candidate_static_eqs) != len(static_vars):
+        return static_eqs + dynamic_eqs, frozenset()
+
     try:
         sol = sp.solve(candidate_static_eqs, static_vars, dict=True)
     except RecursionError:
