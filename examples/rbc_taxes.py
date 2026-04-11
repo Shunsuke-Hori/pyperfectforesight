@@ -22,14 +22,22 @@ import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
 
-from pyperfectforesight import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, p, process_model, solve_perfect_foresight
 
 # ============================================================
 # 1. Parameters
 # ============================================================
 
-beta_s, delta_s, alpha_s = sp.symbols("beta delta alpha")
-rho_s, sigma_s, eta_s, chi_s, zbar_s = sp.symbols("rho sigma eta chi zbar")
+beta_s  = p("beta")
+delta_s = p("delta")
+alpha_s = p("alpha")
+rho_s   = p("rho")
+sigma_s = p("sigma")
+eta_s   = p("eta")
+chi_s   = p("chi")
+zbar_s  = p("zbar")
+
+VARS_PARAMS = ["beta", "delta", "alpha", "rho", "sigma", "eta", "chi", "zbar"]
 
 # ============================================================
 # 2. Dynamic variables and time-indexed symbols
@@ -90,7 +98,7 @@ equations = [eq_euler, eq_labor, eq_z, eq_k, eq_g]
 # 5. Process model
 # ============================================================
 
-model_funcs = process_model(equations, vars_dyn, vars_exo=vars_exo)
+model_funcs = process_model(equations, vars_dyn, vars_exo=vars_exo, vars_params=VARS_PARAMS)
 
 # ============================================================
 # 6. Steady-state computation (analytical, from YAML calibration)

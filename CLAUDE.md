@@ -26,6 +26,19 @@ pip install -e ".[dev]"
 
 ## Key conventions
 
+### Explicit variable declarations
+Models must declare three disjoint sets of names — endogenous, exogenous, and parameters — matching Dynare's convention.
+
+| Declaration | Purpose | Symbol constructor |
+|-------------|---------|-------------------|
+| `vars_dyn` (list of str) | Endogenous (dynamic) variables | `v(name, lag)` |
+| `vars_exo` (list of str) | Exogenous variables | `v(name, lag)` |
+| `vars_params` (list of str) | Parameters | `p(name)` |
+
+Use `p(name)` — not `sp.Symbol(name)` directly — to create parameter symbols.  `p` returns a plain `sp.Symbol` with no assumptions, ensuring the string ↔ symbol round-trip `sp.Symbol(name)` is exact and reliable.  All three lists are passed to `process_model` and stored in the returned bundle.
+
+`vars_params` enables `process_model` to exclude parameter symbols from the `eliminate_static` candidate set, preventing parameters whose names parse as `name_<int>` (e.g. `rho_1`) from being misidentified as time-indexed endogenous variables.
+
 ### Dynare lag notation
 Equations are written with `v("k", -1)` for `k_{t-1}` (lag) and `v("c", 1)` for `c_{t+1}` (lead).
 `v("x", 0)` is the current-period value.

@@ -8,6 +8,7 @@ from pyperfectforesight.__version__ import __version__
 from pyperfectforesight.core import (
     # Utilities
     v,
+    p,
 
     # Model processing
     lead_lag_incidence,
@@ -44,6 +45,7 @@ __all__ = [
     "__version__",
     # Utilities
     "v",
+    "p",
     # Model processing
     "lead_lag_incidence",
     "is_static",
