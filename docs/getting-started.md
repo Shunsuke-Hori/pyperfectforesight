@@ -2,6 +2,29 @@
 
 ## Key concepts
 
+### Declaring symbols: `v()`, `p()`, and `vars_params`
+
+Use dedicated constructors for each class of symbol:
+
+| Symbol type | Constructor | Declaration list |
+|---|---|---|
+| Endogenous variable at time `t+lag` | `v(name, lag)` | `vars_dyn` |
+| Exogenous variable at time `t` | `v(name, 0)` | `vars_exo` |
+| Parameter (time-invariant) | `p(name)` | `vars_params` |
+
+```python
+from pyperfectforesight import p, v, process_model
+
+alpha = p("alpha")   # parameter
+k_m   = v("k", -1)  # k_{t-1}
+k_0   = v("k",  0)  # k_t
+
+vars_params = ["alpha", "beta", "delta"]
+model_funcs = process_model(equations, vars_dyn, vars_params=vars_params)
+```
+
+**Naming constraint**: a parameter name must not match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable — e.g. `p("rho_1")` would collide with `v("rho", 1)`. `process_model` emits a `UserWarning` if such a clash is detected.
+
 ### Dynare lag notation
 
 Equations are written using the `v(name, lag)` helper, which creates a time-indexed SymPy symbol. The lag argument follows Dynare's convention:

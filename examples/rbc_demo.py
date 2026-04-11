@@ -11,12 +11,11 @@ This demo shows:
 """
 
 import os
-import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
 
 # Import framework functions from pyperfectforesight package
-from pyperfectforesight import v, process_model, solve_perfect_foresight, compute_steady_state_numerical
+from pyperfectforesight import p, v, process_model, solve_perfect_foresight, compute_steady_state_numerical
 
 # ============================================================
 # 1. Model declaration (RBC model)
@@ -25,7 +24,8 @@ from pyperfectforesight import v, process_model, solve_perfect_foresight, comput
 print("Setting up RBC model...")
 
 # Parameters
-beta, delta, alpha = sp.symbols("beta delta alpha")
+beta, delta, alpha = p("beta"), p("delta"), p("alpha")
+vars_params = ["beta", "delta", "alpha"]
 
 # Dynamic variables
 vars_dyn = ["c", "k"]
@@ -47,7 +47,7 @@ equations = [eq_euler, eq_kacc]
 # 2. Process model equations
 # ============================================================
 
-model_funcs = process_model(equations, vars_dyn)
+model_funcs = process_model(equations, vars_dyn, vars_params=vars_params)
 
 print(f"Lead/lag incidence: {model_funcs['incidence']}")
 print(f"Number of dynamic equations: {len(model_funcs['dynamic_eqs'])}")
@@ -148,8 +148,7 @@ if __name__ == "__main__":
     # vars_dyn = ["c", "k"], stock_var_indices = [1] means k is stock
     sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn, X0,
                                   initial_state=initial_stock,
-                                  stock_var_indices=[1],
-                                  method='hybr')
+                                  stock_var_indices=[1])
 
     print(f"\nSolver Status:")
     print(f"  Converged: {sol.success}")
