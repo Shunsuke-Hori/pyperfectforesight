@@ -14,7 +14,7 @@ The three block structure follows the YAML exactly:
   arbitrage : Euler equation + labor-leisure optimality
   transition: AR(1) for z, capital accumulation, g = e_g
 
-Demo: impulse response to a 5% TFP shock (z_{-1} = 1.05).
+Demo: impulse response to a decline in government spending.
 """
 
 import os
@@ -194,9 +194,9 @@ if __name__ == "__main__":
     for name, val in zip(vars_dyn, ss_initial):
         print(f"  {name}: {val:.6f}")
 
-    # Exogenous path: linspace(0.1, 0, 10)[0] is the initial state in dolo's
-    # convention; the simulation path starts from element [1] onward.
-    exog_path = np.concatenate([np.linspace(G_INIT, 0.0, 10)[1:], np.zeros(T - 9)]).reshape(T, 1)
+    # Direct timing: exog_path[t] = g at period t.
+    # Period 0 starts at G_INIT=0.1 and linearly declines to 0 by period 9.
+    exog_path = np.concatenate([np.linspace(G_INIT, 0.0, 10), np.zeros(T - 10)]).reshape(T, 1)
 
     # stock vars: z (idx 0), k (idx 1), i (idx 3) — i appears at lag -1 in eq_k
     z0, k0, g0, i0, n0 = ss_initial

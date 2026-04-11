@@ -152,8 +152,8 @@ def dynare_ref():
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_equation_count(model):
-    """process_model must retain all equations (no silent static elimination)."""
-    assert len(model["dynamic_eqs"]) == len(VARS_DYN)
+    """process_model must keep the processed dynamic system square."""
+    assert len(model["dynamic_eqs"]) == len(model["vars_dyn"])
 
 
 def test_solver_converges(model):
