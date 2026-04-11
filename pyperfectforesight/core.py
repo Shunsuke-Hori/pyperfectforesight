@@ -158,9 +158,12 @@ def eliminate_static(static_eqs, dynamic_eqs):
         key=lambda s: s.name
     )
 
-    sol = sp.solve(static_eqs, static_vars, dict=True)
+    try:
+        sol = sp.solve(static_eqs, static_vars, dict=True)
+    except RecursionError:
+        sol = []
     if not sol:
-        return dynamic_eqs
+        return static_eqs + dynamic_eqs
 
     sol = sol[0]
     return [eq.subs(sol) for eq in dynamic_eqs]

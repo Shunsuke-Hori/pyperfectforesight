@@ -49,7 +49,6 @@ dist/
 *.png
 *.pdf
 !docs/**/*.png
-!examples/**/*.png
 
 # OS
 .DS_Store
@@ -70,3 +69,11 @@ docs/generated/
 scripts/+benchmark_dynare/
 scripts/benchmark_dynare/
 scripts/benchmark_dynare_times.csv
+
+# Dynare run artefacts (output dirs and logs created alongside .mod files)
+examples/+*/
+examples/rbc_taxes_pf_dynare/
+examples/*.log
+
+# YAML model specs (reference/scratch, not part of the package)
+examples/*.yaml
