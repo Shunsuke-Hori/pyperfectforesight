@@ -157,3 +157,57 @@ sol = solve_perfect_foresight(
 )
 print(f"Converged: {sol.success}")
 ```
+
+## Permanent shock with auto-computed terminal steady state
+
+For a **permanent** shock the terminal steady state differs from the initial one. Instead of computing it by hand, compile a `compiled_ss` bundle with `compile_steady_state_funcs(...)` and pass it as `compiled_ss=...` so the solver can derive the terminal steady state automatically from the last row of `exog_path` — the equivalent of Dynare's `endval` + `steady`.
+
+```python
+import numpy as np
+from pyperfectforesight import (
+    p, v, process_model,
+    compile_steady_state_funcs, solve_steady_state,
+    solve_perfect_foresight,
+)
+
+# Parameters and model (RBC with exogenous TFP level z)
+ALPHA = p("alpha")
+BETA  = p("beta")
+PARAMS = {ALPHA: 0.36, BETA: 0.99}
+
+eq_euler = 1/v("c", 0) - BETA * ALPHA * v("z", 1) * v("k", 0)**(ALPHA - 1) / v("c", 1)
+eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
+
+vars_dyn = ["c", "k"]
+vars_exo = ["z"]
+model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=vars_exo,
+                            vars_params=["alpha", "beta"])
+
+# Compile the steady-state system once for reuse in later numerical solves
+compiled_ss = compile_steady_state_funcs([eq_euler, eq_kacc], vars_dyn, vars_exo)
+
+# Pre-shock steady state: z = 1.0
+ss_pre = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
+
+T = 100
+# Permanent TFP increase: z jumps from 1.0 to 1.05 at period 0
+exog_path = np.full((T, 1), 1.05)
+
+# initial_state = k_{-1} at the pre-shock steady state
+k_neg1 = np.array([ss_pre[1]])
+
+# ss=ss_pre seeds ss_initial (pre-shock); compiled_ss auto-computes endval
+# (post-shock SS at z=1.05) from exog_path[-1]
+sol = solve_perfect_foresight(
+    T, PARAMS, ss_pre, model_funcs, vars_dyn,
+    exog_path=exog_path,
+    initial_state=k_neg1,
+    compiled_ss=compiled_ss,
+)
+print(f"Converged: {sol.success}")
+
+X = sol.x.reshape(T, -1)
+c_path, k_path = X[:, 0], X[:, 1]
+```
+
+`compiled_ss` can be reused across many simulations; call `compile_steady_state_funcs` once and pass the bundle each time. When `endval` is supplied explicitly alongside `compiled_ss`, the explicit value takes precedence and auto-computation is skipped.
