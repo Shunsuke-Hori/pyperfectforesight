@@ -37,7 +37,7 @@ Models must declare three disjoint sets of names — endogenous, exogenous, and 
 
 Use `p(name)` — not `sp.Symbol(name)` directly — to create parameter symbols.  `p` returns a plain `sp.Symbol` with no assumptions, ensuring the string ↔ symbol round-trip `sp.Symbol(name)` is exact and reliable.  All three lists are passed to `process_model` and stored in the returned bundle.
 
-`vars_params` enables `process_model` to exclude parameter symbols from the `eliminate_static` candidate set, preventing parameters whose names parse as `name_<int>` (e.g. `rho_1`) from being misidentified as time-indexed endogenous variables.
+`vars_params` is stored in the processed-model bundle for downstream reference.  It does **not** currently drive `eliminate_static` candidate selection — that filtering is based on `vars_dyn` and `vars_exo`.  The main practical benefit is that parameters named like `rho_1` are not in `vars_dyn`, so they never appear in the candidate set regardless.
 
 ### Dynare lag notation
 Equations are written with `v("k", -1)` for `k_{t-1}` (lag) and `v("c", 1)` for `c_{t+1}` (lead).
