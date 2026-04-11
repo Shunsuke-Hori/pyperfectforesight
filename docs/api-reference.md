@@ -12,6 +12,7 @@ Complete API reference for all public functions in `pyperfectforesight`.
    :nosignatures:
 
    pyperfectforesight.v
+   pyperfectforesight.p
 ```
 
 ---
@@ -95,6 +96,5 @@ Complete API reference for all public functions in `pyperfectforesight`.
 
    pyperfectforesight.residual
    pyperfectforesight.sparse_jacobian
-   pyperfectforesight.append_terminal_conditions
 ```
 

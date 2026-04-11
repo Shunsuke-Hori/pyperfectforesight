@@ -10,11 +10,10 @@ This demo shows:
 """
 
 import os
-import sympy as sp
 import numpy as np
 import matplotlib.pyplot as plt
 
-from pyperfectforesight import v, process_model, solve_perfect_foresight
+from pyperfectforesight import p, v, process_model, solve_perfect_foresight
 
 # ============================================================
 # 1. Model declaration (RBC with government spending)
@@ -23,7 +22,8 @@ from pyperfectforesight import v, process_model, solve_perfect_foresight
 print("Setting up RBC model with government spending...")
 
 # Parameters
-beta, delta, alpha = sp.symbols("beta delta alpha")
+beta, delta, alpha = p("beta"), p("delta"), p("alpha")
+vars_params = ["beta", "delta", "alpha"]
 
 # Endogenous variables (dynamic)
 vars_dyn = ["c", "k"]  # consumption, capital
@@ -58,7 +58,7 @@ equations = [eq_euler, eq_kacc, eq_i]
 # 2. Process model equations
 # ============================================================
 
-model_funcs = process_model(equations, vars_dyn, vars_exo=vars_exo, vars_aux=vars_aux)  # Uses 'auto' - tries analytical first
+model_funcs = process_model(equations, vars_dyn, vars_exo=vars_exo, vars_aux=vars_aux, vars_params=vars_params)  # Uses 'auto' - tries analytical first
 
 print(f"Endogenous variables: {vars_dyn}")
 print(f"Auxiliary variables: {vars_aux}")
