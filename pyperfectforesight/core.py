@@ -244,8 +244,22 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
     if not static_vars:
         return static_eqs + dynamic_eqs, frozenset()
 
+    # Split static_eqs into those involving candidate vars (used for elimination)
+    # and the remainder (not involving any candidate — must be preserved).
+    # Passing all static_eqs to sp.solve risks SymPy silently discarding the
+    # non-candidate equations while still returning a solution; those equations
+    # would then be dropped from the system.
+    candidate_static_eqs = [
+        eq for eq in static_eqs
+        if any(s in eq.free_symbols for s in candidate_set)
+    ]
+    leftover_static_eqs = [
+        eq for eq in static_eqs
+        if not any(s in eq.free_symbols for s in candidate_set)
+    ]
+
     try:
-        sol = sp.solve(static_eqs, static_vars, dict=True)
+        sol = sp.solve(candidate_static_eqs, static_vars, dict=True)
     except RecursionError:
         sol = []
     if not sol:
@@ -260,7 +274,9 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
         return static_eqs + dynamic_eqs, frozenset()
 
     eliminated = frozenset(_parse_time_symbol(s.name)[0] for s in static_vars)
-    return [eq.subs(sol) for eq in dynamic_eqs], eliminated
+    # leftover_static_eqs have no candidate vars; treat them as additional
+    # dynamic equations so they stay in the solved system.
+    return [eq.subs(sol) for eq in dynamic_eqs] + leftover_static_eqs, eliminated
 
 
 def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None, vars_params=None):

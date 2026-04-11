@@ -57,6 +57,42 @@ def test_core_substitutes_into_dynamic_eq():
     assert (eqs[0] - expected).expand() == 0
 
 
+def test_core_partial_elimination():
+    """Only the truly-static var is eliminated; the other static eq is preserved.
+
+    Two static equations:
+      y_0 = k_0^2   (y is truly static — no leads/lags anywhere)
+      g_0 - e_g_0   (g has a lead in the Euler eq → not a candidate)
+
+    Expected: y is eliminated, the g equation is kept in the returned system.
+    """
+    k_m, k_0 = v("k", -1), v("k", 0)
+    y_0, g_0, g_p = v("y", 0), v("g", 0), v("g", 1)
+    e_g_0 = v("e_g", 0)
+
+    eq_static_y = y_0 - k_0**2
+    eq_static_g = g_0 - e_g_0
+    # Euler-like: uses g_p so "g" has a lead → g is NOT a candidate
+    eq_euler = k_0 - (1 - delta) * k_m - g_p
+
+    eqs, eliminated = _eliminate_static_core(
+        [eq_static_y, eq_static_g], [eq_euler],
+        vars_dyn=["k", "y", "g"], vars_exo=["e_g"],
+    )
+
+    # y eliminated, g stays
+    assert "y" in eliminated
+    assert "g" not in eliminated
+    # equation for g must still be present
+    assert any(g_0 in eq.free_symbols for eq in eqs), (
+        "g_0 - e_g_0 equation must be preserved after partial elimination"
+    )
+    # y_0 must not appear anywhere
+    assert all(y_0 not in eq.free_symbols for eq in eqs)
+    # system is still square: 1 eliminated → len(eqs) == len(dynamic)+len(leftover) == 1+1 == 2
+    assert len(eqs) == 2
+
+
 # ── _eliminate_static_core: no-op paths ──────────────────────────────────────
 
 def test_core_skips_var_with_lead():
