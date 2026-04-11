@@ -4,6 +4,25 @@ A minimal Dynare-style perfect foresight solver in Python. This package provides
 
 **[Documentation](https://shunsuke-hori.github.io/pyperfectforesight/)**
 
+## Why pyperfectforesight?
+
+### vs Dynare
+
+Dynare is the reference platform and pyperfectforesight is validated against it (results agree to ~1e-10 on the same models). The reasons to use this package instead:
+
+- **No MATLAB required.** Dynare requires MATLAB (commercial) or Octave. pyperfectforesight is pure Python — `pip install` and go.
+- **Python-native workflow.** Equations are SymPy expressions. Results are NumPy arrays. No `.mod` files, no separate toolchain — the model lives in the same script as the analysis.
+- **Programmatic.** Parameter sweeps, Monte Carlo, IRF grids: write a loop. In Dynare you would need to script around MATLAB/Octave.
+- **Faster.** pyperfectforesight is ~23–61× faster than Dynare on the same RBC model (see [Performance](#performance) below).
+
+### vs dolo
+
+[dolo](https://github.com/EconForge/dolo) is a Python DSGE toolkit that also has a `deterministic_solve` function. The key difference is timing:
+
+- **dolo has hidden shifts in the exogenous path.** Its internal `_shocks_to_epsilons` function silently drops `shocks[0]` and maps `epsilons[t] = shocks[t+1]`. On top of that, YAML `transition` equations use the *next*-period exogenous value, adding a second shift for state variables. The net result is that the shock you supply at index `t` lands at simulation period `t+1` or `t+2` depending on how the variable is declared — with no warning.
+- **pyperfectforesight uses direct timing.** `exog_path[t]` is the exogenous value at period `t`, matching Dynare's convention exactly. Cross-validation between the two solvers is straightforward.
+- **Expectation-errors solver.** pyperfectforesight implements `solve_perfect_foresight_expectation_errors`, which replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. dolo has no equivalent.
+
 ## Features
 
 - **Dynare-style lag notation**: Write equations using `v("k", -1)` for lagged variables, matching Dynare's convention
