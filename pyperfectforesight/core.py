@@ -1401,10 +1401,10 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     if vars_params is None:
         vars_params = []
 
-    # Warn when a parameter name clashes with a time-indexed variable pattern.
+    # Raise when a parameter name clashes with a time-indexed variable pattern.
     # p("rho_1") == v("rho", 1) as a SymPy symbol; outside eliminate_static the
     # pipeline (incidence, lag-sets, residuals) treats it as a lag-1 endogenous
-    # symbol.  This produces silent wrong behaviour that is hard to debug.
+    # symbol.  Fail fast rather than produce silent wrong behaviour.
     if vars_params:
         var_names = set(vars_dyn) | set(vars_exo) | set(vars_aux)
         for pname in vars_params:
