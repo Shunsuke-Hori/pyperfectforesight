@@ -7,6 +7,23 @@ Project context and conventions for Claude Code.
 `pyperfectforesight` is a minimal Dynare-style perfect foresight solver in Python.
 All model logic lives in `pyperfectforesight/core.py`. There are no sub-packages.
 
+## Development setup
+
+The base conda environment is polluted with unrelated packages (TensorFlow, etc.) and should not be used for development. Use the dedicated `pypf` conda environment instead:
+
+```bash
+conda activate pypf        # activate
+pytest                     # run tests
+conda run -n pypf pytest   # run tests without activating first
+```
+
+To recreate from scratch:
+```bash
+conda create -n pypf python=3.11
+conda activate pypf
+pip install -e ".[dev]"
+```
+
 ## Key conventions
 
 ### Dynare lag notation

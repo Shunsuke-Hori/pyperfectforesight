@@ -114,79 +114,101 @@ def compute_steady_state(p):
     g_ss  = 0.0
     c_ss  = y_ss - i_ss - g_ss
     w_ss  = (1 - alpha_v) * z_ss * (k_ss / n_ss)**alpha_v
-    chi_v = w_ss / (c_ss**sigma_v * n_ss**eta_v)
 
     # ss order matches vars_dyn: [z, k, g, i, n]
     ss_vals = np.array([z_ss, k_ss, g_ss, i_ss, n_ss])
-    return ss_vals, chi_v, {"y": y_ss, "c": c_ss, "w": w_ss, "rk": rk_ss}
+    return ss_vals, {"y": y_ss, "c": c_ss, "w": w_ss, "rk": rk_ss}
+
+
+def compute_distorted_ss(p, g_val):
+    """Analytical steady state with exogenous government spending g_val (sigma = eta = 1)."""
+    rk_ss   = 1 / p["beta"] - 1 + p["delta"]
+    h       = (rk_ss / p["alpha"]) ** (1 / (1 - p["alpha"]))  # n/k at SS
+    A       = p["zbar"] / h ** p["alpha"]   # output per unit of n
+    B       = p["delta"] / h                # investment per unit of n
+    chi_v   = p["chi"]
+    alpha_v = p["alpha"]
+    # Solve chi*(A-B)*n^2 - chi*g*n - (1-alpha)*A = 0
+    a = chi_v * (A - B)
+    b = -chi_v * g_val
+    c = -(1 - alpha_v) * A
+    n_ss = (-b + np.sqrt(b**2 - 4 * a * c)) / (2 * a)
+    k_ss = n_ss / h
+    i_ss = p["delta"] * k_ss
+    return np.array([p["zbar"], k_ss, g_val, i_ss, n_ss])
 
 
 # ============================================================
-# 7. Demo: impulse response to a 5% TFP shock
+# 7. Demo: government spending declines from 10% to 0%
 # ============================================================
 
 if __name__ == "__main__":
 
     print("=" * 60)
-    print("RBC Taxes Model: TFP Shock")
+    print("RBC Taxes Model: Government Spending Shock")
     print("=" * 60)
 
     # Calibration (from YAML)
-    param_vals = {
-        "beta": 0.99,
-        "delta": 0.025,
-        "alpha": 0.33,
-        "rho": 0.80,
-        "sigma": 1.0,
-        "eta": 1.0,
-        "zbar": 1.0,
+    beta  = 0.99
+    delta = 0.025
+    alpha = 0.33
+    rho   = 0.8
+    sigma = 1.0
+    eta   = 1.0
+    zbar  = 1.0
+
+    # Baseline (g=0) steady state — also used to calibrate chi
+    param_vals_base = {
+        "beta": beta, "delta": delta, "alpha": alpha,
+        "rho": rho, "sigma": sigma, "eta": eta, "zbar": zbar,
     }
+    ss_base, aux_base = compute_steady_state(param_vals_base)
+    z_ss, k_ss, g_ss, i_ss, n_ss = ss_base
+    # chi calibrated so labor FOC holds at baseline SS
+    chi = aux_base["w"] / (aux_base["c"] ** sigma * n_ss ** eta)
 
-    ss, chi_val, aux_ss = compute_steady_state(param_vals)
-    param_vals["chi"] = chi_val
+    param_vals = {**param_vals_base, "chi": chi}
 
-    # Build the sympy-keyed dict that solve_perfect_foresight expects
     params = {
-        beta_s: param_vals["beta"],
-        delta_s: param_vals["delta"],
-        alpha_s: param_vals["alpha"],
-        rho_s: param_vals["rho"],
-        sigma_s: param_vals["sigma"],
-        eta_s: param_vals["eta"],
-        chi_s: chi_val,
-        zbar_s: param_vals["zbar"],
+        beta_s: beta, delta_s: delta, alpha_s: alpha,
+        rho_s: rho, sigma_s: sigma, eta_s: eta,
+        chi_s: chi, zbar_s: zbar,
     }
 
-    print("\nSteady state:")
-    for name, val in zip(vars_dyn, ss):
+    print("\nBaseline steady state (g=0):")
+    for name, val in zip(vars_dyn, ss_base):
         print(f"  {name}: {val:.6f}")
-    print(f"  y:  {aux_ss['y']:.6f}")
-    print(f"  c:  {aux_ss['c']:.6f}")
-    print(f"  chi: {chi_val:.6f}")
+    print(f"  y:  {aux_base['y']:.6f}")
+    print(f"  c:  {aux_base['c']:.6f}")
 
     # ----------------------------------------------------------
-    # Shock: z_{-1} = 1.05  (5% above steady-state TFP)
-    # k_{-1} = k_ss         (capital starts at steady state)
-    # stock vars: z (index 0) and k (index 1)
+    # Scenario: government spending declines from 10% to 0%
+    # over 10 periods (mirrors rbc_perfect_foresight.ipynb).
+    # Economy starts at the distorted SS (g=0.1).
     # ----------------------------------------------------------
-    T = 100
-    z_ss, k_ss, g_ss, i_ss, n_ss = ss
-    shock_size = 0.05
+    T = 50
+    G_INIT = 0.1
 
-    # initial_state contains the pre-period-0 values of stock variables.
-    # Inferred stocks: z (idx 0), k (idx 1), i (idx 3) — i appears at lag -1 in eq_k.
-    initial_state = np.array([z_ss * (1 + shock_size), k_ss, i_ss])
+    ss_initial = compute_distorted_ss(param_vals, G_INIT)
+    print(f"\nDistorted steady state (g={G_INIT}):")
+    for name, val in zip(vars_dyn, ss_initial):
+        print(f"  {name}: {val:.6f}")
 
-    # Flat exogenous path (no gov spending)
-    exog_path = np.zeros((T, 1))  # e_g = 0 throughout
+    # Exogenous path: linspace(0.1, 0, 10)[0] is the initial state in dolo's
+    # convention; the simulation path starts from element [1] onward.
+    exog_path = np.concatenate([np.linspace(G_INIT, 0.0, 10)[1:], np.zeros(T - 9)]).reshape(T, 1)
 
-    print(f"\nShock: z_{{-1}} = {initial_state[0]:.4f} ({100*shock_size:.0f}% above SS)")
-    print(f"Solving over T = {T} periods...")
+    # stock vars: z (idx 0), k (idx 1), i (idx 3) — i appears at lag -1 in eq_k
+    z0, k0, g0, i0, n0 = ss_initial
+    initial_state = np.array([z0, k0, i0])
+
+    print(f"\nSolving over T = {T} periods...")
 
     sol = solve_perfect_foresight(
-        T, params, ss, model_funcs, vars_dyn,
+        T, params, ss_base, model_funcs, vars_dyn,
         exog_path=exog_path,
         initial_state=initial_state,
+        ss_initial=ss_initial,
     )
 
     print(f"\nConverged: {sol.success}  |  {sol.message}")
@@ -200,7 +222,7 @@ if __name__ == "__main__":
     n_path = X[:, 4]
 
     # Compute auxiliary paths
-    y_path = z_path * k_path**param_vals["alpha"] * n_path**(1 - param_vals["alpha"])
+    y_path = z_path * k_path**alpha * n_path**(1 - alpha)
     c_path = y_path - i_path - g_path
 
     # ----------------------------------------------------------
@@ -208,7 +230,7 @@ if __name__ == "__main__":
     # ----------------------------------------------------------
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
     fig.suptitle(
-        f"RBC Taxes Model: Response to {100*shock_size:.0f}% TFP Shock",
+        "RBC Taxes Model: Gov. Spending Declining from 10% to 0%",
         fontsize=14, fontweight="bold",
     )
 
@@ -224,8 +246,8 @@ if __name__ == "__main__":
         ax.grid(True, alpha=0.3)
 
     _plot(axes[0, 0], z_path, z_ss, "TFP (z)", "z")
-    _plot(axes[0, 1], y_path, aux_ss["y"], "Output (y)", "y")
-    _plot(axes[0, 2], c_path, aux_ss["c"], "Consumption (c)", "c")
+    _plot(axes[0, 1], y_path, aux_base["y"], "Output (y)", "y")
+    _plot(axes[0, 2], c_path, aux_base["c"], "Consumption (c)", "c")
     _plot(axes[1, 0], k_path, k_ss, "Capital (k)", "k")
     _plot(axes[1, 1], i_path, i_ss, "Investment (i)", "i")
     _plot(axes[1, 2], n_path, n_ss, "Labor (n)", "n")
