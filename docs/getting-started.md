@@ -163,7 +163,6 @@ print(f"Converged: {sol.success}")
 For a **permanent** shock the terminal steady state differs from the initial one. Instead of computing it by hand, use `compile_steady_state_funcs` + `compiled_ss` to let the solver derive it automatically from the last row of `exog_path` — the equivalent of Dynare's `endval` + `steady`.
 
 ```python
-import sympy as sp
 import numpy as np
 from pyperfectforesight import (
     p, v, process_model,
@@ -184,7 +183,7 @@ vars_exo = ["z"]
 model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=vars_exo,
                             vars_params=["alpha", "beta"])
 
-# Compile the steady-state system once (equations solved symbolically)
+# Compile the steady-state system once for reuse in later numerical solves
 compiled_ss = compile_steady_state_funcs([eq_euler, eq_kacc], vars_dyn, vars_exo)
 
 # Initial steady state: z = 1.0
@@ -197,13 +196,13 @@ exog_path = np.full((T, 1), 1.05)
 # initial_state = k_{-1} at the *pre-shock* steady state
 k_neg1 = np.array([ss_initial[1]])
 
-# compiled_ss lets the solver auto-compute endval = SS at z=1.05 (exog_path[-1])
+# ss_initial (pre-shock SS) is passed as ss; compiled_ss auto-computes endval
+# from exog_path[-1] (post-shock SS at z=1.05)
 sol = solve_perfect_foresight(
     T, PARAMS, ss_initial, model_funcs, vars_dyn,
     exog_path=exog_path,
     initial_state=k_neg1,
-    ss_initial=ss_initial,
-    compiled_ss=compiled_ss,   # endval derived automatically from exog_path[-1]
+    compiled_ss=compiled_ss,
 )
 print(f"Converged: {sol.success}")
 
