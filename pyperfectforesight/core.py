@@ -28,10 +28,22 @@ def p(name):
     ensures that the symbol carries no assumptions and that the string ↔
     symbol round-trip via ``sp.Symbol(name)`` is exact.
 
+    .. warning::
+
+       Parameter names must **not** match the pattern ``<var>_<int>`` when
+       ``<var>`` is also a declared endogenous or exogenous variable.
+       ``p("rho_1")`` produces the same SymPy symbol as ``v("rho", 1)``, so
+       the broader pipeline (incidence detection, lag-set computation, residual
+       evaluation) will treat it as the lag-1 value of ``rho`` rather than as
+       a parameter.  ``process_model`` emits a ``UserWarning`` when such a
+       clash is detected.
+
     Parameters
     ----------
     name : str
         Parameter name (must match the corresponding entry in ``vars_params``).
+        Avoid names of the form ``<var>_<int>`` when ``<var>`` is a model
+        variable.
 
     Returns
     -------
@@ -1279,10 +1291,16 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     vars_params : list of str, keyword-only, optional
         Declared parameter names (default: None).  Use ``p(name)`` to create
         the corresponding SymPy symbols so the string ↔ symbol round-trip is
-        exact.  The list is stored in the returned bundle as ``'vars_params'``
-        and is passed to ``eliminate_static`` so that parameters whose names
-        parse as ``name_<int>`` (e.g. ``rho_1``) are not mistaken for
-        time-indexed endogenous variables when building the dynamics set.
+        exact.  The list is stored in the returned bundle and is passed to
+        ``_eliminate_static_core`` so that parameter symbols are skipped when
+        building the "has-dynamics" set.
+
+        **Naming constraint**: parameter names must not match the pattern
+        ``<var>_<int>`` when ``<var>`` is a declared endogenous or exogenous
+        variable.  ``p("rho_1")`` produces the same SymPy symbol as
+        ``v("rho", 1)``; outside static-elimination the pipeline treats the
+        symbol as a lag-1 value of ``rho``, not as a parameter.  A
+        ``UserWarning`` is emitted when such a clash is detected.
 
     aux_method : str, optional
         Method for handling auxiliary variables (default: ``'auto'``):
@@ -1351,6 +1369,28 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         vars_aux = []
     if vars_params is None:
         vars_params = []
+
+    # Warn when a parameter name clashes with a time-indexed variable pattern.
+    # p("rho_1") == v("rho", 1) as a SymPy symbol; outside eliminate_static the
+    # pipeline (incidence, lag-sets, residuals) treats it as a lag-1 endogenous
+    # symbol.  This produces silent wrong behaviour that is hard to debug.
+    if vars_params:
+        import warnings as _warnings
+        var_names = set(vars_dyn) | set(vars_exo) | set(vars_aux)
+        for pname in vars_params:
+            parsed = _parse_time_symbol(pname)
+            if parsed is not None:
+                base, lag = parsed
+                if base in var_names:
+                    _warnings.warn(
+                        f"Parameter name '{pname}' parses as a time-indexed symbol "
+                        f"for declared variable '{base}' (lag={lag}). Outside of "
+                        f"static-variable elimination the pipeline will treat it as "
+                        f"a lead/lag of '{base}', not as a parameter. Rename the "
+                        f"parameter to avoid a name of the form '<var>_<int>'.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
 
     # Precompute the full set of declared model variable names.
     # Used by lead_lag_incidence and is_static to avoid false positives for

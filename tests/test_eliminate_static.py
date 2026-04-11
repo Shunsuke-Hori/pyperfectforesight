@@ -180,3 +180,41 @@ def test_process_model_eliminates_truly_static_var_and_updates_vars_dyn():
     )
     assert "y" not in model["vars_dyn"]
     assert "k" in model["vars_dyn"]
+
+
+def test_process_model_warns_on_param_name_clash():
+    """process_model warns when a param name clashes with a time-indexed var pattern."""
+    import warnings
+    k_m, k_0 = v("k", -1), v("k", 0)
+    rho_1 = sp.Symbol("rho_1")   # looks like v("k",...) but base is "rho" — and "rho" is a declared var
+
+    # "rho" is both in vars_dyn and a parameter named "rho_1" parses as v("rho", 1)
+    rho_0 = v("rho", 0)
+    eq1 = k_0 - (1 - delta) * k_m
+    eq2 = rho_0 - rho_1 * k_0
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        process_model([eq1, eq2], ["k", "rho"], vars_params=["rho_1"])
+
+    assert any("rho_1" in str(warning.message) for warning in w), (
+        "Expected UserWarning about parameter name 'rho_1' clashing with v('rho', 1)"
+    )
+
+
+def test_process_model_no_warn_for_safe_param_names():
+    """process_model does not warn for param names that don't clash with vars."""
+    import warnings
+    k_m, k_0, c_0 = v("k", -1), v("k", 0), v("c", 0)
+    beta = sp.Symbol("beta")
+    delta_s = sp.Symbol("delta")
+
+    eq1 = k_0 - (1 - delta_s) * k_m - c_0
+    eq2 = c_0 - beta * k_0
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        process_model([eq1, eq2], ["k", "c"], vars_params=["beta", "delta"])
+
+    clashes = [x for x in w if issubclass(x.category, UserWarning) and "parses as" in str(x.message)]
+    assert not clashes, f"Unexpected clash warning(s): {clashes}"
