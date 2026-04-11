@@ -31,7 +31,7 @@ def p(name):
     .. warning::
 
        Parameter names must **not** match the pattern ``<var>_<int>`` when
-       ``<var>`` is also a declared endogenous or exogenous variable.
+       ``<var>`` is also a declared endogenous, exogenous, or auxiliary variable.
        ``p("rho_1")`` produces the same SymPy symbol as ``v("rho", 1)``, so
        the broader pipeline (incidence detection, lag-set computation, residual
        evaluation) will treat it as the lag-1 value of ``rho`` rather than as
@@ -1327,8 +1327,8 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         building the "has-dynamics" set.
 
         **Naming constraint**: parameter names must not match the pattern
-        ``<var>_<int>`` when ``<var>`` is a declared endogenous or exogenous
-        variable.  ``p("rho_1")`` produces the same SymPy symbol as
+        ``<var>_<int>`` when ``<var>`` is a declared endogenous, exogenous, or
+        auxiliary variable.  ``p("rho_1")`` produces the same SymPy symbol as
         ``v("rho", 1)``; outside static-elimination the pipeline treats the
         symbol as a lag-1 value of ``rho``, not as a parameter.  A
         ``ValueError`` is raised when such a clash is detected.

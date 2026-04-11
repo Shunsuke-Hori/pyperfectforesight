@@ -39,7 +39,7 @@ Use `p(name)` — not `sp.Symbol(name)` directly — to create parameter symbols
 
 `vars_params` is stored in the processed-model bundle and is passed to `_eliminate_static_core`.  When a symbol's full name (e.g. `rho_1`) appears in `vars_params`, it is skipped when building the "has-dynamics" set, so a parameter named `rho_1` does not block elimination of an endogenous variable named `rho` even when `"rho"` is declared in `vars_dyn`.
 
-**Naming constraint**: parameter names must **not** match the pattern `<var>_<int>` when `<var>` is also a declared endogenous or exogenous variable.  `p("rho_1")` produces the same SymPy symbol as `v("rho", 1)`, so the broader pipeline (incidence detection, lag-set computation, residual evaluation) treats it as the lag-1 value of `rho`, not as a parameter.  `process_model` raises a `ValueError` when such a clash is detected.  Use ordinary parameter names (e.g. `rho`, `sigma`) to avoid this.
+**Naming constraint**: parameter names must **not** match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable.  `p("rho_1")` produces the same SymPy symbol as `v("rho", 1)`, so the broader pipeline (incidence detection, lag-set computation, residual evaluation) treats it as the lag-1 value of `rho`, not as a parameter.  `process_model` raises a `ValueError` when such a clash is detected.  Use ordinary parameter names (e.g. `rho`, `sigma`) to avoid this.
 
 ### Dynare lag notation
 Equations are written with `v("k", -1)` for `k_{t-1}` (lag) and `v("c", 1)` for `c_{t+1}` (lead).
