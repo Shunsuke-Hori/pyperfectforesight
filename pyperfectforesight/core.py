@@ -35,7 +35,7 @@ def p(name):
        ``p("rho_1")`` produces the same SymPy symbol as ``v("rho", 1)``, so
        the broader pipeline (incidence detection, lag-set computation, residual
        evaluation) will treat it as the lag-1 value of ``rho`` rather than as
-       a parameter.  ``process_model`` emits a ``UserWarning`` when such a
+       a parameter.  ``process_model`` raises a ``ValueError`` when such a
        clash is detected.
 
     Parameters
@@ -1331,7 +1331,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
         variable.  ``p("rho_1")`` produces the same SymPy symbol as
         ``v("rho", 1)``; outside static-elimination the pipeline treats the
         symbol as a lag-1 value of ``rho``, not as a parameter.  A
-        ``UserWarning`` is emitted when such a clash is detected.
+        ``ValueError`` is raised when such a clash is detected.
 
     aux_method : str, optional
         Method for handling auxiliary variables (default: ``'auto'``):
@@ -1406,21 +1406,17 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
     # pipeline (incidence, lag-sets, residuals) treats it as a lag-1 endogenous
     # symbol.  This produces silent wrong behaviour that is hard to debug.
     if vars_params:
-        import warnings as _warnings
         var_names = set(vars_dyn) | set(vars_exo) | set(vars_aux)
         for pname in vars_params:
             parsed = _parse_time_symbol(pname)
             if parsed is not None:
                 base, lag = parsed
                 if base in var_names:
-                    _warnings.warn(
-                        f"Parameter name '{pname}' parses as a time-indexed symbol "
-                        f"for declared variable '{base}' (lag={lag}). Outside of "
-                        f"static-variable elimination the pipeline will treat it as "
-                        f"a lead/lag of '{base}', not as a parameter. Rename the "
-                        f"parameter to avoid a name of the form '<var>_<int>'.",
-                        UserWarning,
-                        stacklevel=2,
+                    raise ValueError(
+                        f"Parameter name '{pname}' clashes with the time-indexed "
+                        f"symbol for declared variable '{base}' (lag={lag}). "
+                        f"The pipeline cannot distinguish it from v('{base}', {lag}). "
+                        f"Rename the parameter to avoid the pattern '<var>_<int>'."
                     )
 
     # Precompute the full set of declared model variable names.
