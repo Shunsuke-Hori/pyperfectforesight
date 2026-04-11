@@ -160,7 +160,7 @@ print(f"Converged: {sol.success}")
 
 ## Permanent shock with auto-computed terminal steady state
 
-For a **permanent** shock the terminal steady state differs from the initial one. Instead of computing it by hand, use `compile_steady_state_funcs` + `compiled_ss` to let the solver derive it automatically from the last row of `exog_path` — the equivalent of Dynare's `endval` + `steady`.
+For a **permanent** shock the terminal steady state differs from the initial one. Instead of computing it by hand, compile a `compiled_ss` bundle with `compile_steady_state_funcs(...)` and pass it as `compiled_ss=...` so the solver can derive the terminal steady state automatically from the last row of `exog_path` — the equivalent of Dynare's `endval` + `steady`.
 
 ```python
 import numpy as np
@@ -186,20 +186,20 @@ model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=vars_exo,
 # Compile the steady-state system once for reuse in later numerical solves
 compiled_ss = compile_steady_state_funcs([eq_euler, eq_kacc], vars_dyn, vars_exo)
 
-# Initial steady state: z = 1.0
-ss_initial = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
+# Pre-shock steady state: z = 1.0
+ss_pre = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
 
 T = 100
 # Permanent TFP increase: z jumps from 1.0 to 1.05 at period 0
 exog_path = np.full((T, 1), 1.05)
 
-# initial_state = k_{-1} at the *pre-shock* steady state
-k_neg1 = np.array([ss_initial[1]])
+# initial_state = k_{-1} at the pre-shock steady state
+k_neg1 = np.array([ss_pre[1]])
 
-# ss_initial (pre-shock SS) is passed as ss; compiled_ss auto-computes endval
-# from exog_path[-1] (post-shock SS at z=1.05)
+# ss=ss_pre seeds ss_initial (pre-shock); compiled_ss auto-computes endval
+# (post-shock SS at z=1.05) from exog_path[-1]
 sol = solve_perfect_foresight(
-    T, PARAMS, ss_initial, model_funcs, vars_dyn,
+    T, PARAMS, ss_pre, model_funcs, vars_dyn,
     exog_path=exog_path,
     initial_state=k_neg1,
     compiled_ss=compiled_ss,
