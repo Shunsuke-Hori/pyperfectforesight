@@ -240,24 +240,17 @@ def test_process_model_eliminates_truly_static_var_and_updates_vars_dyn():
     assert "k" in model["vars_dyn"]
 
 
-def test_process_model_warns_on_param_name_clash():
-    """process_model warns when a param name clashes with a time-indexed var pattern."""
-    import warnings
+def test_process_model_raises_on_param_name_clash():
+    """process_model raises ValueError when a param name clashes with a time-indexed var pattern."""
     k_m, k_0 = v("k", -1), v("k", 0)
-    rho_1 = sp.Symbol("rho_1")   # looks like v("k",...) but base is "rho" — and "rho" is a declared var
+    rho_1 = sp.Symbol("rho_1")   # base is "rho" which is also a declared var
 
-    # "rho" is both in vars_dyn and a parameter named "rho_1" parses as v("rho", 1)
     rho_0 = v("rho", 0)
     eq1 = k_0 - (1 - delta) * k_m
     eq2 = rho_0 - rho_1 * k_0
 
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
+    with pytest.raises(ValueError, match="rho_1"):
         process_model([eq1, eq2], ["k", "rho"], vars_params=["rho_1"])
-
-    assert any("rho_1" in str(warning.message) for warning in w), (
-        "Expected UserWarning about parameter name 'rho_1' clashing with v('rho', 1)"
-    )
 
 
 def test_process_model_no_warn_for_safe_param_names():

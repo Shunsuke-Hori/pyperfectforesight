@@ -23,7 +23,7 @@ vars_params = ["alpha", "beta", "delta"]
 model_funcs = process_model(equations, vars_dyn, vars_params=vars_params)
 ```
 
-**Naming constraint**: a parameter name must not match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable — e.g. `p("rho_1")` would collide with `v("rho", 1)`. `process_model` emits a `UserWarning` if such a clash is detected.
+**Naming constraint**: a parameter name must not match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable — e.g. `p("rho_1")` would collide with `v("rho", 1)`. `process_model` raises a `ValueError` if such a clash is detected.
 
 ### Dynare lag notation
 
