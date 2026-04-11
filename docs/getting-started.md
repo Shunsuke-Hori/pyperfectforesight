@@ -13,16 +13,12 @@ Use dedicated constructors for each class of symbol:
 | Parameter (time-invariant) | `p(name)` | `vars_params` |
 
 ```python
-from pyperfectforesight import p, v
+from pyperfectforesight import p, v, process_model
 
 alpha = p("alpha")   # parameter
 k_m   = v("k", -1)  # k_{t-1}
 k_0   = v("k",  0)  # k_t
-```
 
-Pass `vars_params` to `process_model` so the pipeline knows which symbols are parameters (not time-indexed variables):
-
-```python
 vars_params = ["alpha", "beta", "delta"]
 model_funcs = process_model(equations, vars_dyn, vars_params=vars_params)
 ```

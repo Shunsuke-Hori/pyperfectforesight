@@ -30,7 +30,6 @@ from pyperfectforesight.core import (
     # Solver components
     residual,
     sparse_jacobian,
-    append_terminal_conditions,
 
     # High-level solver
     solve_perfect_foresight,
@@ -63,7 +62,6 @@ __all__ = [
     # Solver components
     "residual",
     "sparse_jacobian",
-    "append_terminal_conditions",
     # High-level solver
     "solve_perfect_foresight",
     "solve_perfect_foresight_homotopy",
