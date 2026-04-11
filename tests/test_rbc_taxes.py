@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from pyperfectforesight import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, p, process_model, solve_perfect_foresight
 
 # ── Reference data ────────────────────────────────────────────────────────────
 
@@ -38,8 +38,16 @@ def _load_ref():
 
 # ── Model definition ──────────────────────────────────────────────────────────
 
-beta_s, delta_s, alpha_s = sp.symbols("beta delta alpha")
-rho_s, sigma_s, eta_s, chi_s, zbar_s = sp.symbols("rho sigma eta chi zbar")
+beta_s  = p("beta")
+delta_s = p("delta")
+alpha_s = p("alpha")
+rho_s   = p("rho")
+sigma_s = p("sigma")
+eta_s   = p("eta")
+chi_s   = p("chi")
+zbar_s  = p("zbar")
+
+VARS_PARAMS = ["beta", "delta", "alpha", "rho", "sigma", "eta", "chi", "zbar"]
 
 VARS_DYN = ["z", "k", "g", "i", "n"]
 VARS_EXO = ["e_g"]
@@ -134,7 +142,7 @@ def _run_sim(model):
 
 @pytest.fixture(scope="module")
 def model():
-    return process_model(EQUATIONS, VARS_DYN, vars_exo=VARS_EXO)
+    return process_model(EQUATIONS, VARS_DYN, vars_exo=VARS_EXO, vars_params=VARS_PARAMS)
 
 
 @pytest.fixture(scope="module")
