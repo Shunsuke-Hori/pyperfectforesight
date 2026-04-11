@@ -155,7 +155,7 @@ def is_static(eq, known_vars=None):
             return False
     return True
 
-def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
+def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None, vars_params=None):
     """Core static-elimination logic.
 
     Returns
@@ -173,28 +173,34 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
     vars_dyn : list of str, optional
         Declared endogenous base names.  When provided, only symbols whose
         base name is in this set are considered as elimination candidates, and
-        only those base names can populate ``vars_with_dynamics``.  This
-        prevents parameters named like ``rho_1`` from blocking elimination of
-        an unrelated endogenous variable ``rho``.
+        only those base names can populate ``vars_with_dynamics``.
     vars_exo : list of str, optional
         Declared exogenous base names.  Current-period exogenous symbols are
-        excluded from the candidate set by base-name check (no hard-coded lag
-        range needed).
+        excluded from the candidate set by base-name check.
+    vars_params : list of str, optional
+        Declared parameter names.  A symbol whose *full name* matches an entry
+        in this list (e.g. ``rho_1``) is skipped when building
+        ``vars_with_dynamics``, preventing a parameter named ``rho_1`` from
+        incorrectly marking endogenous ``rho`` as dynamic.
     """
     if not static_eqs:
         return dynamic_eqs, frozenset()
 
-    endo_names = set(vars_dyn) if vars_dyn is not None else None
-    exo_names  = set(vars_exo)  if vars_exo  is not None else set()
+    endo_names  = set(vars_dyn)    if vars_dyn    is not None else None
+    exo_names   = set(vars_exo)    if vars_exo    is not None else set()
+    param_names = set(vars_params) if vars_params is not None else set()
 
     all_eqs = static_eqs + dynamic_eqs
 
     # Base names that appear at any non-zero lag/lead in any equation.
     # Restricted to declared endogenous names (when available) so that
     # parameters like rho_1 don't contaminate the set.
+    # Symbols whose full name is in param_names are also skipped.
     vars_with_dynamics = set()
     for eq in all_eqs:
         for s in eq.free_symbols:
+            if s.name in param_names:
+                continue
             parsed = _parse_time_symbol(s.name)
             if parsed is None or parsed[1] == 0:
                 continue
@@ -245,7 +251,7 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
     return [eq.subs(sol) for eq in dynamic_eqs], eliminated
 
 
-def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
+def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None, vars_params=None):
     """
     Eliminate truly-static variables from the dynamic system.
 
@@ -282,6 +288,11 @@ def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
     vars_exo : list of str, optional
         Declared exogenous base names.  Symbols with these base names are
         excluded from the candidate set.
+    vars_params : list of str, optional
+        Declared parameter names.  Symbols whose full name matches an entry
+        here are skipped when building the dynamics set, so a parameter named
+        ``rho_1`` does not block elimination of an endogenous variable
+        named ``rho``.
 
     Returns
     -------
@@ -290,7 +301,10 @@ def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
         succeeded) or ``len(static_eqs) + len(dynamic_eqs)`` equations
         (elimination skipped / failed).
     """
-    eqs, _ = _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=vars_dyn, vars_exo=vars_exo)
+    eqs, _ = _eliminate_static_core(
+        static_eqs, dynamic_eqs,
+        vars_dyn=vars_dyn, vars_exo=vars_exo, vars_params=vars_params,
+    )
     return eqs
 
 # ============================================================
@@ -1247,7 +1261,7 @@ def solve_steady_state(compiled_ss, params_dict, initial_guess=None, exog_ss=Non
 # 9. Model processing pipeline
 # ============================================================
 
-def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, *, vars_params=None, aux_method='auto', eliminate_static_vars=True, compiler='lambdify'):
+def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method='auto', eliminate_static_vars=True, compiler='lambdify', *, vars_params=None):
     """
     Process model equations and compile to numeric functions
 
@@ -1266,9 +1280,9 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, *, vars_par
         Declared parameter names (default: None).  Use ``p(name)`` to create
         the corresponding SymPy symbols so the string ↔ symbol round-trip is
         exact.  The list is stored in the returned bundle as ``'vars_params'``
-        for downstream reference (e.g. compile_steady_state_funcs), but does
-        not currently affect ``eliminate_static`` candidate selection (that
-        relies on ``vars_dyn`` / ``vars_exo``).
+        and is passed to ``eliminate_static`` so that parameters whose names
+        parse as ``name_<int>`` (e.g. ``rho_1``) are not mistaken for
+        time-indexed endogenous variables when building the dynamics set.
 
     aux_method : str, optional
         Method for handling auxiliary variables (default: ``'auto'``):
@@ -1527,6 +1541,7 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, *, vars_par
                 static_eqs, dynamic_eqs,
                 vars_dyn=vars_dyn,
                 vars_exo=vars_exo,
+                vars_params=vars_params,
             )
             if eliminated:
                 vars_dyn = [name for name in vars_dyn if name not in eliminated]

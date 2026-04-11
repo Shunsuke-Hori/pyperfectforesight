@@ -50,9 +50,11 @@ def test_core_substitutes_into_dynamic_eq():
     )
 
     assert "y" in eliminated
-    # y_0 should have been substituted → k_0^(1/2) appears instead
     assert v("y", 0) not in eqs[0].free_symbols
-    assert k_0**sp.Rational(1, 2) in eqs[0].expand().args or k_0 in eqs[0].free_symbols
+    # y_0 was replaced by k_0**(1/2); the resulting equation simplifies to
+    # k_0 - (1-delta)*k_{-1} - k_0**(1/2) + c_0 = 0
+    expected = (k_0 - (1 - delta) * k_m - k_0**sp.Rational(1, 2) + c_0).expand()
+    assert (eqs[0] - expected).expand() == 0
 
 
 # ── _eliminate_static_core: no-op paths ──────────────────────────────────────
@@ -107,6 +109,38 @@ def test_core_skips_param_named_like_var():
 
     assert "y" in eliminated
     assert len(eqs) == 1
+
+
+def test_core_vars_params_prevents_param_blocking_endogenous():
+    """vars_params prevents rho_1 (a param) from blocking endogenous rho elimination.
+
+    Without vars_params: rho_1 parses as base='rho', lag=1, and since 'rho'
+    is in vars_dyn it pollutes vars_with_dynamics, blocking rho_0 elimination.
+    With vars_params=['rho_1']: rho_1 is recognised as a parameter and skipped.
+    """
+    rho_1 = sp.Symbol("rho_1")   # parameter that looks like v("rho", 1)
+    rho_0 = v("rho", 0)
+    k_m, k_0 = v("k", -1), v("k", 0)
+
+    eq_static = rho_0 - rho_1 * k_0    # rho is truly static
+    eq_dyn    = k_0 - (1 - delta) * k_m
+
+    # Without vars_params: rho_1 looks like a lag-1 symbol for "rho", which is
+    # in vars_dyn → "rho" lands in vars_with_dynamics → no elimination.
+    eqs_no_params, elim_no_params = _eliminate_static_core(
+        [eq_static], [eq_dyn], vars_dyn=["k", "rho"], vars_exo=[]
+    )
+    assert elim_no_params == frozenset(), "without vars_params rho_1 should block elimination"
+
+    # With vars_params: rho_1 is skipped → "rho" stays out of vars_with_dynamics
+    # → rho_0 is correctly eliminated.
+    eqs_with_params, elim_with_params = _eliminate_static_core(
+        [eq_static], [eq_dyn], vars_dyn=["k", "rho"], vars_exo=[],
+        vars_params=["rho_1"],
+    )
+    assert "rho" in elim_with_params
+    assert len(eqs_with_params) == 1
+    assert rho_0 not in eqs_with_params[0].free_symbols
 
 
 def test_core_empty_static_eqs():
