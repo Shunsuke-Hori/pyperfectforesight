@@ -1585,6 +1585,9 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, aux_method=
             )
             if eliminated:
                 vars_dyn = [name for name in vars_dyn if name not in eliminated]
+                # keep known_vars_final in sync so the final lead_lag_incidence
+                # call doesn't treat eliminated names as known variables
+                known_vars_final -= eliminated
     else:
         dynamic_eqs = equations
 
