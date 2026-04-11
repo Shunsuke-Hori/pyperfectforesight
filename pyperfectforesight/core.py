@@ -173,10 +173,13 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
     Returns
     -------
     tuple (list_of_eqs, frozenset_of_eliminated_base_names)
-        On success: ``len(dynamic_eqs)`` substituted equations and the set of
-        endogenous base names that were solved out.
-        On failure / no candidates: ``static_eqs + dynamic_eqs`` and an empty
-        frozenset.
+        * **Full elimination**: ``len(dynamic_eqs)`` substituted equations
+          and the set of eliminated base names.
+        * **Partial elimination**: ``len(dynamic_eqs) + len(leftover_static_eqs)``
+          equations (leftover static equations that had no candidate vars are
+          appended) and the set of eliminated base names.
+        * **No elimination**: ``static_eqs + dynamic_eqs`` and an empty
+          frozenset.
 
     Parameters
     ----------
@@ -325,9 +328,14 @@ def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None, vars
     Returns
     -------
     list of sympy expressions
-        Either ``len(dynamic_eqs)`` substituted equations (elimination
-        succeeded) or ``len(static_eqs) + len(dynamic_eqs)`` equations
-        (elimination skipped / failed).
+        * **Full elimination**: ``len(dynamic_eqs)`` substituted equations
+          (all static equations involved candidate variables and were solved).
+        * **Partial elimination**: ``len(dynamic_eqs) + len(leftover_static_eqs)``
+          equations, where ``leftover_static_eqs`` are the static equations
+          that did not involve any candidate variable and are preserved as
+          additional equations in the returned system.
+        * **No elimination** (SymPy cannot solve, or no eligible variables):
+          ``len(static_eqs) + len(dynamic_eqs)`` equations unchanged.
     """
     eqs, _ = _eliminate_static_core(
         static_eqs, dynamic_eqs,
