@@ -155,7 +155,92 @@ def is_static(eq, known_vars=None):
             return False
     return True
 
-def eliminate_static(static_eqs, dynamic_eqs, exclude_syms=None):
+def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
+    """Core static-elimination logic.
+
+    Returns
+    -------
+    tuple (list_of_eqs, frozenset_of_eliminated_base_names)
+        On success: ``len(dynamic_eqs)`` substituted equations and the set of
+        endogenous base names that were solved out.
+        On failure / no candidates: ``static_eqs + dynamic_eqs`` and an empty
+        frozenset.
+
+    Parameters
+    ----------
+    static_eqs : list of sympy expressions
+    dynamic_eqs : list of sympy expressions
+    vars_dyn : list of str, optional
+        Declared endogenous base names.  When provided, only symbols whose
+        base name is in this set are considered as elimination candidates, and
+        only those base names can populate ``vars_with_dynamics``.  This
+        prevents parameters named like ``rho_1`` from blocking elimination of
+        an unrelated endogenous variable ``rho``.
+    vars_exo : list of str, optional
+        Declared exogenous base names.  Current-period exogenous symbols are
+        excluded from the candidate set by base-name check (no hard-coded lag
+        range needed).
+    """
+    if not static_eqs:
+        return dynamic_eqs, frozenset()
+
+    endo_names = set(vars_dyn) if vars_dyn is not None else None
+    exo_names  = set(vars_exo)  if vars_exo  is not None else set()
+
+    all_eqs = static_eqs + dynamic_eqs
+
+    # Base names that appear at any non-zero lag/lead in any equation.
+    # Restricted to declared endogenous names (when available) so that
+    # parameters like rho_1 don't contaminate the set.
+    vars_with_dynamics = set()
+    for eq in all_eqs:
+        for s in eq.free_symbols:
+            parsed = _parse_time_symbol(s.name)
+            if parsed is None or parsed[1] == 0:
+                continue
+            base = parsed[0]
+            if endo_names is None or base in endo_names:
+                vars_with_dynamics.add(base)
+
+    # Candidate t=0 symbols: endogenous, not exogenous, no dynamics elsewhere.
+    # Parse each symbol once.
+    candidate_set = set()
+    for eq in static_eqs:
+        for s in eq.free_symbols:
+            parsed = _parse_time_symbol(s.name)
+            if parsed is None:
+                continue
+            base, lag = parsed
+            if lag != 0:
+                continue
+            if base in exo_names:
+                continue
+            if endo_names is not None and base not in endo_names:
+                continue
+            if base in vars_with_dynamics:
+                continue
+            candidate_set.add(s)
+
+    static_vars = sorted(candidate_set, key=lambda s: s.name)
+
+    if not static_vars:
+        return static_eqs + dynamic_eqs, frozenset()
+
+    try:
+        sol = sp.solve(static_eqs, static_vars, dict=True)
+    except RecursionError:
+        sol = []
+    if not sol:
+        return static_eqs + dynamic_eqs, frozenset()
+
+    sol = sol[0]
+    eliminated = frozenset(
+        _parse_time_symbol(s.name)[0] for s in static_vars if s in sol
+    )
+    return [eq.subs(sol) for eq in dynamic_eqs], eliminated
+
+
+def eliminate_static(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None):
     """
     Eliminate truly-static variables from the dynamic system.
 
@@ -165,13 +250,15 @@ def eliminate_static(static_eqs, dynamic_eqs, exclude_syms=None):
     2. It does **not** appear at any non-zero lag or lead in *any* equation
        (static or dynamic).  Variables with leads/lags must remain in the
        solved system across periods.
-    3. It is not in ``exclude_syms`` (typically parameter and exogenous-
-       variable symbols, supplied by ``process_model``).
+    3. Its base name is in ``vars_dyn`` (when provided) and **not** in
+       ``vars_exo``.
 
     On success the eligible variables are solved from ``static_eqs`` (using
     ``sp.solve``) and substituted into ``dynamic_eqs``.  The static equations
-    are dropped because they have been "used up" by the substitution, keeping
-    the system square.
+    are dropped because they have been "used up" by the substitution.
+    **Note**: the caller is responsible for also removing the eliminated
+    variable names from ``vars_dyn``; ``process_model`` does this
+    automatically.
 
     On failure (SymPy cannot solve, or no eligible variables), the full set
     ``static_eqs + dynamic_eqs`` is returned unchanged.
@@ -182,9 +269,14 @@ def eliminate_static(static_eqs, dynamic_eqs, exclude_syms=None):
         Equations that contain only current-period (``t=0``) symbols.
     dynamic_eqs : list of sympy expressions
         Equations that contain at least one lead or lag.
-    exclude_syms : set of sympy.Symbol, optional
-        Symbols that must **not** be treated as static variables (parameters,
-        exogenous-variable time-indexed symbols, etc.).
+    vars_dyn : list of str, optional
+        Declared endogenous base names.  When provided, only these are
+        considered as elimination candidates, preventing false positives from
+        parameters whose names look like time-indexed variables (e.g.
+        ``rho_1``).
+    vars_exo : list of str, optional
+        Declared exogenous base names.  Symbols with these base names are
+        excluded from the candidate set.
 
     Returns
     -------
@@ -193,45 +285,8 @@ def eliminate_static(static_eqs, dynamic_eqs, exclude_syms=None):
         succeeded) or ``len(static_eqs) + len(dynamic_eqs)`` equations
         (elimination skipped / failed).
     """
-    if not static_eqs:
-        return dynamic_eqs
-
-    if exclude_syms is None:
-        exclude_syms = set()
-
-    all_eqs = static_eqs + dynamic_eqs
-
-    # Variables that appear at any non-zero lag/lead anywhere — these cannot
-    # be eliminated because the solver must track them across periods.
-    vars_with_dynamics = set()
-    for eq in all_eqs:
-        for s in eq.free_symbols:
-            parsed = _parse_time_symbol(s.name)
-            if parsed is not None and parsed[1] != 0:
-                vars_with_dynamics.add(parsed[0])
-
-    # Candidate t=0 symbols: in static_eqs, not a parameter/exo, no dynamics
-    static_vars = sorted(
-        {s for eq in static_eqs for s in eq.free_symbols
-         if s not in exclude_syms
-         and _parse_time_symbol(s.name) is not None
-         and _parse_time_symbol(s.name)[1] == 0
-         and _parse_time_symbol(s.name)[0] not in vars_with_dynamics},
-        key=lambda s: s.name,
-    )
-
-    if not static_vars:
-        return static_eqs + dynamic_eqs
-
-    try:
-        sol = sp.solve(static_eqs, static_vars, dict=True)
-    except RecursionError:
-        sol = []
-    if not sol:
-        return static_eqs + dynamic_eqs
-
-    sol = sol[0]
-    return [eq.subs(sol) for eq in dynamic_eqs]
+    eqs, _ = _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=vars_dyn, vars_exo=vars_exo)
+    return eqs
 
 # ============================================================
 # 4. Local Jacobian blocks (symbolic)
@@ -1461,19 +1516,16 @@ def process_model(equations, vars_dyn, vars_exo=None, vars_aux=None, vars_params
             dynamic_eqs = dynamic_eqs + aux_eqs
 
         # Eliminate non-auxiliary static equations.
-        # exclude_syms: parameter symbols + all time-indexed exo symbols so
-        # that eliminate_static never tries to solve for them.
+        # Use _eliminate_static_core so we get back the set of eliminated base
+        # names and can remove them from vars_dyn to keep the system square.
         if static_eqs:
-            param_syms = {sp.Symbol(name) for name in vars_params}
-            exo_syms = {
-                sp.Symbol(f"{name}_{lag}")
-                for name in vars_exo
-                for lag in range(-10, 11)   # cover any lag/lead that might appear
-            }
-            dynamic_eqs = eliminate_static(
+            dynamic_eqs, eliminated = _eliminate_static_core(
                 static_eqs, dynamic_eqs,
-                exclude_syms=param_syms | exo_syms,
+                vars_dyn=vars_dyn,
+                vars_exo=vars_exo,
             )
+            if eliminated:
+                vars_dyn = [name for name in vars_dyn if name not in eliminated]
     else:
         dynamic_eqs = equations
 
