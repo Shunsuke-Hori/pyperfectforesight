@@ -117,14 +117,24 @@ def test_core_overdetermined_candidate_system_skips_elimination():
 
 # ── _eliminate_static_core: sp.solve failure fallback ────────────────────────
 
-def test_core_falls_back_when_sp_solve_raises_not_implemented():
-    """sp.Min in a static equation causes sp.solve to raise NotImplementedError;
-    _eliminate_static_core must catch it and return equations unchanged."""
+def test_core_falls_back_when_sp_solve_raises_not_implemented(monkeypatch):
+    """_eliminate_static_core catches NotImplementedError from sp.solve and
+    returns equations unchanged.
+
+    monkeypatch forces the exception so the test exercises the exception-handling
+    path deterministically, regardless of how SymPy handles Min in the future.
+    """
+    import pyperfectforesight.core as _core
+
     k_m, k_0, i_0, xi_2_0 = v("k", -1), v("k", 0), v("i", 0), v("xi_2", 0)
 
-    # static equation containing sp.Min — sp.solve cannot handle this
     eq_zlb = sp.Min(xi_2_0, i_0)
     eq_dyn = k_0 - (1 - delta) * k_m
+
+    def _raise(*args, **kwargs):
+        raise NotImplementedError("forced by test")
+
+    monkeypatch.setattr(_core.sp, "solve", _raise)
 
     eqs, eliminated = _eliminate_static_core(
         [eq_zlb], [eq_dyn], vars_dyn=["k", "i", "xi_2"], vars_exo=[]
