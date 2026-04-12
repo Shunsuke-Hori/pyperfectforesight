@@ -156,9 +156,16 @@ def test_solver_converges(solution):
 
 
 def test_zlb_binds_on_impact(solution):
-    """Nominal rate is at the zero lower bound on impact."""
+    """Nominal rate is at the zero lower bound on impact: non-negative and
+    within solver tolerance of zero."""
     i_path = solution[:, 2]
-    assert i_path[0] < 1e-6, f"ZLB should bind at t=0; got i={i_path[0]:.6f}"
+    tol = 1e-6
+    assert i_path[0] >= -tol, (
+        f"NCP should enforce a non-negative rate at t=0; got i={i_path[0]:.6f}"
+    )
+    assert i_path[0] == pytest.approx(0.0, abs=tol), (
+        f"ZLB should bind at t=0; got i={i_path[0]:.6f}"
+    )
 
 
 def test_zlb_not_binding_after_shock(solution):
