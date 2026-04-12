@@ -135,9 +135,9 @@ def solution(model):
 @pytest.fixture(scope="module")
 def dynare_ref():
     if not os.path.exists(_REF_CSV):
-        pytest.skip(
-            f"Dynare reference file not found: {_REF_CSV} — "
-            "run `dynare gali_2015_zlb` in tests/dynare_ref_output/ to generate it."
+        pytest.fail(
+            f"Dynare reference file not found: {_REF_CSV}\n"
+            "Run `dynare gali_2015_zlb` in tests/dynare_ref_output/ to generate it."
         )
     ref = np.loadtxt(_REF_CSV, delimiter=",")
     if ref.shape != (T, len(VARS_DYN)):

@@ -242,9 +242,10 @@ factors — `∂Min(a,b)/∂a = Heaviside(b − a)` and `∂Min(a,b)/∂b = Heav
 — which is what SymPy's lambdified Jacobian computes.  The kink at `a = b`
 (measure zero) does not prevent Newton convergence in practice.
 
-`process_model` automatically skips static elimination for equations
-containing `sp.Min` or `sp.Max` (since `sp.solve` cannot invert them
-analytically).  No special flag is needed:
+`process_model` still attempts static elimination via `sp.solve`.  If
+`sp.solve` raises `NotImplementedError` — which typically happens for
+equations involving `sp.Min` or `sp.Max` — it falls back to no static
+elimination.  No special flag is needed:
 
 ```python
 model = process_model(
