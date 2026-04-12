@@ -38,6 +38,9 @@ from pyperfectforesight.core import (
 
     # Initial guess helper
     make_initial_guess,
+
+    # Object-oriented API
+    Model,
 )
 
 __all__ = [
@@ -68,4 +71,6 @@ __all__ = [
     "solve_perfect_foresight_expectation_errors",
     # Initial guess helper
     "make_initial_guess",
+    # Object-oriented API
+    "Model",
 ]
