@@ -270,7 +270,7 @@ def _eliminate_static_core(static_eqs, dynamic_eqs, vars_dyn=None, vars_exo=None
 
     try:
         sol = sp.solve(candidate_static_eqs, static_vars, dict=True)
-    except RecursionError:
+    except (RecursionError, NotImplementedError):
         sol = []
     if not sol:
         return static_eqs + dynamic_eqs, frozenset()

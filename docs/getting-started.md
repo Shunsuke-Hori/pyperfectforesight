@@ -211,3 +211,46 @@ c_path, k_path = X[:, 0], X[:, 1]
 ```
 
 `compiled_ss` can be reused across many simulations; call `compile_steady_state_funcs` once and pass the bundle each time. When `endval` is supplied explicitly alongside `compiled_ss`, the explicit value takes precedence and auto-computation is skipped.
+
+## Inequality constraints and the zero lower bound
+
+Encode inequality constraints using SymPy's `sp.Min` or `sp.Max` directly in
+the equation list.  The standard `sparse_newton` solver treats them as ordinary
+nonlinear equations.
+
+The canonical example is the zero lower bound (ZLB) on the nominal interest
+rate.  Write it as the **NCP (Fischer-min) condition**:
+
+```python
+import sympy as sp
+from pyperfectforesight import v
+
+i_0    = v("i",    0)
+xi_2_0 = v("xi_2", 0)
+sigma  = 1.0   # or a parameter symbol
+
+# min(xi_2/σ, i) = 0  encodes:
+#   xi_2/σ ≥ 0,  i ≥ 0,  (xi_2/σ) · i = 0
+eq_zlb = sp.Min(xi_2_0 / sigma, i_0)
+```
+
+This single equation encodes all three complementarity conditions at once.
+The partial derivatives of `sp.Min(a, b)` are piecewise: with respect to `a`,
+the derivative is 1 when `a < b` and 0 when `a > b`; with respect to `b`, it
+is 0 when `a < b` and 1 when `a > b`.  These can be written using Heaviside
+factors — `∂Min(a,b)/∂a = Heaviside(b − a)` and `∂Min(a,b)/∂b = Heaviside(a − b)`
+— which is what SymPy's lambdified Jacobian computes.  The kink at `a = b`
+(measure zero) does not prevent Newton convergence in practice.
+
+`process_model` still attempts static elimination via `sp.solve`.  If
+`sp.solve` raises `NotImplementedError` — which typically happens for
+equations involving `sp.Min` or `sp.Max` — it falls back to no static
+elimination.  No special flag is needed:
+
+```python
+model = process_model(
+    equations, vars_dyn,
+    vars_exo=vars_exo,
+    vars_params=vars_params,
+)
+```

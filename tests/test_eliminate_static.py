@@ -115,6 +115,42 @@ def test_core_overdetermined_candidate_system_skips_elimination():
     assert len(eqs) == 3   # all equations returned unchanged
 
 
+# ── _eliminate_static_core: sp.solve failure fallback ────────────────────────
+
+def test_core_falls_back_when_sp_solve_raises_not_implemented(monkeypatch):
+    """_eliminate_static_core catches NotImplementedError from sp.solve and
+    returns equations unchanged.
+
+    monkeypatch forces the exception so the test exercises the exception-handling
+    path deterministically, regardless of how SymPy handles Min in the future.
+
+    xi_2 is declared exogenous so it is excluded from the candidate set,
+    leaving i as the sole candidate.  This makes the candidate system square
+    (1 equation, 1 variable) so _eliminate_static_core reaches the sp.solve
+    call and the monkeypatched exception is actually raised.
+    """
+    import pyperfectforesight.core as _core
+
+    k_m, k_0, i_0, xi_2_0 = v("k", -1), v("k", 0), v("i", 0), v("xi_2", 0)
+
+    # xi_2 declared exogenous → excluded from candidates; only i_0 is a
+    # candidate, making the system square (1 eq, 1 var) → sp.solve is called.
+    eq_zlb = sp.Min(xi_2_0, i_0)
+    eq_dyn = k_0 - (1 - delta) * k_m
+
+    def _raise(*args, **kwargs):
+        raise NotImplementedError("forced by test")
+
+    monkeypatch.setattr(_core.sp, "solve", _raise)
+
+    eqs, eliminated = _eliminate_static_core(
+        [eq_zlb], [eq_dyn], vars_dyn=["k", "i"], vars_exo=["xi_2"]
+    )
+
+    assert eliminated == frozenset(), "no variable should be eliminated when sp.solve fails"
+    assert len(eqs) == 2   # both equations returned unchanged
+
+
 # ── _eliminate_static_core: no-op paths ──────────────────────────────────────
 
 def test_core_skips_var_with_lead():
