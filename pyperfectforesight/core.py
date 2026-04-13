@@ -3346,6 +3346,7 @@ def solve_perfect_foresight_homotopy(
 # 13. Initial guess helper
 # ============================================================
 
+
 def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
     """
     Generate an initial guess path for the perfect foresight solver.
@@ -3432,4 +3433,304 @@ def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
     else:
         raise ValueError(
             f"method must be 'linear', 'exponential', or 'constant'; got {method!r}."
+        )
+
+
+# ============================================================
+# 14. Model class (object-oriented API)
+# ============================================================
+
+_UNSET = object()   # sentinel: caller did not supply the argument
+
+
+class Model:
+    """Object-oriented interface to the pyperfectforesight solver.
+
+    ``Model`` wraps :func:`process_model` at construction time and exposes
+    :meth:`steady_state`, :meth:`solve`, :meth:`solve_homotopy`, and
+    :meth:`solve_expectation_errors` as methods.  ``model_funcs`` and
+    ``vars_dyn`` never need to be supplied again at solve time.
+
+    A lazily-compiled steady-state bundle is built the first time it is
+    needed and reused for all subsequent calls, so permanent-shock
+    ``endval`` auto-computation (from ``exog_path[-1]``) works without any
+    extra setup.
+
+    Parameters
+    ----------
+    equations : list
+        List of model equations (same as passed to :func:`process_model`).
+    vars_dyn : list of str
+        Endogenous (dynamic) variable names.
+    vars_exo : list of str, optional
+        Exogenous variable names.
+    vars_params : list of str, optional
+        Declared parameter names.  Use :func:`p` to create the corresponding
+        SymPy symbols.  Subject to the same naming constraint as
+        :func:`process_model`.
+    vars_aux : list of str, optional
+        Auxiliary variable names.
+    aux_method : str, default ``'auto'``
+        Auxiliary variable treatment — forwarded to :func:`process_model`.
+    eliminate_static_vars : bool, default ``True``
+        Whether to eliminate non-auxiliary static variables.
+    compiler : str, default ``'lambdify'``
+        Compilation backend — forwarded to :func:`process_model`.
+
+    Attributes
+    ----------
+    vars_dyn : list of str
+        Endogenous variable names after processing (may differ from the
+        constructor argument when static variables are eliminated).
+    vars_exo : list of str
+        Exogenous variable names.
+    vars_aux : list of str
+        Auxiliary variable names.
+    vars_params : list of str
+        Parameter names.
+
+    Examples
+    --------
+    Transitory shock::
+
+        model = Model([eq_euler, eq_kacc], ["c", "k"])
+        ss    = model.steady_state(params)
+        sol   = model.solve(T, params, ss, initial_state=k_neg1)
+        X     = sol.x.reshape(T, -1)
+
+    Permanent shock — ``endval`` auto-computed from ``exog_path[-1]``::
+
+        model = Model([eq_euler, eq_kacc], ["c", "k"],
+                      vars_exo=["z"], vars_params=["alpha", "beta"])
+        ss_pre = model.steady_state(params, exog_ss=np.array([1.0]))
+        sol    = model.solve(T, params, ss_pre, exog_path=exog_path,
+                             initial_state=np.array([ss_pre[1]]))
+    """
+
+    def __init__(
+        self,
+        equations,
+        vars_dyn,
+        vars_exo=None,
+        *,
+        vars_params=None,
+        vars_aux=None,
+        aux_method='auto',
+        eliminate_static_vars=True,
+        compiler='lambdify',
+    ):
+        self._funcs = process_model(
+            equations, vars_dyn,
+            vars_exo=vars_exo,
+            vars_aux=vars_aux,
+            aux_method=aux_method,
+            eliminate_static_vars=eliminate_static_vars,
+            compiler=compiler,
+            vars_params=vars_params,
+        )
+        self.vars_dyn    = self._funcs['vars_dyn']
+        self.vars_exo    = self._funcs['vars_exo']
+        self.vars_aux    = self._funcs['vars_aux']
+        self.vars_params = self._funcs['vars_params']
+        self.aux_method  = self._funcs['aux_method']
+        self._compiled_ss = None   # populated lazily on first use
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _get_compiled_ss(self):
+        """Return the lazily-compiled steady-state bundle."""
+        if self._compiled_ss is None:
+            self._compiled_ss = compile_steady_state_funcs(
+                self._funcs['dynamic_eqs'],
+                self.vars_dyn,
+                self.vars_exo if self.vars_exo else None,
+            )
+        return self._compiled_ss
+
+    # ------------------------------------------------------------------
+    # Public methods
+    # ------------------------------------------------------------------
+
+    def steady_state(self, params, exog_ss=None, initial_guess=None):
+        """Compute the model steady state.
+
+        Parameters
+        ----------
+        params : dict
+            Parameter values (SymPy symbol → float).
+        exog_ss : array-like, optional
+            Exogenous variable values at the steady state (length
+            ``len(self.vars_exo)``).  Omit for deviation-from-SS models
+            where exogenous variables are zero at the steady state.
+        initial_guess : array-like, optional
+            Starting point for the nonlinear SS solver.  Defaults to a
+            vector of ones when omitted.
+
+        Returns
+        -------
+        SteadyState
+            Steady-state values; also usable as a plain numpy array.
+        """
+        return solve_steady_state(
+            self._get_compiled_ss(), params,
+            initial_guess=initial_guess, exog_ss=exog_ss,
+        )
+
+    def solve(
+        self, T, params, ss,
+        X0=None, exog_path=None, initial_state=None, ss_initial=None,
+        stock_var_indices=None, method='sparse_newton', solver_options=None,
+        *, endval=None, compiled_ss=_UNSET,
+        homotopy_fallback=True, homotopy_options=None,
+    ):
+        """Solve the perfect foresight problem.
+
+        Wraps :func:`solve_perfect_foresight`; ``model_funcs`` and
+        ``vars_dyn`` are taken from the model automatically.
+
+        The model's compiled steady-state bundle is used by default so that
+        ``endval`` is auto-computed from ``exog_path[-1]`` for permanent
+        shocks.  Pass ``endval=...`` explicitly to override that value, or
+        ``compiled_ss=None`` to disable auto-computation entirely.
+
+        Parameters
+        ----------
+        T : int
+            Number of periods.
+        params : dict
+            Parameter values (SymPy symbol → float).
+        ss : array-like
+            Default steady-state values (fallback for ``ss_initial`` and
+            ``endval`` when not provided separately).
+        X0, exog_path, initial_state, ss_initial, stock_var_indices, method, solver_options, endval, homotopy_fallback, homotopy_options :
+            Forwarded verbatim to :func:`solve_perfect_foresight`.
+        compiled_ss : dict or None, optional
+            Compiled steady-state bundle.  Defaults to the model's own
+            lazily-built bundle.  Pass ``None`` to opt out of automatic
+            ``endval`` computation.
+
+        Returns
+        -------
+        scipy.optimize.OptimizeResult
+        """
+        if compiled_ss is _UNSET:
+            # compiled_ss is only consumed when endval is None AND exog_path is
+            # not None; skip compilation for transitory shocks (no exog_path) or
+            # when the caller already supplies endval.
+            _cs = (self._get_compiled_ss()
+                   if exog_path is not None and endval is None
+                   else None)
+        else:
+            _cs = compiled_ss
+        return solve_perfect_foresight(
+            T, params, ss, self._funcs, self.vars_dyn,
+            X0=X0, exog_path=exog_path, initial_state=initial_state,
+            ss_initial=ss_initial, stock_var_indices=stock_var_indices,
+            method=method, solver_options=solver_options,
+            endval=endval, compiled_ss=_cs,
+            homotopy_fallback=homotopy_fallback, homotopy_options=homotopy_options,
+        )
+
+    def solve_homotopy(
+        self, T, params, ss,
+        X0=None, exog_path=None, initial_state=None, ss_initial=None,
+        stock_var_indices=None,
+        *, endval=None, compiled_ss=_UNSET, solver_options=None,
+        n_steps=10, verbose=False, exog_ss=None, method='sparse_newton',
+    ):
+        """Solve using homotopy (parameter continuation).
+
+        Wraps :func:`solve_perfect_foresight_homotopy`; ``model_funcs`` and
+        ``vars_dyn`` are taken from the model automatically.
+
+        Parameters
+        ----------
+        T : int
+            Number of periods.
+        params : dict
+            Parameter values (SymPy symbol → float).
+        ss : array-like
+            Terminal steady-state values.
+        X0, exog_path, initial_state, ss_initial, stock_var_indices, endval, solver_options, n_steps, verbose, exog_ss, method :
+            Forwarded verbatim to :func:`solve_perfect_foresight_homotopy`.
+        compiled_ss : dict or None, optional
+            Compiled steady-state bundle.  Defaults to the model's own
+            lazily-built bundle.  Pass ``None`` to opt out of automatic
+            ``endval`` computation.
+
+        Returns
+        -------
+        scipy.optimize.OptimizeResult
+        """
+        if compiled_ss is _UNSET:
+            _cs = (self._get_compiled_ss()
+                   if exog_path is not None and endval is None
+                   else None)
+        else:
+            _cs = compiled_ss
+        return solve_perfect_foresight_homotopy(
+            T, params, ss, self._funcs, self.vars_dyn,
+            X0=X0, exog_path=exog_path, initial_state=initial_state,
+            ss_initial=ss_initial, stock_var_indices=stock_var_indices,
+            endval=endval, compiled_ss=_cs, solver_options=solver_options,
+            n_steps=n_steps, verbose=verbose, exog_ss=exog_ss, method=method,
+        )
+
+    def solve_expectation_errors(
+        self, T, params, ss, news_shocks,
+        X0=None, initial_state=None, ss_initial=None,
+        stock_var_indices=None, constant_simulation_length=False,
+        solver_options=None, sub_x0=None, compiled_ss=_UNSET,
+    ):
+        """Solve with multiple surprise (MIT) shocks.
+
+        Wraps :func:`solve_perfect_foresight_expectation_errors`;
+        ``model_funcs`` and ``vars_dyn`` are taken from the model
+        automatically.
+
+        Parameters
+        ----------
+        T : int
+            Total simulation length (periods in the stitched output).
+        params : dict
+            Parameter values (SymPy symbol → float).
+        ss : array-like
+            Default terminal steady-state values.
+        news_shocks : list of tuples
+            Shock schedule — see
+            :func:`solve_perfect_foresight_expectation_errors`.
+        X0, initial_state, ss_initial, stock_var_indices, constant_simulation_length, solver_options, sub_x0 :
+            Forwarded verbatim to :func:`solve_perfect_foresight_expectation_errors`.
+        compiled_ss : dict or None, optional
+            Compiled steady-state bundle.  Defaults to the model's own
+            lazily-built bundle.  Pass ``None`` to opt out of automatic
+            ``endval`` computation.
+
+        Returns
+        -------
+        scipy.optimize.OptimizeResult
+        """
+        if compiled_ss is _UNSET:
+            # compiled_ss is only consumed when at least one segment has a
+            # non-None exog_path and no explicit endval override.  Parse each
+            # entry the same way as the functional solver:
+            #   2-tuple -> (learnt_in, exog_path),        endval = None
+            #   3-tuple -> (learnt_in, exog_path, endval), endval = entry[2]
+            # A 3-tuple with endval=None is functionally identical to a 2-tuple
+            # (no override), so treat it the same way.
+            _needs_auto_endval = any(
+                entry[1] is not None and (len(entry) == 2 or entry[2] is None)
+                for entry in news_shocks
+            )
+            _cs = self._get_compiled_ss() if _needs_auto_endval else None
+        else:
+            _cs = compiled_ss
+        return solve_perfect_foresight_expectation_errors(
+            T, params, ss, self._funcs, self.vars_dyn, news_shocks,
+            X0=X0, initial_state=initial_state, ss_initial=ss_initial,
+            stock_var_indices=stock_var_indices,
+            constant_simulation_length=constant_simulation_length,
+            solver_options=solver_options, sub_x0=sub_x0, compiled_ss=_cs,
         )

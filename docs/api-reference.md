@@ -4,6 +4,18 @@ Complete API reference for all public functions in `pyperfectforesight`.
 
 ---
 
+## Object-oriented API
+
+```{eval-rst}
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   pyperfectforesight.Model
+```
+
+---
+
 ## Utilities
 
 ```{eval-rst}

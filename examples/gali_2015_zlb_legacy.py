@@ -36,7 +36,7 @@ import numpy as np
 import sympy as sp
 import matplotlib.pyplot as plt
 
-from pyperfectforesight import p, v, Model
+from pyperfectforesight import p, v, process_model, solve_perfect_foresight
 
 # ============================================================
 # 1. Parameters
@@ -88,20 +88,33 @@ r_nat_0        = v('r_nat', 0)
 # 4. Equations
 # ============================================================
 
+# New Keynesian Phillips Curve (eq. 29)
 eq_nkpc  = pi_0 - betta_s * pi_p - kappa * x_0
+
+# Dynamic IS Curve (eq. 30)
 eq_is    = x_0 - x_p + 1/siggma_s * (i_0 - pi_p - r_nat_0)
+
+# FOC w.r.t. pi (eq. 35)
 eq_foc1  = pi_0 + xi_1_0 - xi_1_m - 1/(betta_s * siggma_s) * xi_2_m
+
+# FOC w.r.t. x (eq. 36)
 eq_foc2  = vartheta * x_0 - kappa * xi_1_0 + xi_2_0 - 1/betta_s * xi_2_m
+
+# ZLB — NCP formulation replacing Dynare's mcp='i>0' on FOC w.r.t. i:
+#   min(xi_2/sigma, i) = 0  encodes  xi_2/sigma >= 0,  i >= 0,  product = 0
 eq_zlb   = sp.Min(xi_2_0 / siggma_s, i_0)
+
+# Price level (definition: pi = p - p(-1))
 eq_price = p_0 - p_m - pi_0
 
+EQUATIONS = [eq_nkpc, eq_is, eq_foc1, eq_foc2, eq_zlb, eq_price]
+
 # ============================================================
-# 5. Build model
+# 5. Process model
 # ============================================================
 
-model = Model(
-    [eq_nkpc, eq_is, eq_foc1, eq_foc2, eq_zlb, eq_price],
-    VARS_DYN,
+model = process_model(
+    EQUATIONS, VARS_DYN,
     vars_exo=VARS_EXO,
     vars_params=VARS_PARAMS,
 )
@@ -125,16 +138,20 @@ if __name__ == "__main__":
     print("=" * 60)
 
     T = 50
-    R_NAT_SS = 1.0
+    R_NAT_SS = 1.0   # quarterly natural rate at non-ZLB steady state (in %)
 
+    # Natural rate shock: r_nat drops from 1 to -1 for periods 0-5
+    # (mirrors Dynare: shocks periods 1:6 values -1)
     exog_path = np.full((T, 1), R_NAT_SS)
     exog_path[0:6, 0] = -1.0
 
-    initial_state = SS[[3, 4, 5]]   # [p, xi_1, xi_2] at pre-period-0 (all zero)
+    # Stock variables: p (idx 3), xi_1 (idx 4), xi_2 (idx 5)
+    # All at SS values pre-period-0
+    initial_state = SS[[3, 4, 5]]   # [0, 0, 0]
 
     print(f"\nSolving T={T} periods (homotopy fallback enabled)...")
-    sol = model.solve(
-        T, PARAMS, SS,
+    sol = solve_perfect_foresight(
+        T, PARAMS, SS, model, VARS_DYN,
         exog_path=exog_path,
         initial_state=initial_state,
     )
@@ -151,10 +168,12 @@ if __name__ == "__main__":
     xi_1_path = X[:, 4]
     xi_2_path = X[:, 5]
 
+    # Annualized quantities (matching Dynare definitions)
     pi_ann_path    = 4.0 * pi_path
-    i_ann_path     = 4.0 * np.maximum(i_path, 0.0)
+    i_ann_path     = 4.0 * np.maximum(i_path, 0.0)   # i_ann = 4*max(i,0)
     r_nat_ann_path = 4.0 * exog_path[:, 0]
 
+    # Print first 8 periods
     print(f"\n{'Period':>6}  {'x':>8}  {'pi_ann':>8}  {'i_ann':>8}  {'r_nat_ann':>10}")
     print("-" * 50)
     for t in range(8):
@@ -164,7 +183,7 @@ if __name__ == "__main__":
     # ============================================================
     # 8. Plot (mirrors Dynare figure layout)
     # ============================================================
-    t_plot = np.arange(13)
+    t_plot = np.arange(13)   # periods 0-12
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7))
     fig.suptitle(
