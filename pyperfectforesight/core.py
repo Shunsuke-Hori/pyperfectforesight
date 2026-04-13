@@ -2147,6 +2147,12 @@ def _normalize_exog_path(exog_path, vars_exo):
                 "model has no exogenous variables."
             )
         return None
+    extra = set(exog_path) - set(vars_exo)
+    if extra:
+        raise ValueError(
+            f"exog_path dict contains unexpected key(s) {sorted(extra)!r}. "
+            f"Expected keys matching vars_exo: {vars_exo}."
+        )
     cols = []
     for name in vars_exo:
         if name not in exog_path:
@@ -2327,6 +2333,29 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
     exog_path = _normalize_exog_path(exog_path, vars_exo)
+    if exog_path is not None:
+        exog_path = np.asarray(exog_path, dtype=float)
+        if exog_path.ndim != 2:
+            raise ValueError(
+                f"exog_path must be a 2-D array with shape (T, n_exo); "
+                f"got shape {exog_path.shape}."
+            )
+        if exog_path.shape[0] != T:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[0]} rows but T={T}."
+            )
+        n_exo_model = len(vars_exo)
+        if n_exo_model == 0:
+            raise ValueError(
+                "exog_path was provided but the model defines no exogenous "
+                "variables. Remove exog_path or add exogenous variables to "
+                "the model."
+            )
+        if exog_path.shape[1] != n_exo_model:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[1]} column(s) but the model "
+                f"has {n_exo_model} exogenous variable(s) ({vars_exo})."
+            )
     # Precomputed lag sets — avoids rescanning all_syms on every Newton iteration.
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
