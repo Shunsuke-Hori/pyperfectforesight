@@ -110,47 +110,9 @@ X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [c, k]
 c_path, k_path = X[:, 0], X[:, 1]
 ```
 
-### With Exogenous Variables
+### With Exogenous Variables (Permanent Shock)
 
-`z` is the TFP level (steady state `z=1`). `exog_path[t]` is the value of `z` at period `t`.
-
-```python
-import numpy as np
-from pyperfectforesight import v, p, Model
-
-ALPHA_S = p("alpha")
-BETA_S  = p("beta")
-PARAMS  = {ALPHA_S: 0.36, BETA_S: 0.99}
-
-# TFP level z multiplies production; steady state z = 1
-eq_euler = v("c", 0)**(-1) - BETA_S * ALPHA_S * v("k", 0)**(ALPHA_S-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA_S + v("c", 0)
-
-model = Model([eq_euler, eq_kacc], ["c", "k"],
-              vars_exo=["z"], vars_params=["alpha", "beta"])
-
-K_SS = (0.36 * 0.99) ** (1 / (1 - 0.36))
-C_SS = K_SS**0.36 - K_SS
-ss = np.array([C_SS, K_SS])
-
-T = 100
-
-# AR(1) TFP shock: 1% above SS on impact, mean-reverting to z=1
-rho = 0.9
-exog = np.ones((T, 1))   # z = 1 at SS
-exog[0, 0] = 1.01        # 1% shock at t=0
-for t in range(1, T):
-    exog[t, 0] = 1 + rho * (exog[t-1, 0] - 1)
-
-sol = model.solve(T, PARAMS, ss,
-                  initial_state=np.array([K_SS]),
-                  exog_path={"z": exog[:, 0]})   # dict form: order-independent
-print(f"Converged: {sol.success}")
-```
-
-### Permanent Shocks with Auto-computed Terminal Steady State
-
-For permanent shocks the terminal steady state differs from the initial one. `Model.solve()` handles this automatically — `endval` is computed from `exog_path[-1]` using a lazily-built compiled steady-state bundle:
+For models with exogenous variables the terminal steady state depends on the long-run exogenous level. `Model.solve()` computes it automatically from `exog_path[-1]` — no manual `endval` needed:
 
 ```python
 import numpy as np
@@ -170,7 +132,7 @@ model = Model([eq_euler, eq_kacc], ["c", "k"],
 ss_pre = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
 
 T = 100
-exog_path = np.full((T, 1), 1.05)   # permanent TFP increase
+exog_path = np.full((T, 1), 1.05)   # permanent 5% TFP increase
 
 # endval is auto-computed from exog_path[-1] (post-shock SS at z=1.05)
 sol = model.solve(T, PARAMS, ss_pre,
@@ -180,6 +142,42 @@ print(f"Converged: {sol.success}")
 ```
 
 Pass `endval=...` to override the auto-computed terminal steady state, or `compiled_ss=None` to disable auto-computation entirely.
+
+### With Exogenous Variables (Transitory Shock)
+
+For transitory shocks the exogenous path reverts to its initial level, so the terminal steady state is unchanged and no `endval` override is needed:
+
+```python
+import numpy as np
+from pyperfectforesight import v, p, Model
+
+ALPHA_S = p("alpha")
+BETA_S  = p("beta")
+PARAMS  = {ALPHA_S: 0.36, BETA_S: 0.99}
+
+# TFP level z multiplies production; steady state z = 1
+eq_euler = v("c", 0)**(-1) - BETA_S * ALPHA_S * v("k", 0)**(ALPHA_S-1) * v("c", 1)**(-1)
+eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA_S + v("c", 0)
+
+model = Model([eq_euler, eq_kacc], ["c", "k"],
+              vars_exo=["z"], vars_params=["alpha", "beta"])
+
+ss_pre = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
+
+T = 100
+
+# AR(1) TFP shock: 1% above SS on impact, mean-reverting back to z=1
+rho = 0.9
+exog = np.ones((T, 1))
+exog[0, 0] = 1.01
+for t in range(1, T):
+    exog[t, 0] = 1 + rho * (exog[t-1, 0] - 1)
+
+sol = model.solve(T, PARAMS, ss_pre,
+                  initial_state=np.array([ss_pre[1]]),
+                  exog_path={"z": exog[:, 0]})   # dict form: order-independent
+print(f"Converged: {sol.success}")
+```
 
 ### Homotopy for Large Shocks
 
@@ -204,7 +202,7 @@ Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents a
 ```python
 import numpy as np
 
-# Same model, PARAMS, and ss_pre as the "Permanent Shocks" section above.
+# Same model, PARAMS, and ss_pre as the "Permanent Shock" section above.
 # Agents initially expect no shock (period 1), then learn of a
 # persistent TFP shock at period 3.
 T = 100
