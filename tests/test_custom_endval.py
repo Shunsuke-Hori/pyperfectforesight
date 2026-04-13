@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from pyperfectforesight import v, process_model, solve_perfect_foresight, solve_perfect_foresight_homotopy
+from pyperfectforesight import (
+    v, process_model,
+    solve_perfect_foresight, solve_perfect_foresight_homotopy,
+    solve_perfect_foresight_expectation_errors,
+)
 
 # ---------------------------------------------------------------------------
 # RBC model — same as other test files
@@ -217,3 +221,123 @@ def test_homotopy_endval_wrong_shape_raises(model):
             endval=np.array([C_SS]),
             n_steps=3,
         )
+
+
+# ---------------------------------------------------------------------------
+# exog_path dict form
+# ---------------------------------------------------------------------------
+
+def test_exog_path_dict_matches_array(model_z):
+    """exog_path as dict gives the same result as the equivalent array."""
+    exog_arr = np.zeros((T, 1))
+    exog_arr[0, 0] = Z_NEW
+    for t in range(1, T):
+        exog_arr[t, 0] = 0.9 * exog_arr[t - 1, 0]
+    k_neg1 = np.array([K_SS])
+
+    sol_arr = solve_perfect_foresight(
+        T, {}, SS, model_z, VARS_DYN,
+        initial_state=k_neg1, exog_path=exog_arr,
+    )
+    sol_dict = solve_perfect_foresight(
+        T, {}, SS, model_z, VARS_DYN,
+        initial_state=k_neg1, exog_path={"z": exog_arr[:, 0]},
+    )
+
+    assert sol_arr.success
+    assert sol_dict.success
+    np.testing.assert_allclose(sol_dict.x, sol_arr.x, atol=1e-12)
+
+
+def test_exog_path_dict_homotopy_matches_array(model_z):
+    """exog_path dict form works in solve_perfect_foresight_homotopy."""
+    exog_arr = np.full((T, 1), Z_NEW)
+    k_neg1 = np.array([K_SS])
+
+    sol_arr = solve_perfect_foresight_homotopy(
+        T, {}, SS, model_z, VARS_DYN,
+        initial_state=k_neg1, exog_path=exog_arr, endval=SS_NEW,
+    )
+    sol_dict = solve_perfect_foresight_homotopy(
+        T, {}, SS, model_z, VARS_DYN,
+        initial_state=k_neg1, exog_path={"z": exog_arr[:, 0]}, endval=SS_NEW,
+    )
+
+    assert sol_arr.success
+    assert sol_dict.success
+    np.testing.assert_allclose(sol_dict.x, sol_arr.x, atol=1e-10)
+
+
+def test_exog_path_dict_missing_key_raises(model_z):
+    """Dict exog_path missing a required variable raises KeyError."""
+    with pytest.raises(KeyError, match="missing key 'z'"):
+        solve_perfect_foresight(
+            T, {}, SS, model_z, VARS_DYN,
+            initial_state=np.array([K_SS]),
+            exog_path={},  # empty dict — no extra keys, but 'z' is missing
+        )
+
+
+def test_exog_path_dict_extra_key_raises(model_z):
+    """Dict exog_path with an unexpected key raises ValueError."""
+    with pytest.raises(ValueError, match="unexpected key"):
+        solve_perfect_foresight(
+            T, {}, SS, model_z, VARS_DYN,
+            initial_state=np.array([K_SS]),
+            exog_path={"z": np.zeros(T), "extra": np.zeros(T)},
+        )
+
+
+@pytest.fixture(scope="module")
+def model_zz():
+    """RBC with two exogenous variables z1, z2 (for dict-form tests)."""
+    eq1_zz = (
+        v("c", 0) ** (-1)
+        - BETA * ALPHA * sp.exp(v("z1", 1)) * v("k", 0) ** (ALPHA - 1) * v("c", 1) ** (-1)
+    )
+    eq2_zz = v("k", 0) - sp.exp(v("z1", 0)) * sp.exp(v("z2", 0)) * v("k", -1) ** ALPHA + v("c", 0)
+    return process_model([eq1_zz, eq2_zz], VARS_DYN, vars_exo=["z1", "z2"])
+
+
+def test_exog_path_dict_inconsistent_lengths_raises(model_zz):
+    """Dict exog_path with inconsistent value lengths raises ValueError."""
+    with pytest.raises(ValueError, match="inconsistent lengths"):
+        solve_perfect_foresight(
+            T, {}, SS, model_zz, VARS_DYN,
+            initial_state=np.array([K_SS]),
+            exog_path={"z1": np.zeros(T), "z2": np.zeros(T + 5)},
+        )
+
+
+def test_exog_path_dict_no_exo_model_raises(model):
+    """Dict exog_path passed to a model with no exogenous variables raises ValueError."""
+    with pytest.raises(ValueError):
+        solve_perfect_foresight(
+            T, {}, SS, model, VARS_DYN,
+            initial_state=np.array([K_SS]),
+            exog_path={"z": np.zeros(T)},
+        )
+
+
+def test_exog_path_dict_expectation_errors_matches_array(model_z):
+    """exog_path dict form in news_shocks gives the same result as array form."""
+    exog_arr = np.zeros((T, 1))
+    exog_arr[0, 0] = Z_NEW
+    for t in range(1, T):
+        exog_arr[t, 0] = 0.9 * exog_arr[t - 1, 0]
+    k_neg1 = np.array([K_SS])
+
+    sol_arr = solve_perfect_foresight_expectation_errors(
+        T, {}, SS, model_z, VARS_DYN,
+        news_shocks=[(1, exog_arr)],
+        initial_state=k_neg1,
+    )
+    sol_dict = solve_perfect_foresight_expectation_errors(
+        T, {}, SS, model_z, VARS_DYN,
+        news_shocks=[(1, {"z": exog_arr[:, 0]})],
+        initial_state=k_neg1,
+    )
+
+    assert sol_arr.success
+    assert sol_dict.success
+    np.testing.assert_allclose(sol_dict.x, sol_arr.x, atol=1e-12)

@@ -29,7 +29,7 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 
 | Parameter | Default | Description |
 |---|---|---|
-| `exog_path` | `None` | Exogenous variable path, shape `(T, n_exo)`. Pass `None` or omit when there are no exogenous shocks. |
+| `exog_path` | `None` | Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`). Pass `None` or omit when there are no exogenous shocks. |
 | `initial_state` | `None` | Pre-period-0 values of stock variables ($k_{-1}$ in Dynare notation). Defaults to `ss_initial[stock_var_indices]` (economy starts at steady state). |
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
 | `ss_initial` | `None` | Initial steady-state values used for the `initval` boundary row. Defaults to `ss`. Set this when the model starts from a *different* steady state than `ss`. |
@@ -93,7 +93,7 @@ This is the standard protocol for "news shocks" or "MIT shocks" with multiple su
 `news_shocks` is a list of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`:
 
 - **`learnt_in`**: the period at which agents learn of (and start reacting to) the shock. Period numbering starts at 1.
-- **`exog_path`**: the agents' belief about the exogenous path, **indexed from period `learnt_in`**. Row 0 = period `learnt_in`, row 1 = period `learnt_in + 1`, etc. Do **not** pre-offset as if row 0 were period 1; the solver handles alignment internally. Pass `None` for an all-zero path.
+- **`exog_path`**: the agents' belief about the exogenous path, **indexed from period `learnt_in`**. Either a `(T_sub, n_exo)` array or a `{str: array}` dict mapping variable names to length-T_sub arrays. Row 0 = period `learnt_in`, row 1 = period `learnt_in + 1`, etc. Do **not** pre-offset as if row 0 were period 1; the solver handles alignment internally. Pass `None` for an all-zero path (only correct when the exogenous steady state is zero).
 - **`endval`** (3-tuple only): override the terminal steady state for this and all subsequent sub-solves. Use this for permanent shocks that change the long-run equilibrium.
 
 The list must be **sorted by `learnt_in`** and the **first entry must have `learnt_in=1`**.

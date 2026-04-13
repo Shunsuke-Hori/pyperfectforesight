@@ -2112,6 +2112,76 @@ def _infer_stock_var_indices(model_funcs, vars_dyn):
             if any(lag < 0 for lag in incidence.get(var, []))]
 
 
+def _normalize_exog_path(exog_path, vars_exo):
+    """Convert a dict exog_path to a (T, n_exo) array ordered by vars_exo.
+
+    Accepts:
+    - ``None``                            — returned as-is
+    - ``ndarray`` of shape ``(T, n_exo)`` — returned as-is (no copy)
+    - ``dict {str: array-like}``          — stacked into ``(T, n_exo)`` in
+      ``vars_exo`` order; all keys in ``vars_exo`` must be present
+
+    Parameters
+    ----------
+    exog_path : ndarray or dict or None
+    vars_exo : list of str
+
+    Returns
+    -------
+    ndarray or None
+
+    Raises
+    ------
+    KeyError
+        If the dict is missing a variable name that appears in ``vars_exo``.
+    ValueError
+        If dict values have inconsistent lengths, or if a dict is supplied
+        for a model with no exogenous variables.
+    """
+    if exog_path is None or not isinstance(exog_path, dict):
+        return exog_path
+    if not vars_exo:
+        if exog_path:
+            raise ValueError(
+                f"exog_path dict contains keys {list(exog_path)!r} but the "
+                "model has no exogenous variables."
+            )
+        return None
+    extra = set(exog_path) - set(vars_exo)
+    if extra:
+        raise ValueError(
+            f"exog_path dict contains unexpected key(s) {sorted(extra)!r}. "
+            f"Expected keys matching vars_exo: {vars_exo}."
+        )
+    cols = []
+    for name in vars_exo:
+        if name not in exog_path:
+            raise KeyError(
+                f"exog_path dict is missing key '{name}'. "
+                f"Expected keys matching vars_exo: {vars_exo}."
+            )
+        arr = np.asarray(exog_path[name], dtype=float)
+        if arr.ndim == 1:
+            pass
+        elif arr.ndim == 2 and arr.shape[1] == 1:
+            arr = arr.ravel()
+        else:
+            raise ValueError(
+                f"exog_path['{name}'] must be a 1-D array or a single-column "
+                f"(T, 1) array; got shape {arr.shape}."
+            )
+        cols.append(arr)
+    lengths = [len(c) for c in cols]
+    if len(set(lengths)) > 1:
+        bad = {name: l for name, l in zip(vars_exo, lengths) if l != lengths[0]}
+        raise ValueError(
+            f"exog_path dict values have inconsistent lengths. "
+            f"First variable '{vars_exo[0]}' has length {lengths[0]}, "
+            f"but the following differ: {bad}."
+        )
+    return np.column_stack(cols)
+
+
 def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='sparse_newton',
@@ -2148,8 +2218,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         Initial guess for endogenous state path (T x n_endo).  If None
         (the default), the path is initialised to the terminal steady state
         (``endval`` if provided, otherwise ``ss``) tiled over all T periods.
-    exog_path : ndarray, optional
-        Exogenous variable path (T x n_exo). If None, no exogenous variables.
+    exog_path : ndarray of shape (T, n_exo) or dict {str: array-like}, optional
+        Exogenous variable path.  Either a ``(T, n_exo)`` array with columns
+        in ``vars_exo`` order, or a dict mapping variable names to length-T
+        arrays (e.g. ``{"z": np.ones(T)}``).  If None, no exogenous variables.
     initial_state : ndarray, optional
         Pre-period-0 values of the stock variables (Dynare convention:
         ``k_{-1}``). The BVP formulation prepends this as the ``initval``
@@ -2270,6 +2342,30 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     # Use vars_dyn from model_funcs — process_model may have extended it (e.g. dynamic fallback)
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
     n = len(vars_dyn)
+    exog_path = _normalize_exog_path(exog_path, vars_exo)
+    if exog_path is not None:
+        exog_path = np.asarray(exog_path, dtype=float)
+        if exog_path.ndim != 2:
+            raise ValueError(
+                f"exog_path must be a 2-D array with shape (T, n_exo); "
+                f"got shape {exog_path.shape}."
+            )
+        if exog_path.shape[0] != T:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[0]} rows but T={T}."
+            )
+        n_exo_model = len(vars_exo)
+        if n_exo_model == 0:
+            raise ValueError(
+                "exog_path was provided but the model defines no exogenous "
+                "variables. Remove exog_path or add exogenous variables to "
+                "the model."
+            )
+        if exog_path.shape[1] != n_exo_model:
+            raise ValueError(
+                f"exog_path has {exog_path.shape[1]} column(s) but the model "
+                f"has {n_exo_model} exogenous variable(s) ({vars_exo})."
+            )
     # Precomputed lag sets — avoids rescanning all_syms on every Newton iteration.
     endo_lags = model_funcs.get('endo_lags')
     exo_lags  = model_funcs.get('exo_lags')
@@ -2586,11 +2682,11 @@ def solve_perfect_foresight_expectation_errors(
 
         * ``learnt_in`` is the period at which agents receive new information
           (1-indexed, must be in ``[1, T]``).
-        * ``exog_path`` is either an array with at least ``T_sub`` rows and
-          ``n_exo`` columns, representing the agents' full belief about the
-          shock path *from* ``learnt_in`` onward (row 0 is the shock at
-          period ``learnt_in``, row 1 at period ``learnt_in + 1``, etc.),
-          or ``None`` to pass an all-zero exogenous path to the sub-solver.
+        * ``exog_path`` is either a ``(T_sub, n_exo)`` array, a dict
+          ``{str: array-like}`` mapping variable names to length-T_sub arrays,
+          or ``None``.  In all array/dict forms, row 0 represents the shock
+          at period ``learnt_in``, row 1 at ``learnt_in + 1``, etc.
+          ``None`` passes an all-zero path to the sub-solver.
           **Note:** ``None`` is only correct when the exogenous steady state
           is zero; for level exogenous variables (e.g. ``z = 1``) you must
           supply an explicit path including the steady-state level, otherwise
@@ -2700,6 +2796,7 @@ def solve_perfect_foresight_expectation_errors(
 
     # Use vars_dyn from model_funcs (may be extended by process_model).
     vars_dyn = model_funcs.get('vars_dyn', vars_dyn)
+    vars_exo = model_funcs.get('vars_exo', [])
     n = len(vars_dyn)
 
     # Infer stock_var_indices once, reuse for all sub-solves.
@@ -2751,7 +2848,8 @@ def solve_perfect_foresight_expectation_errors(
                 f"Each news_shocks entry must be a 2- or 3-tuple "
                 f"(learnt_in, exog_path[, endval]); got length {len(entry)}."
             )
-    parsed = [_parse_entry(e) for e in news_shocks]
+    parsed = [(_li, _normalize_exog_path(_ep, vars_exo), _ev)
+              for _li, _ep, _ev in (_parse_entry(e) for e in news_shocks)]
 
     # Validate.
     if not parsed:
@@ -3028,8 +3126,9 @@ def solve_perfect_foresight_homotopy(
         Unused by the homotopy solver (the actual warm start for step 1 is
         always the steady-state path ``np.tile(ss_initial, (T, 1))``).
         Accepted for API compatibility; pass None to omit.
-    exog_path : ndarray (T, n_exo), optional
-        Full-shock exogenous path (lam=1 value).
+    exog_path : ndarray of shape (T, n_exo) or dict {str: array-like}, optional
+        Full-shock exogenous path (lam=1 value).  Either a ``(T, n_exo)``
+        array or a dict mapping variable names to length-T arrays.
     initial_state : ndarray, optional
         Pre-period-0 values of the stock variables for the full-shock (lam=1)
         problem (Dynare convention: ``k_{-1}``).  The expected shape depends on
@@ -3122,7 +3221,9 @@ def solve_perfect_foresight_homotopy(
     ss_initial = np.asarray(ss_initial, dtype=float).ravel()
 
     vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
+    vars_exo_eff = model_funcs.get('vars_exo', [])
     n = len(vars_dyn_eff)
+    exog_path = _normalize_exog_path(exog_path, vars_exo_eff)
 
     if len(ss_initial) != n:
         raise ValueError(

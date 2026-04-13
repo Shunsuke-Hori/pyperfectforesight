@@ -150,8 +150,8 @@ k_path = X[:, 1]
 
 ## RBC model with exogenous TFP shock
 
-When the model has exogenous variables, pass `vars_exo` and supply a
-`T × n_exo` array as `exog_path`:
+When the model has exogenous variables, pass `vars_exo` and supply an
+`exog_path` — either a `T × n_exo` array or a `{name: array}` dict:
 
 ```python
 import sympy as sp
@@ -181,7 +181,7 @@ for t in range(1, T):
 k_neg1 = np.array([K_SS])   # k_{-1} at steady state
 
 sol = model.solve(T, {}, ss, initial_state=k_neg1, stock_var_indices=[1],
-                  exog_path=exog)
+                  exog_path={"z": exog[:, 0]})   # dict form; array also accepted
 print(f"Converged: {sol.success}")
 ```
 
