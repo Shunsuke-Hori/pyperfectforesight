@@ -264,12 +264,12 @@ def test_solve_homotopy_matches_functional_api(model_simple):
 # ── solve_expectation_errors() ────────────────────────────────────────────────
 
 def test_solve_expectation_errors_converges(model_simple):
-    """Model.solve_expectation_errors() runs a two-segment expectation-error sim."""
+    """Model.solve_expectation_errors() runs a single-segment expectation-error sim."""
     k_neg1 = np.array([K_SS])
 
-    # Two-segment: agents learn of a 10% capital shock at period 1
+    # Single-segment: initial belief only (no exogenous variables in this model)
     news_shocks = [
-        (1, None),   # period 1: initial belief (no exog in this model)
+        (1, None),   # period 1: initial belief
     ]
 
     sol = model_simple.solve_expectation_errors(
