@@ -92,16 +92,12 @@ Dynare is the reference platform and pyperfectforesight is validated against it 
 ## Installation
 
 ```bash
-pip install pyperfectforesight
-```
-
-From source (development):
-
-```bash
 git clone https://github.com/Shunsuke-Hori/pyperfectforesight.git
 cd pyperfectforesight
 pip install -e ".[dev]"
 ```
+
+Once published to PyPI: `pip install pyperfectforesight`
 
 ## Examples
 
