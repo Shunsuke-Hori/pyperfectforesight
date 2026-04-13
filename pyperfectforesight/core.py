@@ -2116,10 +2116,10 @@ def _normalize_exog_path(exog_path, vars_exo):
     """Convert a dict exog_path to a (T, n_exo) array ordered by vars_exo.
 
     Accepts:
-    - ``None``                          — returned as-is
+    - ``None``                            — returned as-is
     - ``ndarray`` of shape ``(T, n_exo)`` — returned as-is (no copy)
-    - ``dict {str: array-like}``        — stacked into ``(T, n_exo)`` in
-      ``vars_exo`` order; missing variables default to zero
+    - ``dict {str: array-like}``          — stacked into ``(T, n_exo)`` in
+      ``vars_exo`` order; all keys in ``vars_exo`` must be present
 
     Parameters
     ----------
@@ -2129,6 +2129,14 @@ def _normalize_exog_path(exog_path, vars_exo):
     Returns
     -------
     ndarray or None
+
+    Raises
+    ------
+    KeyError
+        If the dict is missing a variable name that appears in ``vars_exo``.
+    ValueError
+        If dict values have inconsistent lengths, or if a dict is supplied
+        for a model with no exogenous variables.
     """
     if exog_path is None or not isinstance(exog_path, dict):
         return exog_path
@@ -2141,13 +2149,20 @@ def _normalize_exog_path(exog_path, vars_exo):
         return None
     cols = []
     for name in vars_exo:
-        if name in exog_path:
-            cols.append(np.asarray(exog_path[name], dtype=float).ravel())
-        else:
+        if name not in exog_path:
             raise KeyError(
                 f"exog_path dict is missing key '{name}'. "
                 f"Expected keys matching vars_exo: {vars_exo}."
             )
+        cols.append(np.asarray(exog_path[name], dtype=float).ravel())
+    lengths = [len(c) for c in cols]
+    if len(set(lengths)) > 1:
+        bad = {name: l for name, l in zip(vars_exo, lengths) if l != lengths[0]}
+        raise ValueError(
+            f"exog_path dict values have inconsistent lengths. "
+            f"First variable '{vars_exo[0]}' has length {lengths[0]}, "
+            f"but the following differ: {bad}."
+        )
     return np.column_stack(cols)
 
 
@@ -2629,7 +2644,7 @@ def solve_perfect_foresight_expectation_errors(
         * ``learnt_in`` is the period at which agents receive new information
           (1-indexed, must be in ``[1, T]``).
         * ``exog_path`` is either a ``(T_sub, n_exo)`` array, a dict
-          ``{str: array-like}`` mapping variable names to length-T arrays,
+          ``{str: array-like}`` mapping variable names to length-T_sub arrays,
           or ``None``.  In all array/dict forms, row 0 represents the shock
           at period ``learnt_in``, row 1 at ``learnt_in + 1``, etc.
           ``None`` passes an all-zero path to the sub-solver.
