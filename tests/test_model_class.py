@@ -5,7 +5,7 @@ Unit tests for the Model class (object-oriented API).
 
 Verifies:
   - construction and attribute access
-  - steady_state() delegates to solve_steady_state
+  - steady_state() returns the correct numerical steady state
   - solve() produces the same path as the functional API
   - auto endval computation from exog_path[-1] (permanent shock)
   - compiled_ss=None opts out of auto-endval
@@ -24,7 +24,6 @@ from pyperfectforesight import (
     process_model, solve_perfect_foresight,
     solve_perfect_foresight_homotopy,
     solve_perfect_foresight_expectation_errors,
-    compile_steady_state_funcs, solve_steady_state,
 )
 
 # ── Simple two-variable RBC (no exogenous, parameters baked in) ──────────────

@@ -78,6 +78,8 @@ The `Model` class is the recommended entry point.  It wraps
 `solve_expectation_errors()` as methods.
 
 ```python
+from pyperfectforesight import Model
+
 model = Model(equations, vars_dyn, vars_exo=..., vars_params=...)
 ```
 
