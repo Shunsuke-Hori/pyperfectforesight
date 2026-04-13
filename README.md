@@ -112,8 +112,9 @@ c_path, k_path = X[:, 0], X[:, 1]
 
 ### With Exogenous Variables
 
+`z` is the TFP level (steady state `z=1`). `exog_path[t]` is the value of `z` at period `t`.
+
 ```python
-import sympy as sp
 import numpy as np
 from pyperfectforesight import v, p, Model
 
@@ -121,9 +122,9 @@ ALPHA_S = p("alpha")
 BETA_S  = p("beta")
 PARAMS  = {ALPHA_S: 0.36, BETA_S: 0.99}
 
-# TFP shock z enters the capital accumulation equation
+# TFP level z multiplies production; steady state z = 1
 eq_euler = v("c", 0)**(-1) - BETA_S * ALPHA_S * v("k", 0)**(ALPHA_S-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**ALPHA_S + v("c", 0)
+eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA_S + v("c", 0)
 
 model = Model([eq_euler, eq_kacc], ["c", "k"],
               vars_exo=["z"], vars_params=["alpha", "beta"])
@@ -134,12 +135,12 @@ ss = np.array([C_SS, K_SS])
 
 T = 100
 
-# AR(1) TFP shock: 1% on impact, rho=0.9 decay
+# AR(1) TFP shock: 1% above SS on impact, mean-reverting to z=1
 rho = 0.9
-exog = np.zeros((T, 1))
-exog[0, 0] = 0.01
+exog = np.ones((T, 1))   # z = 1 at SS
+exog[0, 0] = 1.01        # 1% shock at t=0
 for t in range(1, T):
-    exog[t, 0] = rho * exog[t-1, 0]
+    exog[t, 0] = 1 + rho * (exog[t-1, 0] - 1)
 
 sol = model.solve(T, PARAMS, ss,
                   initial_state=np.array([K_SS]),
@@ -185,7 +186,7 @@ Pass `endval=...` to override the auto-computed terminal steady state, or `compi
 When direct Newton fails to converge for large shocks, use homotopy continuation:
 
 ```python
-# Same model object from above...
+# Uses the parameter-free model and ss from the Quick Start section above
 k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
 
 sol = model.solve_homotopy(T, {}, ss,
@@ -202,14 +203,13 @@ Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents a
 
 ```python
 import numpy as np
-from pyperfectforesight import p, v, Model
 
-# Same model with exogenous TFP as above...
+# Same model, PARAMS, and ss_pre as the "Permanent Shocks" section above.
 # Agents initially expect no shock (period 1), then learn of a
 # persistent TFP shock at period 3.
 T = 100
 
-exog_surprise = np.full((T, 1), 0.05)   # permanent shock from period 3 onward
+exog_surprise = np.full((T, 1), 1.05)   # permanent TFP level from period 3 onward
 
 news_shocks = [
     (1, None),             # period 1: baseline, no shock expected
