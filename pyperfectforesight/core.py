@@ -3603,8 +3603,7 @@ class Model:
         ss : array-like
             Default steady-state values (fallback for ``ss_initial`` and
             ``endval`` when not provided separately).
-        X0, exog_path, initial_state, ss_initial, stock_var_indices,
-        method, solver_options, endval, homotopy_fallback, homotopy_options :
+        X0, exog_path, initial_state, ss_initial, stock_var_indices, method, solver_options, endval, homotopy_fallback, homotopy_options :
             Forwarded verbatim to :func:`solve_perfect_foresight`.
         compiled_ss : dict or None, optional
             Compiled steady-state bundle.  Defaults to the model's own
@@ -3653,8 +3652,7 @@ class Model:
             Parameter values (SymPy symbol → float).
         ss : array-like
             Terminal steady-state values.
-        X0, exog_path, initial_state, ss_initial, stock_var_indices,
-        endval, solver_options, n_steps, verbose, exog_ss, method :
+        X0, exog_path, initial_state, ss_initial, stock_var_indices, endval, solver_options, n_steps, verbose, exog_ss, method :
             Forwarded verbatim to :func:`solve_perfect_foresight_homotopy`.
         compiled_ss : dict or None, optional
             Compiled steady-state bundle.  Defaults to the model's own
@@ -3702,10 +3700,8 @@ class Model:
         news_shocks : list of tuples
             Shock schedule — see
             :func:`solve_perfect_foresight_expectation_errors`.
-        X0, initial_state, ss_initial, stock_var_indices,
-        constant_simulation_length, solver_options, sub_x0 :
-            Forwarded verbatim to
-            :func:`solve_perfect_foresight_expectation_errors`.
+        X0, initial_state, ss_initial, stock_var_indices, constant_simulation_length, solver_options, sub_x0 :
+            Forwarded verbatim to :func:`solve_perfect_foresight_expectation_errors`.
         compiled_ss : dict or None, optional
             Compiled steady-state bundle.  Defaults to the model's own
             lazily-built bundle.  Pass ``None`` to opt out of automatic
