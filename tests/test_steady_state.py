@@ -144,7 +144,8 @@ def test_solve_ss_exog_shape_mismatch_raises(compiled_ss):
 
 def test_steady_state_provenance(compiled_ss):
     """SteadyState carries values, params, exog_ss, vars_dyn, vars_exo."""
-    ss = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.05]))
+    ss = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.05]),
+                            initial_guess=_analytical_ss(1.05))
 
     assert isinstance(ss, SteadyState)
     assert ss.vars_dyn == ["c", "k"]
@@ -199,7 +200,8 @@ def test_steady_state_numpy_interop(compiled_ss):
 
 def test_steady_state_repr(compiled_ss):
     """SteadyState repr includes values, params, and exog_ss."""
-    ss = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.05]))
+    ss = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.05]),
+                            initial_guess=_analytical_ss(1.05))
     r = repr(ss)
     assert "SteadyState" in r
     assert "alpha" in r
@@ -215,8 +217,10 @@ def test_compiled_ss_auto_endval_matches_explicit(model, compiled_ss):
     solving with the same endval passed explicitly."""
     z_terminal = 1.05
     exog_path  = np.full((T, 1), z_terminal)
-    ss_initial = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]))
+    ss_initial = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                     initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
     k_neg1 = ss_initial[1:2]
 
     sol_auto = solve_perfect_foresight(
@@ -241,8 +245,10 @@ def test_compiled_ss_explicit_endval_takes_priority(model, compiled_ss):
     """When endval is passed explicitly, compiled_ss is ignored for endval."""
     z_terminal  = 1.05
     exog_path   = np.full((T, 1), z_terminal)
-    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]))
+    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                      initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
     k_neg1      = ss_initial[1:2]
 
     sol_with    = solve_perfect_foresight(
@@ -270,8 +276,10 @@ def test_homotopy_compiled_ss_auto_endval(model, compiled_ss):
     """compiled_ss auto-computes endval in homotopy; result matches explicit."""
     z_terminal  = 1.05
     exog_path   = np.full((T, 1), z_terminal)
-    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]))
+    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                      initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
     k_neg1      = ss_initial[1:2]
 
     sol_auto = solve_perfect_foresight_homotopy(
@@ -301,8 +309,10 @@ def test_expectation_errors_compiled_ss_auto_endval(model, compiled_ss):
     """compiled_ss auto-computes per-segment endval in expectation-errors solver."""
     z_terminal = 1.05
     exog_path  = np.full((T, 1), z_terminal)
-    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]))
+    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                      initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
     k_neg1 = ss_initial[1:2]
 
     # Using compiled_ss: endval auto-computed from exog_path[-1] in segment 2
@@ -317,9 +327,9 @@ def test_expectation_errors_compiled_ss_auto_endval(model, compiled_ss):
         compiled_ss=compiled_ss,
     )
 
-    # Explicit 3-tuple endval for comparison
+    # Explicit 3-tuple endval for comparison (segment 1 ends at ss_initial; segment 10 at ss_terminal)
     news_explicit = [
-        (1,  np.full((T, 1), 1.0)),
+        (1,  np.full((T, 1), 1.0), ss_initial),
         (10, exog_path, ss_terminal),
     ]
     sol_explicit = solve_perfect_foresight_expectation_errors(
