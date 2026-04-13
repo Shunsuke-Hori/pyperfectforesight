@@ -211,9 +211,11 @@ T = 100
 
 exog_surprise = np.full((T, 1), 1.05)   # permanent TFP level from period 3 onward
 
+exog_baseline = np.ones((T, 1))   # z = 1 (SS level) — no shock expected
+
 news_shocks = [
-    (1, None),             # period 1: baseline, no shock expected
-    (3, exog_surprise),    # period 3: agents learn of permanent shock
+    (1, exog_baseline),    # period 1: baseline, z stays at SS
+    (3, exog_surprise),    # period 3: agents learn of permanent TFP increase
 ]
 
 sol = model.solve_expectation_errors(T, PARAMS, ss_pre, news_shocks,
@@ -316,7 +318,7 @@ For advanced users who want more control:
 - `verbose=False`: Print progress at each homotopy step
 
 ### `model.solve_expectation_errors()` / `solve_perfect_foresight_expectation_errors()` options:
-- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. `exog_path=None` passes an all-zero path.
+- `news_shocks`: List of 2-tuples `(learnt_in, exog_path)` or 3-tuples `(learnt_in, exog_path, endval)`. Must be sorted by `learnt_in`; first entry must have `learnt_in=1`. Each `exog_path` is the belief path **indexed from period `learnt_in`**: row 0 = period `learnt_in`, row 1 = period `learnt_in+1`, etc. `exog_path=None` passes an all-zero path (only correct when the exogenous steady state is zero).
 - `constant_simulation_length=False`: If `False` (Dynare default), each sub-solve uses the shrinking horizon `T - learnt_in + 1`. If `True`, every sub-solve runs for the full `T` periods.
 - `sub_x0=None`: Per-sub-solve initial guesses (list of arrays or `None` entries).
 
