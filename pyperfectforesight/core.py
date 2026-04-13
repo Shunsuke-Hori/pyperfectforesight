@@ -2160,7 +2160,17 @@ def _normalize_exog_path(exog_path, vars_exo):
                 f"exog_path dict is missing key '{name}'. "
                 f"Expected keys matching vars_exo: {vars_exo}."
             )
-        cols.append(np.asarray(exog_path[name], dtype=float).ravel())
+        arr = np.asarray(exog_path[name], dtype=float)
+        if arr.ndim == 1:
+            pass
+        elif arr.ndim == 2 and arr.shape[1] == 1:
+            arr = arr.ravel()
+        else:
+            raise ValueError(
+                f"exog_path['{name}'] must be a 1-D array or a single-column "
+                f"(T, 1) array; got shape {arr.shape}."
+            )
+        cols.append(arr)
     lengths = [len(c) for c in cols]
     if len(set(lengths)) > 1:
         bad = {name: l for name, l in zip(vars_exo, lengths) if l != lengths[0]}
