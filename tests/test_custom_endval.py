@@ -8,6 +8,7 @@ from pyperfectforesight import (
     v, process_model,
     solve_perfect_foresight, solve_perfect_foresight_homotopy,
     solve_perfect_foresight_expectation_errors,
+    EndvalNotSteadyStateWarning,
 )
 
 # ---------------------------------------------------------------------------
@@ -341,3 +342,45 @@ def test_exog_path_dict_expectation_errors_matches_array(model_z):
     assert sol_arr.success
     assert sol_dict.success
     np.testing.assert_allclose(sol_dict.x, sol_arr.x, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# 8. EndvalNotSteadyStateWarning fires for wrong endval
+# ---------------------------------------------------------------------------
+
+def test_endval_consistency_warning_fires(model_z):
+    """EndvalNotSteadyStateWarning is emitted when endval is the pre-shock SS
+    but exog_path is the post-shock level (a common mistake for permanent shocks)."""
+    exog_path = np.full((T, 1), Z_NEW)
+    k_neg1 = np.array([K_SS])
+
+    with pytest.warns(EndvalNotSteadyStateWarning, match="endval may not be a valid steady state"):
+        solve_perfect_foresight(
+            T, {}, SS, model_z, VARS_DYN,
+            initial_state=k_neg1, stock_var_indices=[1],
+            exog_path=exog_path,
+            endval=SS,  # wrong: pre-shock SS, not post-shock SS
+        )
+
+
+# ---------------------------------------------------------------------------
+# 9. EndvalNotSteadyStateWarning is suppressed inside homotopy
+# ---------------------------------------------------------------------------
+
+def test_endval_consistency_warning_suppressed_in_homotopy(model_z):
+    """No EndvalNotSteadyStateWarning is emitted during homotopy sub-calls even
+    though intermediate endval values are linearly interpolated and not valid SS."""
+    exog_path = np.full((T, 1), Z_NEW)
+    k_neg1 = np.array([K_SS])
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", EndvalNotSteadyStateWarning)
+        sol = solve_perfect_foresight_homotopy(
+            T, {}, SS, model_z, VARS_DYN,
+            initial_state=k_neg1, stock_var_indices=[1],
+            exog_path=exog_path,
+            endval=SS_NEW,
+            n_steps=5,
+        )
+    assert sol.success

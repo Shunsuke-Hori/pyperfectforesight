@@ -15,6 +15,18 @@ from scipy.sparse.linalg import spsolve, lsmr
 # 1. Utilities
 # ============================================================
 
+class EndvalNotSteadyStateWarning(UserWarning):
+    """Emitted when the terminal boundary value (endval) does not satisfy
+    the steady-state equations at the terminal exogenous level."""
+
+
+# RMS-norm threshold for the endval consistency check (residual RMS = L2/sqrt(N)).
+# Using RMS keeps the threshold model-size-invariant.  For the 2-equation RBC:
+# transitory shocks (AR(1), T=50) give RMS ~6e-4; permanent-shock mismatches
+# give RMS ~0.1.  1e-3 cleanly separates the two cases.
+_ENDVAL_RESIDUAL_THRESHOLD = 1e-3
+
+
 def v(name, lag):
     """Time-indexed symbolic variable"""
     return sp.Symbol(f"{name}_{lag}")
@@ -2535,6 +2547,44 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             f"dynamic variables. endval must be a full state vector."
         )
 
+    # Pre-solve consistency check: warn if endval is not a steady state at the
+    # terminal exogenous level.  Catches the common mistake of leaving
+    # endval=ss (the pre-shock steady state) for a permanent shock.
+    # Only meaningful when the model has exogenous variables.
+    if vars_exo:
+        import warnings as _warnings
+        try:
+            exog_terminal = (
+                np.asarray(exog_path[-1], dtype=float)
+                if exog_path is not None
+                else np.zeros(len(vars_exo))
+            )
+            _check_res = _residual_bvp(
+                endval.reshape(1, -1), params_dict, all_syms, residual_funcs,
+                vars_dyn, dynamic_eqs, vars_exo, exog_terminal.reshape(1, -1),
+                endval, endval, endo_lags, exo_lags, vals_plan=_vals_plan,
+            )
+            # RMS norm: model-size-invariant (L2 / sqrt(N) keeps threshold
+            # meaning "per-equation residual magnitude" regardless of n).
+            _res_norm = np.linalg.norm(_check_res) / np.sqrt(max(len(_check_res), 1))
+            if np.isfinite(_res_norm) and _res_norm > _ENDVAL_RESIDUAL_THRESHOLD:
+                _exog_desc = (
+                    f"exog_path[-1]={exog_terminal.tolist()}"
+                    if exog_path is not None
+                    else f"zeros (exog_path not provided; vars_exo={vars_exo})"
+                )
+                _warnings.warn(
+                    f"endval may not be a valid steady state at the terminal "
+                    f"exogenous level ({_exog_desc}): steady-state residual norm = "
+                    f"{_res_norm:.3e} (threshold {_ENDVAL_RESIDUAL_THRESHOLD}). "
+                    "For permanent shocks, pass the post-shock steady state as "
+                    "`endval`, or provide `compiled_ss` for automatic computation.",
+                    EndvalNotSteadyStateWarning,
+                    stacklevel=2,
+                )
+        except (ValueError, TypeError, IndexError):
+            pass  # skip the check if residual evaluation fails due to bad inputs
+
     # Default initial guess: terminal steady state tiled over T periods.
     if X0 is None:
         X0 = np.tile(endval, (T, 1))
@@ -3414,17 +3464,22 @@ def solve_perfect_foresight_homotopy(
         else:
             endval_lam = endval
 
-        sol = solve_perfect_foresight(
-            T, params_dict, ss, model_funcs, vars_dyn_eff, X_warm,
-            exog_path=exog_path_lam,
-            initial_state=initial_state_lam,
-            ss_initial=ss_initial,
-            stock_var_indices=stock_var_indices,
-            endval=endval_lam,
-            solver_options=solver_options,
-            method=method,
-            homotopy_fallback=False,  # prevent infinite recursion
-        )
+        import warnings as _w
+        with _w.catch_warnings():
+            # endval_lam is linearly interpolated — not a valid SS for the
+            # scaled exog level at this step. Suppress the consistency check.
+            _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
+            sol = solve_perfect_foresight(
+                T, params_dict, ss, model_funcs, vars_dyn_eff, X_warm,
+                exog_path=exog_path_lam,
+                initial_state=initial_state_lam,
+                ss_initial=ss_initial,
+                stock_var_indices=stock_var_indices,
+                endval=endval_lam,
+                solver_options=solver_options,
+                method=method,
+                homotopy_fallback=False,  # prevent infinite recursion
+            )
 
         if verbose:
             status = "converged" if sol.success else "FAILED"
