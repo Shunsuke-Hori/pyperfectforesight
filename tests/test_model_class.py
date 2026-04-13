@@ -24,6 +24,7 @@ from pyperfectforesight import (
     process_model, solve_perfect_foresight,
     solve_perfect_foresight_homotopy,
     solve_perfect_foresight_expectation_errors,
+    EndvalNotSteadyStateWarning,
 )
 
 # ── Simple two-variable RBC (no exogenous, parameters baked in) ──────────────
@@ -195,10 +196,11 @@ def test_solve_compiled_ss_none_uses_ss_as_endval(model_z):
     sol_auto = model_z.solve(
         T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
     )
-    sol_no_auto = model_z.solve(
-        T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
-        compiled_ss=None,
-    )
+    with pytest.warns(EndvalNotSteadyStateWarning):
+        sol_no_auto = model_z.solve(
+            T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
+            compiled_ss=None,
+        )
 
     # Both converge but terminal values differ (auto uses SS_NEW, no-auto uses SS)
     assert sol_auto.success
@@ -217,8 +219,9 @@ def test_solve_explicit_endval_overrides_auto(model_z):
     k_neg1    = np.array([K_SS])
 
     sol_auto     = model_z.solve(T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1)
-    sol_override = model_z.solve(T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
-                                 endval=SS)  # force original SS as terminal
+    with pytest.warns(EndvalNotSteadyStateWarning):
+        sol_override = model_z.solve(T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
+                                     endval=SS)  # force original SS as terminal
 
     assert sol_auto.success
     assert sol_override.success

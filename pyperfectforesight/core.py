@@ -15,6 +15,11 @@ from scipy.sparse.linalg import spsolve, lsmr
 # 1. Utilities
 # ============================================================
 
+class EndvalNotSteadyStateWarning(UserWarning):
+    """Emitted when the terminal boundary value (endval) does not satisfy
+    the steady-state equations at the terminal exogenous level."""
+
+
 def v(name, lag):
     """Time-indexed symbolic variable"""
     return sp.Symbol(f"{name}_{lag}")
@@ -2552,7 +2557,8 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 vars_dyn, dynamic_eqs, vars_exo, exog_terminal.reshape(1, -1),
                 endval, endval, endo_lags, exo_lags, vals_plan=_vals_plan,
             )
-            if np.linalg.norm(_check_res) > 1e-3:
+            _res_norm = np.linalg.norm(_check_res)
+            if _res_norm > 1e-3:
                 _exog_desc = (
                     f"exog_path[-1]={exog_terminal.tolist()}"
                     if exog_path is not None
@@ -2561,14 +2567,14 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 _warnings.warn(
                     f"endval may not be a valid steady state at the terminal "
                     f"exogenous level ({_exog_desc}): steady-state residual norm = "
-                    f"{np.linalg.norm(_check_res):.3e} (threshold 1e-3). "
+                    f"{_res_norm:.3e} (threshold 1e-3). "
                     "For permanent shocks, pass the post-shock steady state as "
                     "`endval`, or provide `compiled_ss` for automatic computation.",
-                    UserWarning,
+                    EndvalNotSteadyStateWarning,
                     stacklevel=2,
                 )
-        except Exception:
-            pass  # skip the check if residual evaluation itself fails
+        except (ValueError, TypeError, IndexError):
+            pass  # skip the check if residual evaluation fails due to bad inputs
 
     # Default initial guess: terminal steady state tiled over T periods.
     if X0 is None:
@@ -3453,8 +3459,7 @@ def solve_perfect_foresight_homotopy(
         with _w.catch_warnings():
             # endval_lam is linearly interpolated — not a valid SS for the
             # scaled exog level at this step. Suppress the consistency check.
-            _w.filterwarnings("ignore", message="endval may not be a valid steady state",
-                              category=UserWarning)
+            _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
             sol = solve_perfect_foresight(
                 T, params_dict, ss, model_funcs, vars_dyn_eff, X_warm,
                 exog_path=exog_path_lam,

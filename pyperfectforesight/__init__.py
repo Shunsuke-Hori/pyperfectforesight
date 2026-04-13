@@ -27,6 +27,9 @@ from pyperfectforesight.core import (
     compile_steady_state_funcs,
     solve_steady_state,
 
+    # Warnings
+    EndvalNotSteadyStateWarning,
+
     # Solver components
     residual,
     sparse_jacobian,
@@ -71,6 +74,8 @@ __all__ = [
     "solve_perfect_foresight_expectation_errors",
     # Initial guess helper
     "make_initial_guess",
+    # Warnings
+    "EndvalNotSteadyStateWarning",
     # Object-oriented API
     "Model",
 ]
