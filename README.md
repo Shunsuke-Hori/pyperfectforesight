@@ -144,7 +144,7 @@ for t in range(1, T):
 
 sol = model.solve(T, PARAMS, ss,
                   initial_state=np.array([K_SS]),
-                  exog_path=exog)
+                  exog_path={"z": exog[:, 0]})   # dict form: order-independent
 print(f"Converged: {sol.success}")
 ```
 
@@ -304,7 +304,7 @@ For advanced users who want more control:
 
 ### `model.solve()` / `solve_perfect_foresight()` options:
 - `X0=None`: Initial guess for the `T × n` path. If omitted, defaults to the terminal steady state (`endval` if provided, otherwise `ss`) tiled over all `T` periods.
-- `exog_path=None`: Exogenous variable path (`T × n_exo` array)
+- `exog_path=None`: Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`)
 - `initial_state=None`: Pre-period-0 values of stock variables (`k_{-1}` in Dynare convention); defaults to `ss_initial[stock_var_indices]` (economy starts at steady state)
 - `stock_var_indices=None`: Column indices (into `vars_dyn`) of stock (predetermined) variables; inferred from the lead-lag incidence table when not provided
 - `ss_initial=None`: Initial steady-state values used for the `initval` boundary row; defaults to `ss`
