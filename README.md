@@ -68,7 +68,7 @@ pyperfectforesight is **~23–61× faster** than Dynare 6.2 on the same RBC mode
 
 *RBC model, 3 variables, one-time TFP shock. Median of 20 runs each. Solver only.*
 
-To reproduce: `python scripts/benchmark.py --dynare --plot` (requires MATLAB + Dynare 6.2). Omit `--dynare` to use the saved Dynare CSV already in the repo.
+To reproduce: install dev extras first (`pip install -e ".[dev]"`), then run `python scripts/benchmark.py --dynare --plot` (requires MATLAB + Dynare 6.2). Omit `--dynare` to use the saved Dynare CSV already in the repo.
 
 ## Why pyperfectforesight?
 
