@@ -3715,7 +3715,18 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
-        _cs = self._get_compiled_ss() if compiled_ss is _UNSET else compiled_ss
+        if compiled_ss is _UNSET:
+            # compiled_ss is only consumed when at least one segment has a
+            # non-None exog_path and no explicit endval override (2-tuple).
+            # Skip compilation when every segment either has no exog_path or
+            # already carries its own endval (3-tuple).
+            _needs_auto_endval = any(
+                len(entry) == 2 and entry[1] is not None
+                for entry in news_shocks
+            )
+            _cs = self._get_compiled_ss() if _needs_auto_endval else None
+        else:
+            _cs = compiled_ss
         return solve_perfect_foresight_expectation_errors(
             T, params, ss, self._funcs, self.vars_dyn, news_shocks,
             X0=X0, initial_state=initial_state, ss_initial=ss_initial,
