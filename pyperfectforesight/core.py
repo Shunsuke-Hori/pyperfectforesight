@@ -20,6 +20,12 @@ class EndvalNotSteadyStateWarning(UserWarning):
     the steady-state equations at the terminal exogenous level."""
 
 
+# Residual-norm threshold for the endval consistency check.
+# Transitory shocks (AR(1), T=50) leave a residual of ~8e-4; permanent-shock
+# mismatches are typically ~0.1.  1e-3 cleanly separates the two cases.
+_ENDVAL_RESIDUAL_THRESHOLD = 1e-3
+
+
 def v(name, lag):
     """Time-indexed symbolic variable"""
     return sp.Symbol(f"{name}_{lag}")
@@ -2548,7 +2554,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         import warnings as _warnings
         try:
             exog_terminal = (
-                np.asarray(exog_path, dtype=float)[-1]
+                np.asarray(exog_path[-1], dtype=float)
                 if exog_path is not None
                 else np.zeros(len(vars_exo))
             )
@@ -2558,7 +2564,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 endval, endval, endo_lags, exo_lags, vals_plan=_vals_plan,
             )
             _res_norm = np.linalg.norm(_check_res)
-            if _res_norm > 1e-3:
+            if _res_norm > _ENDVAL_RESIDUAL_THRESHOLD:
                 _exog_desc = (
                     f"exog_path[-1]={exog_terminal.tolist()}"
                     if exog_path is not None
@@ -2567,7 +2573,7 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 _warnings.warn(
                     f"endval may not be a valid steady state at the terminal "
                     f"exogenous level ({_exog_desc}): steady-state residual norm = "
-                    f"{_res_norm:.3e} (threshold 1e-3). "
+                    f"{_res_norm:.3e} (threshold {_ENDVAL_RESIDUAL_THRESHOLD}). "
                     "For permanent shocks, pass the post-shock steady state as "
                     "`endval`, or provide `compiled_ss` for automatic computation.",
                     EndvalNotSteadyStateWarning,

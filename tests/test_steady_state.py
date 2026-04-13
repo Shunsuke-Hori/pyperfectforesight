@@ -327,7 +327,7 @@ def test_expectation_errors_compiled_ss_auto_endval(model, compiled_ss):
         compiled_ss=compiled_ss,
     )
 
-    # Explicit 3-tuple endval for comparison (segment 1 ends at ss_initial; segment 10 at ss_terminal)
+    # Explicit 3-tuple endval for comparison (learnt_in=1 segment ends at ss_initial; learnt_in=10 segment at ss_terminal)
     news_explicit = [
         (1,  np.full((T, 1), 1.0), ss_initial),
         (10, exog_path, ss_terminal),
