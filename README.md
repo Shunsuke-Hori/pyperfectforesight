@@ -16,7 +16,7 @@ ALPHA = p("alpha")
 BETA  = p("beta")
 PARAMS = {ALPHA: 0.36, BETA: 0.99}
 
-# Dynare lag notation: v("k", -1) = k_{t-1}, v("c", 1) = c_{t+1}
+# Dynare lag/lead notation: v("k", -1) = k_{t-1}, v("c", 1) = c_{t+1}, v("z", 1) = z_{t+1}
 eq_euler = 1/v("c", 0) - BETA * ALPHA * v("z", 1) * v("k", 0)**(ALPHA-1) / v("c", 1)
 eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
 
@@ -32,7 +32,7 @@ exog_path = np.full((T, 1), 1.05)   # permanent 5% TFP increase
 # Terminal steady state is auto-computed from exog_path[-1]
 sol = model.solve(T, PARAMS, ss,
                   exog_path=exog_path,
-                  initial_state=np.array([ss[1]]))
+                  initial_state=np.array([ss[1]]))  # k_{-1}: pre-period-0 stock value, not k_0
 
 print(f"Converged: {sol.success}")
 X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [c, k]
@@ -94,7 +94,7 @@ Dynare is the reference platform and pyperfectforesight is validated against it 
 ```bash
 git clone https://github.com/Shunsuke-Hori/pyperfectforesight.git
 cd pyperfectforesight
-pip install -e ".[dev]"
+pip install -e .
 ```
 
 Once published to PyPI: `pip install pyperfectforesight`
