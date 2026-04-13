@@ -91,12 +91,13 @@ model = Model(equations, vars_dyn, vars_exo=..., vars_params=...)
 | `model.vars_exo` | Exogenous variable names |
 | `model.vars_params` | Parameter names |
 | `model.vars_aux` | Auxiliary variable names |
+| `model.aux_method` | Auxiliary variable handling method used (`'analytical'`, `'nested'`, or `'dynamic'`) |
 
 **Methods:**
 
 | Method | Description |
 |---|---|
-| `model.steady_state(params, exog_ss=None)` | Compute the model steady state numerically |
+| `model.steady_state(params, exog_ss=None, initial_guess=None)` | Compute the model steady state numerically |
 | `model.solve(T, params, ss, ...)` | Solve the perfect foresight problem |
 | `model.solve_homotopy(T, params, ss, ...)` | Solve via homotopy continuation |
 | `model.solve_expectation_errors(T, params, ss, news_shocks, ...)` | Solve with surprise MIT shocks |

@@ -57,7 +57,7 @@ model = Model([eq_euler, eq_kacc, eq_i], vars_dyn,
 
 print(f"Endogenous variables: {model.vars_dyn}")
 print(f"Auxiliary variables:  {model.vars_aux}")
-print(f"Auxiliary method:     {model._funcs['aux_method']}")
+print(f"Auxiliary method:     {model.aux_method}")
 print(f"Exogenous variables:  {model.vars_exo}")
 
 # ============================================================

@@ -3532,6 +3532,7 @@ class Model:
         self.vars_exo    = self._funcs['vars_exo']
         self.vars_aux    = self._funcs['vars_aux']
         self.vars_params = self._funcs['vars_params']
+        self.aux_method  = self._funcs['aux_method']
         self._compiled_ss = None   # populated lazily on first use
 
     # ------------------------------------------------------------------
