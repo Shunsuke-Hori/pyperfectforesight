@@ -69,13 +69,49 @@ The solver always uses the **augmented-path BVP formulation**. It builds a `T+2`
 
 Residuals are evaluated at $t = 0, \ldots, T-1$ using the full augmented path, so all $T \times n$ unknowns are determined simultaneously. This correctly handles jump variables: pinning `X[0]` directly would over-constrain them and produce a structurally singular Jacobian.
 
+## Model class
+
+The `Model` class is the recommended entry point.  It wraps
+`process_model` at construction time so that `model_funcs` and
+`vars_dyn` never need to be repeated at solve time, and it exposes
+`steady_state()`, `solve()`, `solve_homotopy()`, and
+`solve_expectation_errors()` as methods.
+
+```python
+model = Model(equations, vars_dyn, vars_exo=..., vars_params=...)
+```
+
+**Attributes** set after construction:
+
+| Attribute | Description |
+|---|---|
+| `model.vars_dyn` | Endogenous variable names (post-elimination) |
+| `model.vars_exo` | Exogenous variable names |
+| `model.vars_params` | Parameter names |
+| `model.vars_aux` | Auxiliary variable names |
+
+**Methods:**
+
+| Method | Description |
+|---|---|
+| `model.steady_state(params, exog_ss=None)` | Compute the model steady state numerically |
+| `model.solve(T, params, ss, ...)` | Solve the perfect foresight problem |
+| `model.solve_homotopy(T, params, ss, ...)` | Solve via homotopy continuation |
+| `model.solve_expectation_errors(T, params, ss, news_shocks, ...)` | Solve with surprise MIT shocks |
+
+The model lazily builds a compiled steady-state bundle the first time it
+is needed.  For permanent shocks, `endval` is auto-computed from
+`exog_path[-1]` without any extra setup — pass `endval=...` explicitly
+to override, or `compiled_ss=None` to disable auto-computation.
+
 ## Minimal RBC example
 
-Here is a complete two-variable RBC model — Euler equation and capital accumulation — solved with a 10% capital shock.
+Here is a complete two-variable RBC model — Euler equation and capital
+accumulation — solved with a 10% capital shock.
 
 ```python
 import numpy as np
-from pyperfectforesight import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, Model
 
 # Parameters baked in numerically
 ALPHA = 0.36
@@ -89,8 +125,7 @@ BETA  = 0.99
 eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
 eq_kacc  = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
 
-vars_dyn = ["c", "k"]
-model_funcs = process_model([eq_euler, eq_kacc], vars_dyn)
+model = Model([eq_euler, eq_kacc], ["c", "k"])
 
 # Steady state
 K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
@@ -99,15 +134,9 @@ ss = np.array([C_SS, K_SS])
 
 # Transition path: k_{-1} starts 10% above steady state
 T = 100
+k_neg1 = np.array([K_SS * 1.1])   # initial_state = k_{-1} (Dynare convention)
 
-# initial_state = k_{-1} (pre-period-0 capital, Dynare convention)
-k_neg1 = np.array([K_SS * 1.1])
-
-sol = solve_perfect_foresight(
-    T, {}, ss, model_funcs, vars_dyn,
-    initial_state=k_neg1,
-    stock_var_indices=[1],    # index of k in vars_dyn
-)
+sol = model.solve(T, {}, ss, initial_state=k_neg1, stock_var_indices=[1])
 print(f"Converged: {sol.success}")
 
 # Unpack solution
@@ -118,21 +147,20 @@ k_path = X[:, 1]
 
 ## RBC model with exogenous TFP shock
 
-When the model has exogenous variables, pass `vars_exo` to `process_model` and supply a `T × n_exo` array as `exog_path`:
+When the model has exogenous variables, pass `vars_exo` and supply a
+`T × n_exo` array as `exog_path`:
 
 ```python
 import sympy as sp
 import numpy as np
-from pyperfectforesight import v, process_model, solve_perfect_foresight
+from pyperfectforesight import v, Model
 
 ALPHA, BETA = 0.36, 0.99
 
-# TFP shock z enters the production function
 eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
 eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**ALPHA + v("c", 0)
 
-vars_dyn = ["c", "k"]
-model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=["z"])
+model = Model([eq_euler, eq_kacc], ["c", "k"], vars_exo=["z"])
 
 K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
 C_SS = K_SS**ALPHA - K_SS
@@ -149,28 +177,23 @@ for t in range(1, T):
 
 k_neg1 = np.array([K_SS])   # k_{-1} at steady state
 
-sol = solve_perfect_foresight(
-    T, {}, ss, model_funcs, vars_dyn,
-    initial_state=k_neg1,
-    stock_var_indices=[1],
-    exog_path=exog,
-)
+sol = model.solve(T, {}, ss, initial_state=k_neg1, stock_var_indices=[1],
+                  exog_path=exog)
 print(f"Converged: {sol.success}")
 ```
 
 ## Permanent shock with auto-computed terminal steady state
 
-For a **permanent** shock the terminal steady state differs from the initial one. Instead of computing it by hand, compile a `compiled_ss` bundle with `compile_steady_state_funcs(...)` and pass it as `compiled_ss=...` so the solver can derive the terminal steady state automatically from the last row of `exog_path` — the equivalent of Dynare's `endval` + `steady`.
+For a **permanent** shock the terminal steady state differs from the
+initial one.  With the `Model` class this is handled automatically:
+`model.solve()` computes `endval` from `exog_path[-1]` using the
+model's lazily-built compiled steady-state bundle — no extra setup
+needed.
 
 ```python
 import numpy as np
-from pyperfectforesight import (
-    p, v, process_model,
-    compile_steady_state_funcs, solve_steady_state,
-    solve_perfect_foresight,
-)
+from pyperfectforesight import p, v, Model
 
-# Parameters and model (RBC with exogenous TFP level z)
 ALPHA = p("alpha")
 BETA  = p("beta")
 PARAMS = {ALPHA: 0.36, BETA: 0.99}
@@ -178,39 +201,29 @@ PARAMS = {ALPHA: 0.36, BETA: 0.99}
 eq_euler = 1/v("c", 0) - BETA * ALPHA * v("z", 1) * v("k", 0)**(ALPHA - 1) / v("c", 1)
 eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
 
-vars_dyn = ["c", "k"]
-vars_exo = ["z"]
-model_funcs = process_model([eq_euler, eq_kacc], vars_dyn, vars_exo=vars_exo,
-                            vars_params=["alpha", "beta"])
-
-# Compile the steady-state system once for reuse in later numerical solves
-compiled_ss = compile_steady_state_funcs([eq_euler, eq_kacc], vars_dyn, vars_exo)
+model = Model([eq_euler, eq_kacc], ["c", "k"],
+              vars_exo=["z"], vars_params=["alpha", "beta"])
 
 # Pre-shock steady state: z = 1.0
-ss_pre = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]))
+ss_pre = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
 
 T = 100
 # Permanent TFP increase: z jumps from 1.0 to 1.05 at period 0
 exog_path = np.full((T, 1), 1.05)
 
-# initial_state = k_{-1} at the pre-shock steady state
-k_neg1 = np.array([ss_pre[1]])
-
-# ss=ss_pre seeds ss_initial (pre-shock); compiled_ss auto-computes endval
-# (post-shock SS at z=1.05) from exog_path[-1]
-sol = solve_perfect_foresight(
-    T, PARAMS, ss_pre, model_funcs, vars_dyn,
-    exog_path=exog_path,
-    initial_state=k_neg1,
-    compiled_ss=compiled_ss,
-)
+# endval is auto-computed from exog_path[-1] (post-shock SS at z=1.05)
+sol = model.solve(T, PARAMS, ss_pre,
+                  exog_path=exog_path,
+                  initial_state=np.array([ss_pre[1]]))
 print(f"Converged: {sol.success}")
 
 X = sol.x.reshape(T, -1)
 c_path, k_path = X[:, 0], X[:, 1]
 ```
 
-`compiled_ss` can be reused across many simulations; call `compile_steady_state_funcs` once and pass the bundle each time. When `endval` is supplied explicitly alongside `compiled_ss`, the explicit value takes precedence and auto-computation is skipped.
+Pass `endval=...` explicitly to override the auto-computed terminal
+steady state, or `compiled_ss=None` to disable auto-computation
+entirely.
 
 ## Inequality constraints and the zero lower bound
 
@@ -242,13 +255,15 @@ factors — `∂Min(a,b)/∂a = Heaviside(b − a)` and `∂Min(a,b)/∂b = Heav
 — which is what SymPy's lambdified Jacobian computes.  The kink at `a = b`
 (measure zero) does not prevent Newton convergence in practice.
 
-`process_model` still attempts static elimination via `sp.solve`.  If
-`sp.solve` raises `NotImplementedError` — which typically happens for
-equations involving `sp.Min` or `sp.Max` — it falls back to no static
-elimination.  No special flag is needed:
+`Model` (and the underlying `process_model`) still attempts static elimination
+via `sp.solve`.  If `sp.solve` raises `NotImplementedError` — which typically
+happens for equations involving `sp.Min` or `sp.Max` — it falls back to no
+static elimination.  No special flag is needed:
 
 ```python
-model = process_model(
+from pyperfectforesight import Model
+
+model = Model(
     equations, vars_dyn,
     vars_exo=vars_exo,
     vars_params=vars_params,

@@ -3717,11 +3717,14 @@ class Model:
         """
         if compiled_ss is _UNSET:
             # compiled_ss is only consumed when at least one segment has a
-            # non-None exog_path and no explicit endval override (2-tuple).
-            # Skip compilation when every segment either has no exog_path or
-            # already carries its own endval (3-tuple).
+            # non-None exog_path and no explicit endval override.  Parse each
+            # entry the same way as the functional solver:
+            #   2-tuple -> (learnt_in, exog_path),        endval = None
+            #   3-tuple -> (learnt_in, exog_path, endval), endval = entry[2]
+            # A 3-tuple with endval=None is functionally identical to a 2-tuple
+            # (no override), so treat it the same way.
             _needs_auto_endval = any(
-                len(entry) == 2 and entry[1] is not None
+                entry[1] is not None and (len(entry) == 2 or entry[2] is None)
                 for entry in news_shocks
             )
             _cs = self._get_compiled_ss() if _needs_auto_endval else None
