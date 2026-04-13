@@ -20,9 +20,10 @@ class EndvalNotSteadyStateWarning(UserWarning):
     the steady-state equations at the terminal exogenous level."""
 
 
-# Residual-norm threshold for the endval consistency check.
-# Transitory shocks (AR(1), T=50) leave a residual of ~8e-4; permanent-shock
-# mismatches are typically ~0.1.  1e-3 cleanly separates the two cases.
+# RMS-norm threshold for the endval consistency check (residual RMS = L2/sqrt(N)).
+# Using RMS keeps the threshold model-size-invariant.  For the 2-equation RBC:
+# transitory shocks (AR(1), T=50) give RMS ~6e-4; permanent-shock mismatches
+# give RMS ~0.1.  1e-3 cleanly separates the two cases.
 _ENDVAL_RESIDUAL_THRESHOLD = 1e-3
 
 
@@ -2563,8 +2564,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 vars_dyn, dynamic_eqs, vars_exo, exog_terminal.reshape(1, -1),
                 endval, endval, endo_lags, exo_lags, vals_plan=_vals_plan,
             )
-            _res_norm = np.linalg.norm(_check_res)
-            if _res_norm > _ENDVAL_RESIDUAL_THRESHOLD:
+            # RMS norm: model-size-invariant (L2 / sqrt(N) keeps threshold
+            # meaning "per-equation residual magnitude" regardless of n).
+            _res_norm = np.linalg.norm(_check_res) / np.sqrt(max(len(_check_res), 1))
+            if np.isfinite(_res_norm) and _res_norm > _ENDVAL_RESIDUAL_THRESHOLD:
                 _exog_desc = (
                     f"exog_path[-1]={exog_terminal.tolist()}"
                     if exog_path is not None
