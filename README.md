@@ -44,7 +44,7 @@ For homotopy continuation, expectation-errors (news shocks), the functional API,
 
 - **Object-oriented API**: `Model` class — declare the model once, call `model.solve()`, `model.solve_homotopy()`, `model.solve_expectation_errors()`, and `model.steady_state()` without repeating bookkeeping
 - **Dynare-style lag notation**: Write equations using `v("k", -1)` for lagged variables, matching Dynare's convention exactly
-- **Automatic terminal steady-state computation**: Pass `compiled_ss` to any solver and omit `endval` — the terminal boundary is automatically computed from `exog_path[-1]`, guaranteeing consistency with the long-run exogenous level
+- **Automatic terminal steady-state computation**: Pass `compiled_ss` to any solver and omit `endval` — the terminal boundary is computed by solving for the steady state at `exog_path[-1]`
 - **Augmented-path BVP solver**: `initial_state` is the pre-period-0 value `k_{-1}`; all period-0 variables including jump variables are solved simultaneously
 - **Sparse Newton solver**: Efficient sparse Jacobian and Newton iterations
 - **Homotopy continuation**: `solve_perfect_foresight_homotopy` for large shocks that defeat direct Newton
@@ -116,6 +116,8 @@ See the `examples/` directory for complete runnable scripts:
 ## Development
 
 ```bash
+git clone https://github.com/Shunsuke-Hori/pyperfectforesight.git
+cd pyperfectforesight
 pip install -e ".[dev]"
 pytest
 ```
