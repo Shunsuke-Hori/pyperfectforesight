@@ -3615,7 +3615,15 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
-        _cs = self._get_compiled_ss() if compiled_ss is _UNSET else compiled_ss
+        if compiled_ss is _UNSET:
+            # compiled_ss is only consumed when endval is None AND exog_path is
+            # not None; skip compilation for transitory shocks (no exog_path) or
+            # when the caller already supplies endval.
+            _cs = (self._get_compiled_ss()
+                   if exog_path is not None and endval is None
+                   else None)
+        else:
+            _cs = compiled_ss
         return solve_perfect_foresight(
             T, params, ss, self._funcs, self.vars_dyn,
             X0=X0, exog_path=exog_path, initial_state=initial_state,
@@ -3657,7 +3665,12 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
-        _cs = self._get_compiled_ss() if compiled_ss is _UNSET else compiled_ss
+        if compiled_ss is _UNSET:
+            _cs = (self._get_compiled_ss()
+                   if exog_path is not None and endval is None
+                   else None)
+        else:
+            _cs = compiled_ss
         return solve_perfect_foresight_homotopy(
             T, params, ss, self._funcs, self.vars_dyn,
             X0=X0, exog_path=exog_path, initial_state=initial_state,

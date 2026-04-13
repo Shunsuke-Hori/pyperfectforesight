@@ -122,6 +122,7 @@ def test_steady_state_with_exog(model_z):
 
 def test_steady_state_cached(model_simple):
     """_compiled_ss is populated after the first steady_state() call."""
+    model_simple.steady_state({}, initial_guess=SS * 1.1)   # ensure compilation
     assert model_simple._compiled_ss is not None
 
 
@@ -202,6 +203,7 @@ def test_solve_compiled_ss_none_uses_ss_as_endval(model_z):
 
     # Both converge but terminal values differ (auto uses SS_NEW, no-auto uses SS)
     assert sol_auto.success
+    assert sol_no_auto.success
     X_auto    = sol_auto.x.reshape(T, 2)
     X_no_auto = sol_no_auto.x.reshape(T, 2)
     # With auto-endval the terminal period is near SS_NEW, not SS
@@ -220,6 +222,7 @@ def test_solve_explicit_endval_overrides_auto(model_z):
                                  endval=SS)  # force original SS as terminal
 
     assert sol_auto.success
+    assert sol_override.success
     X_auto     = sol_auto.x.reshape(T, 2)
     X_override = sol_override.x.reshape(T, 2)
     # Terminal periods must differ when endval differs
