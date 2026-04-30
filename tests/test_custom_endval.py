@@ -63,25 +63,21 @@ def model_z():
 # 1. endval=SS (backward compatible pattern)
 # ---------------------------------------------------------------------------
 
-def test_endval_none_defaults_to_ss(model):
-    """Using endval=SS produces a valid solution."""
+def test_endval_ss_produces_valid_solution(model):
+    """Passing endval=SS with an off-SS initial_state produces a valid solution."""
     k_neg1 = np.array([K_SS * 1.1])
     X0 = np.tile(SS, (T, 1))
 
-    sol_a = solve_perfect_foresight(
-        T, {}, model, VARS_DYN,
-        endval=SS, X0=X0,
-        initial_state=k_neg1, stock_var_indices=[1],
-    )
-    sol_b = solve_perfect_foresight(
+    sol = solve_perfect_foresight(
         T, {}, model, VARS_DYN,
         endval=SS, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
-    assert sol_a.success
-    assert sol_b.success
-    np.testing.assert_allclose(sol_a.x, sol_b.x, atol=1e-10)
+    assert sol.success
+    # Path should converge back toward SS by the end
+    X = sol.x.reshape(T, -1)
+    np.testing.assert_allclose(X[-1], SS, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -187,26 +183,20 @@ def test_homotopy_permanent_shock(model_z):
 # 6. Homotopy: endval=SS (backward compatible pattern)
 # ---------------------------------------------------------------------------
 
-def test_homotopy_endval_none_defaults_to_ss(model):
-    """Using endval=SS in homotopy is consistent."""
+def test_homotopy_endval_ss_produces_valid_solution(model):
+    """Homotopy with endval=SS and off-SS initial_state produces a valid solution."""
     k_neg1 = np.array([K_SS * 1.2])
 
-    sol_default = solve_perfect_foresight_homotopy(
-        T, {}, model, VARS_DYN,
-        endval=SS,
-        initial_state=k_neg1, stock_var_indices=[1],
-        n_steps=4,
-    )
-    sol_explicit = solve_perfect_foresight_homotopy(
+    sol = solve_perfect_foresight_homotopy(
         T, {}, model, VARS_DYN,
         endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=4,
     )
 
-    assert sol_default.success
-    assert sol_explicit.success
-    np.testing.assert_allclose(sol_default.x, sol_explicit.x, atol=1e-10)
+    assert sol.success
+    X = sol.x.reshape(T, -1)
+    np.testing.assert_allclose(X[-1], SS, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------

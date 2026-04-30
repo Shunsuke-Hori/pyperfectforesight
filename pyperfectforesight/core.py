@@ -1102,7 +1102,7 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn)
     >>> for params in param_grid:
     ...     ss = solve_steady_state(compiled_ss, params)
-    ...     result = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn)
+    ...     result = solve_perfect_foresight(T, params, model_funcs, vars_dyn, endval=ss)
 
     Compile once, then solve the steady state at a non-zero exogenous level
     (e.g. after a permanent technology shock where ``z`` settles at 1.05):
@@ -2251,7 +2251,6 @@ def solve_perfect_foresight(T, params_dict, model_funcs, vars_dyn, *,
         If None, inferred automatically from the lead-lag incidence table in
         ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
-    endval : array-like (including SteadyState), optional
     method : str, default ``'sparse_newton'``
         Solution algorithm. ``'sparse_newton'`` is the only fully supported
         value. ``'hybr'`` is accepted as a deprecated alias for backward
@@ -2517,8 +2516,8 @@ def solve_perfect_foresight(T, params_dict, model_funcs, vars_dyn, *,
                     f"endval may not be a valid steady state at the terminal "
                     f"exogenous level ({_exog_desc}): steady-state residual norm = "
                     f"{_res_norm:.3e} (threshold {_ENDVAL_RESIDUAL_THRESHOLD}). "
-                    "For permanent shocks, pass the post-shock steady state as "
-                    "`endval`, or provide `compiled_ss` for automatic computation.",
+                    "For permanent shocks, compute the post-shock steady state via "
+                    "solve_steady_state() and pass it as `endval`.",
                     EndvalNotSteadyStateWarning,
                     stacklevel=2,
                 )

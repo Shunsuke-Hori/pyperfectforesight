@@ -220,7 +220,6 @@ def test_permanent_shock_explicit_endval(model, compiled_ss):
                                       initial_guess=_analytical_ss(1.0))
     ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
                                       initial_guess=ss_initial)
-    k_neg1 = ss_initial[1:2]
 
     sol = solve_perfect_foresight(
         T, PARAMS, model, VARS_DYN,
@@ -243,7 +242,6 @@ def test_homotopy_permanent_shock_explicit_endval(model, compiled_ss):
                                       initial_guess=_analytical_ss(1.0))
     ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
                                       initial_guess=ss_initial)
-    k_neg1      = ss_initial[1:2]
 
     sol = solve_perfect_foresight_homotopy(
         T, PARAMS, model, VARS_DYN,
@@ -267,7 +265,6 @@ def test_expectation_errors_explicit_endval(model, compiled_ss):
                                       initial_guess=_analytical_ss(1.0))
     ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
                                       initial_guess=ss_initial)
-    k_neg1 = ss_initial[1:2]
 
     news = [
         (1,  np.full((T, 1), 1.0), ss_initial),

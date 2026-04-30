@@ -29,10 +29,13 @@ ss = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
 T = 100
 exog_path = np.full((T, 1), 1.05)   # permanent 5% TFP increase
 
-# Terminal steady state is auto-computed from exog_path[-1]
-sol = model.solve(T, PARAMS, ss,
-                  exog_path=exog_path,
-                  initial_state=np.array([ss[1]]))  # k_{-1}: pre-period-0 stock value, not k_0
+# Compute terminal steady state at new exogenous level
+ss_terminal = model.steady_state(PARAMS, exog_ss=np.array([1.05]))
+
+sol = model.solve(T, PARAMS,
+                  endval=ss_terminal,
+                  ss_initial=ss,          # on-SS start: economy was at ss before shock
+                  exog_path=exog_path)
 
 print(f"Converged: {sol.success}")
 X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [c, k]
@@ -44,8 +47,8 @@ For homotopy continuation, expectation-errors (news shocks), the functional API,
 
 - **Object-oriented API**: `Model` class — declare the model once, call `model.solve()`, `model.solve_homotopy()`, `model.solve_expectation_errors()`, and `model.steady_state()` without repeating bookkeeping
 - **Dynare-style lag notation**: Write equations using `v("k", -1)` for lagged variables, matching Dynare's convention exactly
-- **Automatic terminal steady-state computation**: Pass `compiled_ss` to any solver and omit `endval` — the terminal boundary is computed by solving for the steady state at `exog_path[-1]`
-- **Augmented-path BVP solver**: `initial_state` is the pre-period-0 value `k_{-1}`; all period-0 variables including jump variables are solved simultaneously
+- **Explicit terminal steady state**: Pass the pre-computed terminal SS as `endval`; use `solve_steady_state()` to compute it at any exogenous level
+- **Augmented-path BVP solver**: `ss_initial` or `initial_state` sets the pre-period-0 boundary; all period-0 variables including jump variables are solved simultaneously
 - **Sparse Newton solver**: Efficient sparse Jacobian and Newton iterations
 - **Homotopy continuation**: `solve_perfect_foresight_homotopy` for large shocks that defeat direct Newton
 - **Expectation-errors solver**: Replicates Dynare's `perfect_foresight_with_expectation_errors_solver` — multiple surprise MIT shocks, path stitched from sub-simulations
