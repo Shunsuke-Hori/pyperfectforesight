@@ -3137,10 +3137,11 @@ def solve_perfect_foresight_homotopy(
             "Provide at most one of 'initial_state' or 'ss_initial', not both."
         )
 
-    if initial_state is None and ss_initial is None and exog_path is None:
+    if initial_state is None and exog_path is None:
         raise ValueError(
-            "Homotopy requires at least one of 'initial_state', 'ss_initial', "
-            "or 'exog_path' to scale. All are None -- there is nothing to homotopy on."
+            "Homotopy requires at least one of 'initial_state' or 'exog_path' "
+            "to scale. Both are None -- there is nothing to homotopy on. "
+            "('ss_initial' is the baseline, not a perturbation source.)"
         )
 
     vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
@@ -3298,14 +3299,13 @@ def solve_perfect_foresight_homotopy(
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
         )
-        # Interpolate endval from endval (lam=0, used as baseline) to endval
-        # at lam=1.  Since endval is fixed, this is just endval at every step.
         endval_lam = endval
 
         import warnings as _w
         with _w.catch_warnings():
-            # endval_lam is linearly interpolated — not a valid SS for the
-            # scaled exog level at this step. Suppress the consistency check.
+            # exog_path_lam is scaled to an intermediate level (not the terminal
+            # level), so endval is not a valid SS at this step's exogenous level.
+            # Suppress the consistency check to avoid spurious warnings.
             _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
             sol = solve_perfect_foresight(
                 T, params_dict, model_funcs, vars_dyn_eff,
