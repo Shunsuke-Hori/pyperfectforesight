@@ -3061,7 +3061,8 @@ def solve_perfect_foresight_homotopy(
     Conceptually, ``lam`` varies from 0 to 1, where ``lam=0`` is the unshocked
     configuration and ``lam=1`` is the fully shocked problem.  The warm start
     for the first positive ``lam`` is ``np.tile(endval, (T, 1))``.  At least
-    one of ``initial_state``/``ss_initial`` or ``exog_path`` must be provided.
+    one of ``initial_state`` or ``exog_path`` must be provided (``ss_initial``
+    is the lam=0 baseline, not a perturbation source).
 
     Parameters
     ----------
