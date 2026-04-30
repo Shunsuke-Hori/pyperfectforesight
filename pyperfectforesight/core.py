@@ -2231,7 +2231,9 @@ def solve_perfect_foresight(T, params_dict, model_funcs, vars_dyn, *,
     exog_path : ndarray of shape (T, n_exo) or dict {str: array-like}, optional
         Exogenous variable path.  Either a ``(T, n_exo)`` array with columns
         in ``vars_exo`` order, or a dict mapping variable names to length-T
-        arrays (e.g. ``{"z": np.ones(T)}``).  If None, no exogenous variables.
+        arrays (e.g. ``{"z": np.ones(T)}``).  If None, an all-zero path is
+        used — only correct for deviation-from-steady-state models where the
+        exogenous steady-state value is zero.
     initial_state : ndarray, optional
         Pre-period-0 values of the stock variables for an off-steady-state
         start (Dynare convention: ``k_{-1}``).  Provide this when the economy
@@ -3053,8 +3055,10 @@ def solve_perfect_foresight_homotopy(
 
     The homotopy scales two sources of perturbation simultaneously:
 
-    * ``initial_state`` deviation from ``ss_initial``
-      (``initial_state_lam = ss_initial_stock + lam * (initial_state - ss_initial_stock)``)
+    * ``initial_state`` deviation from the lam=0 stock baseline, which is
+      ``ss_initial[stock_var_indices]`` when ``ss_initial`` is provided,
+      otherwise ``endval[stock_var_indices]``:
+      (``initial_state_lam = baseline_stock + lam * (initial_state - baseline_stock)``)
     * ``exog_path`` deviation from ``exog_ss``
       (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
 
