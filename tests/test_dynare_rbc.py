@@ -92,7 +92,8 @@ def solution(model, exog_path):
     X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS])  # k_{-1}: capital at pre-shock steady state
     return solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=X0,
         exog_path=exog_path,
         initial_state=k_neg1,
         stock_var_indices=[1],

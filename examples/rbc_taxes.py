@@ -188,15 +188,12 @@ if __name__ == "__main__":
         [np.linspace(G_INIT, 0.0, 10), np.zeros(T - 10)]
     ).reshape(T, 1)
 
-    z0, k0, g0, i0, n0 = ss_initial
-    initial_state = np.array([z0, k0, i0])
-
     print(f"\nSolving over T = {T} periods...")
 
     sol = model.solve(
-        T, params, ss_base,
+        T, params,
+        endval=ss_base,
         exog_path=exog_path,
-        initial_state=initial_state,
         ss_initial=ss_initial,
     )
 

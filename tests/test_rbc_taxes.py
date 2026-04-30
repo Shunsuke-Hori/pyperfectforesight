@@ -128,12 +128,11 @@ def _run_sim(model):
     exog_path[:10, 0] = _exo_g           # periods 0-9; 10+ stay at 0
 
     ss_init = _ss_with_g(G_INIT)
-    initial_state = np.array([ss_init[0], ss_init[1], ss_init[3]])  # z, k, i
 
     return solve_perfect_foresight(
-        T, PARAMS, SS_BASELINE, model, VARS_DYN,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS_BASELINE,
         exog_path=exog_path,
-        initial_state=initial_state,
         ss_initial=ss_init,
     )
 

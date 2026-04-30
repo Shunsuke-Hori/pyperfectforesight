@@ -209,104 +209,11 @@ def test_steady_state_repr(compiled_ss):
 
 
 # ---------------------------------------------------------------------------
-# 5. compiled_ss in solve_perfect_foresight (auto endval)
+# 5. Permanent shock: caller computes both SSs and passes them explicitly
 # ---------------------------------------------------------------------------
 
-def test_compiled_ss_auto_endval_matches_explicit(model, compiled_ss):
-    """compiled_ss auto-computes endval from exog_path[-1]; result matches
-    solving with the same endval passed explicitly."""
-    z_terminal = 1.05
-    exog_path  = np.full((T, 1), z_terminal)
-    ss_initial = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
-                                     initial_guess=_analytical_ss(1.0))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
-                                      initial_guess=ss_initial)
-    k_neg1 = ss_initial[1:2]
-
-    sol_auto = solve_perfect_foresight(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        compiled_ss=compiled_ss,
-    )
-    sol_explicit = solve_perfect_foresight(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        endval=ss_terminal,
-    )
-
-    assert sol_auto.success, sol_auto.message
-    assert sol_explicit.success, sol_explicit.message
-    np.testing.assert_allclose(sol_auto.x, sol_explicit.x, atol=1e-10)
-
-
-def test_compiled_ss_explicit_endval_takes_priority(model, compiled_ss):
-    """When endval is passed explicitly, compiled_ss is ignored for endval."""
-    z_terminal  = 1.05
-    exog_path   = np.full((T, 1), z_terminal)
-    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
-                                      initial_guess=_analytical_ss(1.0))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
-                                      initial_guess=ss_initial)
-    k_neg1      = ss_initial[1:2]
-
-    sol_with    = solve_perfect_foresight(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        endval=ss_terminal, compiled_ss=compiled_ss,
-    )
-    sol_without = solve_perfect_foresight(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        endval=ss_terminal,
-    )
-
-    assert sol_with.success
-    np.testing.assert_allclose(sol_with.x, sol_without.x, atol=1e-10)
-
-
-# ---------------------------------------------------------------------------
-# 6. compiled_ss in solve_perfect_foresight_homotopy (auto endval)
-# ---------------------------------------------------------------------------
-
-def test_homotopy_compiled_ss_auto_endval(model, compiled_ss):
-    """compiled_ss auto-computes endval in homotopy; result matches explicit."""
-    z_terminal  = 1.05
-    exog_path   = np.full((T, 1), z_terminal)
-    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
-                                      initial_guess=_analytical_ss(1.0))
-    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
-                                      initial_guess=ss_initial)
-    k_neg1      = ss_initial[1:2]
-
-    sol_auto = solve_perfect_foresight_homotopy(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        compiled_ss=compiled_ss,
-        n_steps=5,
-    )
-    sol_explicit = solve_perfect_foresight_homotopy(
-        T, PARAMS, ss_terminal, model, VARS_DYN,
-        exog_path=exog_path, ss_initial=ss_initial,
-        initial_state=k_neg1,
-        endval=ss_terminal,
-        n_steps=5,
-    )
-
-    assert sol_auto.success, sol_auto.message
-    np.testing.assert_allclose(sol_auto.x, sol_explicit.x, atol=1e-8)
-
-
-# ---------------------------------------------------------------------------
-# 7. compiled_ss in solve_perfect_foresight_expectation_errors (auto endval)
-# ---------------------------------------------------------------------------
-
-def test_expectation_errors_compiled_ss_auto_endval(model, compiled_ss):
-    """compiled_ss auto-computes per-segment endval in expectation-errors solver."""
+def test_permanent_shock_explicit_endval(model, compiled_ss):
+    """Permanent shock: caller computes ss_initial and ss_terminal explicitly."""
     z_terminal = 1.05
     exog_path  = np.full((T, 1), z_terminal)
     ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
@@ -315,29 +222,61 @@ def test_expectation_errors_compiled_ss_auto_endval(model, compiled_ss):
                                       initial_guess=ss_initial)
     k_neg1 = ss_initial[1:2]
 
-    # Using compiled_ss: endval auto-computed from exog_path[-1] in segment 2
-    news_auto = [
-        (1,  np.full((T, 1), 1.0)),   # segment 1: no shock expected (z=1)
-        (10, exog_path),               # segment 10: learns of permanent shock
-    ]
-    sol_auto = solve_perfect_foresight_expectation_errors(
-        T, PARAMS, ss_terminal, model, VARS_DYN, news_auto,
-        initial_state=k_neg1,
-        ss_initial=ss_initial,
-        compiled_ss=compiled_ss,
+    sol = solve_perfect_foresight(
+        T, PARAMS, model, VARS_DYN,
+        endval=ss_terminal,
+        exog_path=exog_path, ss_initial=ss_initial,
     )
 
-    # Explicit 3-tuple endval for comparison (learnt_in=1 segment ends at ss_initial; learnt_in=10 segment at ss_terminal)
-    news_explicit = [
+    assert sol.success, sol.message
+
+
+# ---------------------------------------------------------------------------
+# 6. Permanent shock via homotopy: explicit endval
+# ---------------------------------------------------------------------------
+
+def test_homotopy_permanent_shock_explicit_endval(model, compiled_ss):
+    """Homotopy with explicit endval for a permanent shock."""
+    z_terminal  = 1.05
+    exog_path   = np.full((T, 1), z_terminal)
+    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                      initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
+    k_neg1      = ss_initial[1:2]
+
+    sol = solve_perfect_foresight_homotopy(
+        T, PARAMS, model, VARS_DYN,
+        exog_path=exog_path, ss_initial=ss_initial,
+        endval=ss_terminal,
+        n_steps=5,
+    )
+
+    assert sol.success, sol.message
+
+
+# ---------------------------------------------------------------------------
+# 7. Expectation errors: explicit endval per segment via 3-tuple
+# ---------------------------------------------------------------------------
+
+def test_expectation_errors_explicit_endval(model, compiled_ss):
+    """Expectation errors with explicit per-segment endval via 3-tuples."""
+    z_terminal = 1.05
+    exog_path  = np.full((T, 1), z_terminal)
+    ss_initial  = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([1.0]),
+                                      initial_guess=_analytical_ss(1.0))
+    ss_terminal = solve_steady_state(compiled_ss, PARAMS, exog_ss=np.array([z_terminal]),
+                                      initial_guess=ss_initial)
+    k_neg1 = ss_initial[1:2]
+
+    news = [
         (1,  np.full((T, 1), 1.0), ss_initial),
         (10, exog_path, ss_terminal),
     ]
-    sol_explicit = solve_perfect_foresight_expectation_errors(
-        T, PARAMS, ss_terminal, model, VARS_DYN, news_explicit,
-        initial_state=k_neg1,
+    sol = solve_perfect_foresight_expectation_errors(
+        T, PARAMS, model, VARS_DYN, news,
+        endval=ss_initial,
         ss_initial=ss_initial,
     )
 
-    assert sol_auto.success, sol_auto.message
-    assert sol_explicit.success, sol_explicit.message
-    np.testing.assert_allclose(sol_auto.x, sol_explicit.x, atol=1e-8)
+    assert sol.success, sol.message
