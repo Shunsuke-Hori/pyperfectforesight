@@ -157,7 +157,7 @@ def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0)
         T, PARAMS, model, VARS_DYN,
         endval=SS, X0=X0,
         stock_var_indices=[1],
-        # initial_state intentionally omitted → defaults to ss_initial[1] = K_SS
+        # initial_state intentionally omitted → defaults to endval[stock_var_indices]
     )
     assert sol.success
     # Starting at ss with no shock: solution path must stay at ss
