@@ -81,6 +81,19 @@ def test_duplicate_learnt_in_raises(model, X0):
         )
 
 
+def test_raises_when_both_initial_state_and_ss_initial_provided(model, X0):
+    """Passing both initial_state and ss_initial must raise ValueError."""
+    exog = np.zeros((T, 0))
+    with pytest.raises(ValueError, match="at most one"):
+        solve_perfect_foresight_expectation_errors(
+            T, PARAMS, model, VARS_DYN,
+            news_shocks=[(1, exog)], endval=SS, X0=X0,
+            initial_state=np.array([K_SS * 0.9]),
+            ss_initial=SS,
+            stock_var_indices=[1],
+        )
+
+
 # ---------------------------------------------------------------------------
 # 2. Single news event == solve_perfect_foresight
 # ---------------------------------------------------------------------------

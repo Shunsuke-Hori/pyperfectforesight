@@ -149,9 +149,9 @@ def test_solve_x0_none_with_custom_endval(model):
 def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
     """solve_perfect_foresight works when stock_var_indices is given without initial_state.
 
-    initial_state defaults to ss_initial[stock_var_indices], so the economy
-    starts at the steady state implied by ss_initial.  In this fixture
-    ss_initial == ss, so with no perturbation the solution should remain at ss.
+    When neither initial_state nor ss_initial is provided, initial_state
+    defaults to endval[stock_var_indices].  With no perturbation (endval == SS)
+    the solution path must stay at the steady state.
     """
     sol = solve_perfect_foresight(
         T, PARAMS, model, VARS_DYN,
@@ -194,6 +194,21 @@ def test_raises_on_initial_state_length_mismatch(model):
             endval=SS,
             initial_state=wrong_initial_state, stock_var_indices=[1],
         )
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+def test_raises_when_both_initial_state_and_ss_initial_provided(model, solver):
+    """Passing both initial_state and ss_initial must raise ValueError."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(
+        initial_state=k_neg1,
+        ss_initial=SS,
+        stock_var_indices=[1],
+    )
+    if solver is solve_perfect_foresight_homotopy:
+        kwargs["n_steps"] = 2
+    with pytest.raises(ValueError, match="at most one"):
+        solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
 
 
 # ---------------------------------------------------------------------------
