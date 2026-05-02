@@ -126,7 +126,8 @@ if __name__ == "__main__":
     print(f"  Shock size: +{shock_size:.4f} ({100*shock_size/g_baseline:.1f}%)")
     print(f"  Shock periods: {shock_start} to {shock_start + shock_duration - 1}")
 
-    sol = model.solve(T, params, ss_dyn, X0,
+    sol = model.solve(T, params,
+                      endval=ss_dyn, X0=X0,
                       exog_path=exog_path,
                       initial_state=initial_stock,
                       stock_var_indices=[1])

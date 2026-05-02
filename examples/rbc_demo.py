@@ -132,7 +132,8 @@ if __name__ == "__main__":
     X0 = np.tile(ss, (T, 1))
     X0[:, 1] = np.linspace(k0, ss[1], T)
 
-    sol = model.solve(T, params, ss, X0,
+    sol = model.solve(T, params,
+                      endval=ss, X0=X0,
                       initial_state=initial_stock,
                       stock_var_indices=[1])
 

@@ -134,7 +134,8 @@ if __name__ == "__main__":
 
     print(f"\nSolving T={T} periods (homotopy fallback enabled)...")
     sol = model.solve(
-        T, PARAMS, SS,
+        T, PARAMS,
+        endval=SS,
         exog_path=exog_path,
         initial_state=initial_state,
     )

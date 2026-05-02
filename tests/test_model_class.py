@@ -134,12 +134,14 @@ def test_solve_matches_functional_api(model_simple):
 
     funcs = process_model([EQ_EULER, EQ_KACC], VARS_DYN)
     sol_func = solve_perfect_foresight(
-        T, {}, SS, funcs, VARS_DYN,
+        T, {}, funcs, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
     sol_oop = model_simple.solve(
-        T, {}, SS,
+        T, {},
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
@@ -148,15 +150,16 @@ def test_solve_matches_functional_api(model_simple):
     np.testing.assert_allclose(sol_oop.x, sol_func.x, atol=1e-10)
 
 
-# ── solve() — permanent shock with auto endval ───────────────────────────────
+# ── solve() — permanent shock with explicit endval ───────────────────────────
 
-def test_solve_auto_endval_permanent_shock(model_z):
-    """Model.solve() auto-computes endval from exog_path[-1] for a permanent shock."""
+def test_solve_explicit_endval_permanent_shock(model_z):
+    """Model.solve() with endval=SS_NEW reaches the new steady state."""
     exog_path = np.full((T, 1), Z_NEW)
     k_neg1    = np.array([K_SS])
 
     sol = model_z.solve(
-        T, PARAMS, SS,
+        T, PARAMS,
+        endval=SS_NEW,
         exog_path=exog_path, initial_state=k_neg1,
     )
     assert sol.success
@@ -166,69 +169,25 @@ def test_solve_auto_endval_permanent_shock(model_z):
     np.testing.assert_allclose(X[-1], SS_NEW, atol=1e-3)
 
 
-def test_solve_auto_endval_matches_explicit(model_z):
-    """auto-endval gives the same result as passing endval=SS_NEW explicitly."""
+# ── solve() — wrong endval leads to different terminal ───────────────────────
+
+def test_solve_explicit_endval_overrides(model_z):
+    """Passing a wrong endval leads to a different (wrong) terminal."""
     exog_path = np.full((T, 1), Z_NEW)
     k_neg1    = np.array([K_SS])
 
-    sol_auto = model_z.solve(
-        T, PARAMS, SS,
-        exog_path=exog_path, initial_state=k_neg1,
-    )
-    sol_explicit = model_z.solve(
-        T, PARAMS, SS,
-        exog_path=exog_path, initial_state=k_neg1,
-        endval=SS_NEW,
-    )
-
-    assert sol_auto.success
-    assert sol_explicit.success
-    np.testing.assert_allclose(sol_auto.x, sol_explicit.x, atol=1e-8)
-
-
-# ── solve() — compiled_ss=None opts out of auto-endval ───────────────────────
-
-def test_solve_compiled_ss_none_uses_ss_as_endval(model_z):
-    """compiled_ss=None disables auto-endval; terminal falls back to ss."""
-    exog_path = np.full((T, 1), Z_NEW)
-    k_neg1    = np.array([K_SS])
-
-    sol_auto = model_z.solve(
-        T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
-    )
+    sol_correct = model_z.solve(T, PARAMS, endval=SS_NEW,
+                                exog_path=exog_path, initial_state=k_neg1)
     with pytest.warns(EndvalNotSteadyStateWarning):
-        sol_no_auto = model_z.solve(
-            T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
-            compiled_ss=None,
-        )
+        sol_wrong = model_z.solve(T, PARAMS, endval=SS,  # wrong: pre-shock SS
+                                  exog_path=exog_path, initial_state=k_neg1)
 
-    # Both converge but terminal values differ (auto uses SS_NEW, no-auto uses SS)
-    assert sol_auto.success
-    assert sol_no_auto.success
-    X_auto    = sol_auto.x.reshape(T, 2)
-    X_no_auto = sol_no_auto.x.reshape(T, 2)
-    # With auto-endval the terminal period is near SS_NEW, not SS
-    assert not np.allclose(X_auto[-1], X_no_auto[-1], atol=1e-3)
-
-
-# ── solve() — explicit endval overrides auto-computation ─────────────────────
-
-def test_solve_explicit_endval_overrides_auto(model_z):
-    """Passing endval= takes precedence over auto-computation."""
-    exog_path = np.full((T, 1), Z_NEW)
-    k_neg1    = np.array([K_SS])
-
-    sol_auto     = model_z.solve(T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1)
-    with pytest.warns(EndvalNotSteadyStateWarning):
-        sol_override = model_z.solve(T, PARAMS, SS, exog_path=exog_path, initial_state=k_neg1,
-                                     endval=SS)  # force original SS as terminal
-
-    assert sol_auto.success
-    assert sol_override.success
-    X_auto     = sol_auto.x.reshape(T, 2)
-    X_override = sol_override.x.reshape(T, 2)
+    assert sol_correct.success
+    assert sol_wrong.success
+    X_correct = sol_correct.x.reshape(T, 2)
+    X_wrong   = sol_wrong.x.reshape(T, 2)
     # Terminal periods must differ when endval differs
-    assert not np.allclose(X_auto[-1], X_override[-1], atol=1e-3)
+    assert not np.allclose(X_correct[-1], X_wrong[-1], atol=1e-3)
 
 
 # ── solve_homotopy() ──────────────────────────────────────────────────────────
@@ -238,7 +197,8 @@ def test_solve_homotopy_converges(model_simple):
     k_neg1 = np.array([K_SS * 1.5])   # 50% shock — may need homotopy
 
     sol = model_simple.solve_homotopy(
-        T, {}, SS,
+        T, {},
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     assert sol.success
@@ -250,11 +210,13 @@ def test_solve_homotopy_matches_functional_api(model_simple):
 
     funcs = process_model([EQ_EULER, EQ_KACC], VARS_DYN)
     sol_func = solve_perfect_foresight_homotopy(
-        T, {}, SS, funcs, VARS_DYN,
+        T, {}, funcs, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_oop = model_simple.solve_homotopy(
-        T, {}, SS,
+        T, {},
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
@@ -275,7 +237,8 @@ def test_solve_expectation_errors_converges(model_simple):
     ]
 
     sol = model_simple.solve_expectation_errors(
-        T, {}, SS, news_shocks,
+        T, {}, news_shocks,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     assert sol.success
@@ -288,11 +251,13 @@ def test_solve_expectation_errors_matches_functional_api(model_simple):
 
     funcs = process_model([EQ_EULER, EQ_KACC], VARS_DYN)
     sol_func = solve_perfect_foresight_expectation_errors(
-        T, {}, SS, funcs, VARS_DYN, news_shocks,
+        T, {}, funcs, VARS_DYN, news_shocks,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_oop = model_simple.solve_expectation_errors(
-        T, {}, SS, news_shocks,
+        T, {}, news_shocks,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
     )
 

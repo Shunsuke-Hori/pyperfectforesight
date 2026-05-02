@@ -1102,7 +1102,7 @@ def compile_steady_state_funcs(equations, vars_dyn, vars_exo=None):
     >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn)
     >>> for params in param_grid:
     ...     ss = solve_steady_state(compiled_ss, params)
-    ...     result = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn)
+    ...     result = solve_perfect_foresight(T, params, model_funcs, vars_dyn, endval=ss)
 
     Compile once, then solve the steady state at a non-zero exogenous level
     (e.g. after a permanent technology shock where ``z`` settles at 1.05):
@@ -2194,11 +2194,12 @@ def _normalize_exog_path(exog_path, vars_exo):
     return np.column_stack(cols)
 
 
-def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
+def solve_perfect_foresight(T, params_dict, model_funcs, vars_dyn, *,
+                           endval,
+                           X0=None,
                            exog_path=None, initial_state=None, ss_initial=None,
                            stock_var_indices=None, method='sparse_newton',
-                           solver_options=None, *, endval=None,
-                           compiled_ss=None,
+                           solver_options=None,
                            homotopy_fallback=True, homotopy_options=None):
     """
     Solve the perfect foresight problem using an augmented-path BVP formulation.
@@ -2214,37 +2215,36 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         Number of periods
     params_dict : dict
         Parameter values
-    ss : ndarray
-        Default steady-state values used as fallbacks when ``ss_initial`` and
-        ``endval`` are not provided.  Specifically: ``ss_initial`` defaults to
-        ``ss`` (pre-shock steady state) and ``endval`` defaults to ``ss``
-        (terminal boundary).  For permanent shocks where the initial and
-        terminal steady states differ, pass the pre-shock values as
-        ``ss_initial`` and the post-shock values as ``endval`` (or as ``ss``
-        with ``ss_initial`` set explicitly).
     model_funcs : dict
         Dictionary from process_model() containing compiled functions
     vars_dyn : list
         List of endogenous variable names
+    endval : ndarray (required keyword-only)
+        Terminal boundary values for all endogenous variables — the fixed right
+        boundary row of the augmented path, appended at ``t = T``.  Must be a
+        genuine steady state consistent with the terminal exogenous level
+        (``exog_path[-1]``).  A warning is emitted if this check fails.
     X0 : ndarray or None, optional
         Initial guess for endogenous state path (T x n_endo).  If None
-        (the default), the path is initialised to the terminal steady state
-        (``endval`` if provided, otherwise ``ss``) tiled over all T periods.
+        (the default), the path is initialised to ``endval`` tiled over all T
+        periods, matching Dynare's default behaviour.
     exog_path : ndarray of shape (T, n_exo) or dict {str: array-like}, optional
         Exogenous variable path.  Either a ``(T, n_exo)`` array with columns
         in ``vars_exo`` order, or a dict mapping variable names to length-T
-        arrays (e.g. ``{"z": np.ones(T)}``).  If None, no exogenous variables.
+        arrays (e.g. ``{"z": np.ones(T)}``).  If None, an all-zero path is
+        used — only correct for deviation-from-steady-state models where the
+        exogenous steady-state value is zero.
     initial_state : ndarray, optional
-        Pre-period-0 values of the stock variables (Dynare convention:
-        ``k_{-1}``). The BVP formulation prepends this as the ``initval``
-        boundary row; k_0 and all jump variables at t=0 are determined
-        simultaneously by the model equations at t=0.
-        If None, stock variables default to their initial steady-state values
-        (``ss_initial[stock_var_indices]``), i.e., the economy starts at the
-        initial steady state. When provided, must have the same length as
-        ``stock_var_indices``.
+        Pre-period-0 values of the stock variables for an off-steady-state
+        start (Dynare convention: ``k_{-1}``).  Provide this when the economy
+        begins away from a steady state.  Must have the same length as
+        ``stock_var_indices``.  Mutually exclusive with ``ss_initial``.
     ss_initial : ndarray, optional
-        Initial steady state (at exog[0]). If None, uses ss.
+        Full steady-state vector for an on-steady-state start.  Stock variable
+        pre-period-0 values are extracted from this vector automatically.
+        Mutually exclusive with ``initial_state``.  When neither is provided,
+        the economy starts at ``endval`` (i.e. the terminal steady state is
+        also the initial condition).
     stock_var_indices : list of int, optional
         Indices of stock (predetermined) variables in vars_dyn.  Stock
         variables are those that appear at lag < 0 in the model equations;
@@ -2253,56 +2253,6 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
         If None, inferred automatically from the lead-lag incidence table in
         ``model_funcs['incidence']``.
         Example: vars_dyn=["c","k"], stock_var_indices=[1] means k is stock, c is jump.
-    endval : array-like (including SteadyState), optional
-        Terminal boundary values for all endogenous variables (the fixed right
-        boundary row of the augmented path, appended at ``t = T``).
-
-        * If **provided**, it is used as-is and ``compiled_ss`` is ignored for
-          ``endval`` resolution.  Use this when you have already computed the
-          terminal steady state (e.g. for repeated simulations where you want
-          to avoid recomputing it).
-        * If **None** and ``compiled_ss`` is provided and ``exog_path`` is not
-          None, the terminal steady state is automatically computed by solving
-          the steady-state equations at the exogenous values ``exog_path[-1]``
-          (the last row of the path, representing the long-run exogenous level).
-          This guarantees that the terminal boundary is a true steady state
-          consistent with the terminal exogenous values.
-        * If **None** and no ``compiled_ss`` is given (or ``exog_path`` is
-          None), defaults to ``ss``.
-
-        Must match the **effective** dynamic variable vector used internally
-        by the solver — ``model_funcs['vars_dyn']`` when present (e.g. when
-        ``aux_method='dynamic'`` extends the variable list), falling back to
-        the ``vars_dyn`` argument otherwise.  Construct ``endval`` consistently
-        with ``ss`` and ``X0`` using that same variable ordering.
-    compiled_ss : dict, optional
-        Pre-compiled steady-state bundle returned by
-        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
-        Required for automatic ``endval`` computation from ``exog_path[-1]``
-        (see ``endval`` above).
-
-        Compile the bundle once and reuse it across multiple solver calls:
-
-        >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
-
-        First call: ``endval`` is auto-computed from ``exog_path[-1]``.
-
-        >>> result = solve_perfect_foresight(
-        ...     T, params, ss_terminal, model_funcs, vars_dyn,
-        ...     exog_path=exog_path, ss_initial=ss_initial,
-        ...     compiled_ss=compiled_ss,
-        ... )
-
-        Repeated call with the same terminal exogenous level: pass the
-        pre-computed ``endval`` directly to skip the steady-state solve.
-
-        >>> ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=exog_path[-1])
-        >>> for shock in shocks:
-        ...     result = solve_perfect_foresight(
-        ...         T, params, ss_terminal, model_funcs, vars_dyn,
-        ...         exog_path=shock, ss_initial=ss_initial,
-        ...         endval=ss_terminal,
-        ...     )
     method : str, default ``'sparse_newton'``
         Solution algorithm. ``'sparse_newton'`` is the only fully supported
         value. ``'hybr'`` is accepted as a deprecated alias for backward
@@ -2331,8 +2281,9 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
           homotopy step (keys: ``'maxiter'``, ``'ftol'``, ``'xtol'``,
           ``'maxfev'``).
         * ``endval`` (ndarray, optional): terminal boundary override for the
-          homotopy solver; if provided, it is interpolated from ``ss_initial``
-          at lam=0 to this value at lam=1.
+          homotopy solver; if provided, replaces the ``endval`` from the
+          primary solver call.  The value is held fixed at this array
+          throughout all homotopy steps (it is not interpolated).
         * ``method`` (str, optional): solution algorithm forwarded to the
           homotopy solver. ``'sparse_newton'`` is the only fully supported
           value; ``'hybr'`` is accepted as a deprecated alias and emits a
@@ -2388,9 +2339,15 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     _vals_plan = _build_vals_plan(
         all_syms, vars_dyn, vars_exo, params_dict, endo_lags, exo_lags)
 
-    # Only validate X0 when it is explicitly provided. If X0 is None, a default
-    # path based on endval (np.tile(endval, (T, 1))) is constructed later after
-    # endval is resolved.
+    # Validate: at most one of initial_state / ss_initial may be provided.
+    if initial_state is not None and ss_initial is not None:
+        raise ValueError(
+            "Provide at most one of 'initial_state' or 'ss_initial', not both. "
+            "Use 'ss_initial' (full SS vector) for an on-SS start, or "
+            "'initial_state' (stock vars only) for an off-SS start."
+        )
+
+    # Validate X0 when explicitly provided.
     if X0 is not None:
         X0 = np.asarray(X0, dtype=float)
         if X0.ndim != 2 or X0.shape != (T, n):
@@ -2399,33 +2356,17 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                 f"got shape {X0.shape}. "
                 f"If process_model fell back to aux_method='dynamic', "
                 f"vars_dyn was extended to include auxiliary variables. "
-                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
+                f"Reconstruct X0 using model_funcs['vars_dyn']."
             )
-    if ss.shape[0] != n:
-        raise ValueError(
-            f"ss has {ss.shape[0]} elements but the model has {n} dynamic variables "
-            f"({vars_dyn}). Reconstruct ss using model_funcs['vars_dyn']."
-        )
 
     method = _resolve_solver_method(method)
 
     if solver_options is None:
         solver_options = {}
 
-    # Save originals before any mutation so the homotopy fallback receives
-    # None vs. an explicit array (the distinction matters for homotopy's
-    # endval interpolation and its "nothing to scale" guard).
+    # Save original initial_state so the homotopy fallback receives the
+    # unmodified value (None vs. explicit array distinction matters there).
     _orig_initial_state = initial_state
-
-    # Auto-compute endval from the terminal exogenous level when compiled_ss is
-    # provided, endval is omitted, and an exog_path is available.  This ensures
-    # the terminal boundary is a genuine steady state consistent with the
-    # long-run exogenous values (exog_path[-1]).
-    if endval is None and compiled_ss is not None and exog_path is not None:
-        endval = solve_steady_state(
-            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
-            initial_guess=np.asarray(ss),
-        )
 
     _orig_endval = endval
 
@@ -2461,41 +2402,50 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             f"stock_var_indices contains out-of-range index. Valid range is [0, {n-1}]."
         )
 
-    # Resolve ss_initial before defaulting initial_state so the default is
-    # consistent with initval (which is built from ss_initial, not ss).
-    if ss_initial is None:
-        ss_initial = ss  # Default: initial SS same as terminal SS
-    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
-    if len(ss_initial) != n:
+    # Resolve the initial condition.
+    #
+    # Two mutually exclusive sources (validated above):
+    #   ss_initial — full SS vector; stock vars extracted from it
+    #   initial_state — stock vars only; non-stock initval positions filled from endval
+    #                   (jump-variable initval positions are never referenced)
+    # When neither is provided, stock vars default to endval[stock_var_indices].
+    endval_arr = np.asarray(endval, dtype=float).ravel()
+    if len(endval_arr) != n:
         raise ValueError(
-            f"ss_initial has {len(ss_initial)} elements but the model has "
-            f"{n} dynamic variables."
+            f"endval has {len(endval_arr)} elements but the model has {n} "
+            f"dynamic variables. endval must be a full state vector."
         )
 
-    if initial_state is not None:
-        initial_state = np.asarray(initial_state, dtype=float).ravel()
-    else:
-        # Default: stock variables start at their initial steady-state values.
-        initial_state = ss_initial[stock_var_indices]
-
-    if len(initial_state) != len(stock_var_indices):
-        hint = ""
-        if len(initial_state) == n and len(stock_var_indices) != n:
-            hint = (
-                " It looks like you passed a full period-0 state vector "
-                f"(length {n}). The legacy 'pin X[0]' standard mode has been "
-                "removed; initial_state must now contain only the pre-period-0 "
-                "values k_{-1} for each stock variable."
+    if ss_initial is not None:
+        ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+        if len(ss_initial) != n:
+            raise ValueError(
+                f"ss_initial has {len(ss_initial)} elements but the model has "
+                f"{n} dynamic variables."
             )
-        raise ValueError(
-            f"initial_state has {len(initial_state)} element(s) but "
-            f"{len(stock_var_indices)} stock variable(s) are expected "
-            f"(stock_var_indices={stock_var_indices}). "
-            "initial_state must contain one pre-period-0 value k_{{-1}} per "
-            "stock variable. "
-            "If stock_var_indices was not passed explicitly, it was inferred "
-            f"from model_funcs['incidence'].{hint}"
-        )
+        _initial_stock = ss_initial[stock_var_indices]
+        _initval_base = ss_initial
+    elif initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
+        if len(initial_state) != len(stock_var_indices):
+            hint = ""
+            if len(initial_state) == n and len(stock_var_indices) != n:
+                hint = (
+                    " It looks like you passed a full period-0 state vector "
+                    f"(length {n}). Use 'ss_initial' for a full SS vector, or "
+                    "pass only the stock variable values in 'initial_state'."
+                )
+            raise ValueError(
+                f"initial_state has {len(initial_state)} element(s) but "
+                f"{len(stock_var_indices)} stock variable(s) are expected "
+                f"(stock_var_indices={stock_var_indices}).{hint}"
+            )
+        _initial_stock = initial_state
+        _initval_base = endval_arr
+    else:
+        # Default: start at terminal steady state.
+        _initial_stock = endval_arr[stock_var_indices]
+        _initval_base = endval_arr
 
     # Augmented-path BVP formulation (always active).
     #
@@ -2504,10 +2454,10 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
     # so ``initial_state`` supplies k_{-1} (the pre-period-0 value of k).
     #
     # We prepend an ``initval`` row (= boundary at t=-1) and append an
-    # ``endval`` row (= ss) to the T-row unknown path.  The augmented T+2-row
-    # path is passed to BVP-mode helpers which evaluate T equation-periods
-    # using index t+lag+1, clamped to [0, T+1] so that any lag/lead beyond the
-    # single boundary row reuses initval/endval (e.g. k_{-2} = k_{-1} = initval).
+    # ``endval`` row to the T-row unknown path.  The augmented T+2-row path is
+    # passed to BVP-mode helpers which evaluate T equation-periods using index
+    # t+lag+1, clamped to [0, T+1] so that any lag/lead beyond the single
+    # boundary row reuses initval/endval (e.g. k_{-2} = k_{-1} = initval).
     # This yields T*neq equations for T*n unknowns (square since neq == n).
     # Actual non-singularity of the Jacobian depends on the model and calibration.
 
@@ -2532,24 +2482,16 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             stacklevel=2,
         )
 
-    # initval row: stock vars at k_{-1} = initial_state;
-    # non-stock vars at initial steady state (ss_initial).
-    initval = np.asarray(ss_initial, dtype=float).ravel().copy()
+    # Build initval row: start from _initval_base, override stock var positions.
+    initval = _initval_base.copy()
     for pos, i in enumerate(stock_var_indices):
-        initval[i] = initial_state[pos]
-    # endval row: terminal boundary (defaults to ss; override for permanent shocks).
-    if endval is None:
-        endval = ss
-    endval = np.asarray(endval, dtype=float).ravel().copy()
-    if len(endval) != n:
-        raise ValueError(
-            f"endval has {len(endval)} elements but the model has {n} "
-            f"dynamic variables. endval must be a full state vector."
-        )
+        initval[i] = _initial_stock[pos]
+
+    # Freeze endval (already validated above).
+    endval = endval_arr.copy()
 
     # Pre-solve consistency check: warn if endval is not a steady state at the
-    # terminal exogenous level.  Catches the common mistake of leaving
-    # endval=ss (the pre-shock steady state) for a permanent shock.
+    # terminal exogenous level.
     # Only meaningful when the model has exogenous variables.
     if vars_exo:
         import warnings as _warnings
@@ -2577,8 +2519,8 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
                     f"endval may not be a valid steady state at the terminal "
                     f"exogenous level ({_exog_desc}): steady-state residual norm = "
                     f"{_res_norm:.3e} (threshold {_ENDVAL_RESIDUAL_THRESHOLD}). "
-                    "For permanent shocks, pass the post-shock steady state as "
-                    "`endval`, or provide `compiled_ss` for automatic computation.",
+                    "For permanent shocks, compute the post-shock steady state via "
+                    "solve_steady_state() and pass it as `endval`.",
                     EndvalNotSteadyStateWarning,
                     stacklevel=2,
                 )
@@ -2641,13 +2583,12 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
             _homotopy_endval = homotopy_opts.pop('endval', _orig_endval)
             try:
                 return solve_perfect_foresight_homotopy(
-                    T, params_dict, ss, model_funcs, vars_dyn, X0,
+                    T, params_dict, model_funcs, vars_dyn,
                     exog_path=exog_path,
                     initial_state=_orig_initial_state,
                     ss_initial=ss_initial,
                     stock_var_indices=stock_var_indices,
                     endval=_homotopy_endval,
-                    compiled_ss=compiled_ss,
                     **homotopy_opts,
                 )
             except RuntimeError as exc:
@@ -2694,14 +2635,15 @@ def solve_perfect_foresight(T, params_dict, ss, model_funcs, vars_dyn, X0=None,
 # ============================================================
 
 def solve_perfect_foresight_expectation_errors(
-    T, params_dict, ss, model_funcs, vars_dyn, news_shocks, X0=None,
+    T, params_dict, model_funcs, vars_dyn, news_shocks, *,
+    endval,
+    X0=None,
     initial_state=None,
     ss_initial=None,
     stock_var_indices=None,
     constant_simulation_length=False,
     solver_options=None,
     sub_x0=None,
-    compiled_ss=None,
 ):
     """
     Solve a perfect foresight model with multiple surprise (MIT) shocks.
@@ -2718,10 +2660,6 @@ def solve_perfect_foresight_expectation_errors(
         Total simulation length (number of periods in the stitched output).
     params_dict : dict
         Parameter values.
-    ss : ndarray, shape (n_endo,)
-        Default terminal steady state (initial right BVP boundary), used
-        unless overridden by an ``endval`` provided in a ``news_shocks``
-        3-tuple.
     model_funcs : dict
         Output of ``process_model()``.
     vars_dyn : list of str
@@ -2748,30 +2686,27 @@ def solve_perfect_foresight_expectation_errors(
           steady state) for this sub-solve *and all subsequent ones*.  Use this
           to replicate Dynare's ``endval(learnt_in=k)`` block, which signals a
           **permanent** shock that changes the terminal steady state.  If
-          omitted and ``compiled_ss`` is provided, the terminal steady state is
-          automatically computed from the last row of that segment's
-          ``exog_path`` (the long-run exogenous level).  If neither is given,
-          the current ``endval`` (initialised to ``ss``) is reused.
+          omitted, the current ``endval`` (initialised from the ``endval``
+          keyword argument) is reused.
 
         The list must be sorted by ``learnt_in`` and the first entry must have
         ``learnt_in == 1``.
+    endval : ndarray (required keyword-only)
+        Default terminal steady state for all sub-solves.  Individual
+        ``news_shocks`` 3-tuples may override this for their segment and all
+        subsequent ones.
     X0 : ndarray, shape (T, n_endo), or None, optional
         Initial guess for the endogenous path, used as the warm-start for the
         first sub-solve.  Subsequent sub-solves are warm-started from the
         previous sub-solve's solution.  If None (the default), the path is
-        tiled from the effective terminal steady state for the first segment,
-        determined by the following priority order:
-
-        1. The explicit ``endval`` in the first ``news_shocks`` 3-tuple.
-        2. Auto-computed from ``compiled_ss`` at the last row of the first
-           segment's ``exog_path`` (when ``compiled_ss`` is provided and the
-           first segment has a non-None ``exog_path``).
-        3. ``ss`` (the steady state passed as the second positional argument).
+        tiled from the effective terminal steady state for the first segment
+        (the 3-tuple ``endval`` if present, otherwise the ``endval`` keyword).
     initial_state : ndarray, optional
-        Pre-period-0 stock variable values (``k_{-1}`` in Dynare notation).
-        Defaults to ``ss_initial[stock_var_indices]``.
+        Pre-period-0 stock variable values for an off-SS start.
+        Mutually exclusive with ``ss_initial``.
     ss_initial : ndarray, optional
-        Initial steady state.  Defaults to ``ss``.
+        Full SS vector for an on-SS start; stock vars extracted internally.
+        Mutually exclusive with ``initial_state``.
     stock_var_indices : list of int, optional
         Inferred from incidence if not provided.
     constant_simulation_length : bool, default False
@@ -2797,30 +2732,6 @@ def solve_perfect_foresight_expectation_errors(
 
         If ``sub_x0`` is ``None`` (the default) the automatic warm-start is
         used for every sub-solve.
-    compiled_ss : dict, optional
-        Pre-compiled steady-state bundle returned by
-        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
-        When provided, the terminal steady state for each sub-solve is
-        automatically computed from the last row of that segment's ``exog_path``
-        (i.e. ``exog_path[-1]`` before trimming to ``T_sub``), unless the
-        ``news_shocks`` entry already supplies an explicit ``endval`` in a
-        3-tuple.  This ensures every sub-solve's terminal boundary is a true
-        steady state consistent with the agents' long-run exogenous beliefs.
-
-        The computed ``endval`` persists to subsequent segments (same semantics
-        as an explicit 3-tuple ``endval``): if segment *k* auto-computes an
-        ``endval`` and segment *k+1* provides neither an explicit ``endval`` nor
-        an ``exog_path``, segment *k+1* reuses the value from segment *k*.
-
-        Compile the bundle once and reuse across many simulations:
-
-        >>> compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo)
-        >>> result = solve_perfect_foresight_expectation_errors(
-        ...     T, params, ss_initial, model_funcs, vars_dyn,
-        ...     news_shocks=[(1, exog_path_1), (6, exog_path_2)],
-        ...     compiled_ss=compiled_ss,
-        ... )
-
     Returns
     -------
     OptimizeResult
@@ -2950,15 +2861,28 @@ def solve_perfect_foresight_expectation_errors(
                     f"sub_x0[{idx}] must have at least one row; got shape {arr.shape}."
                 )
 
+    # Validate initial condition arguments.
+    if initial_state is not None and ss_initial is not None:
+        raise ValueError(
+            "Provide at most one of 'initial_state' or 'ss_initial', not both."
+        )
+
+    # Resolve ss_initial / initial_state for sub-solve calls.
+    endval_arr = np.asarray(endval, dtype=float).ravel()
+    if ss_initial is not None:
+        ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+        if len(ss_initial) != n:
+            raise ValueError(
+                f"ss_initial has {len(ss_initial)} elements but the model has {n} variables."
+            )
+
     all_pieces = []
     all_aux_pieces = []
     sub_results = []
     current_initial_state = initial_state
-    current_endval = ss   # updated if a 3-tuple provides an endval override
-    # Validate and default X0.  When provided, coerce to a float array and
-    # check shape.  When None, use the effective terminal steady state for the
-    # first segment (the endval override from the first news_shock entry if
-    # present, otherwise ss) tiled over all T periods.
+    current_endval = endval_arr.copy()  # updated if a 3-tuple provides an endval override
+
+    # Validate and default X0.
     if X0 is not None:
         try:
             X0 = np.asarray(X0, dtype=float)
@@ -2973,50 +2897,31 @@ def solve_perfect_foresight_expectation_errors(
             raise ValueError(f"X0 must have at least one row; got shape {X0.shape}.")
         X0_sub = X0
     else:
-        # Determine the effective terminal steady state for the first segment,
-        # used to tile the default initial guess X0.  Priority:
-        #   1. Explicit endval in the first news_shocks 3-tuple.
-        #   2. Auto-computed from compiled_ss at exog_path[-1] of the first segment.
-        #   3. The default steady state ss.
-        _first_exog_path = parsed[0][1]
-        if parsed[0][2] is not None:
-            _first_endval_raw = parsed[0][2]
-            _source = "the endval override in the first news_shocks entry"
-        elif compiled_ss is not None and _first_exog_path is not None:
-            _first_endval_raw = solve_steady_state(
-                compiled_ss, params_dict,
-                exog_ss=np.asarray(_first_exog_path, dtype=float)[-1],
-                initial_guess=np.asarray(ss),
-            )
-            _source = "the auto-computed terminal steady state for the first segment"
-        else:
-            _first_endval_raw = ss
-            _source = "the steady-state vector ss"
+        # Default X0: tile the first segment's endval (3-tuple override if present,
+        # otherwise the endval keyword argument).
+        _first_endval_raw = parsed[0][2] if parsed[0][2] is not None else endval_arr
         try:
             first_endval = np.asarray(_first_endval_raw, dtype=float).ravel()
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"{_source} could not be converted to a numeric array: {exc}"
+                f"endval for first segment could not be converted to a numeric array: {exc}"
             ) from exc
         if first_endval.size != n:
             raise ValueError(
-                f"{_source} must have length {n}; got length {first_endval.size}."
+                f"endval for first segment must have length {n}; got {first_endval.size}."
             )
         X0_sub = np.tile(first_endval, (T, 1))
 
     for i, (learnt_in, exog_path_i, endval_override) in enumerate(parsed):
-        # Apply endval override (persists to subsequent segments).
-        # Priority: explicit 3-tuple endval > auto-computed from compiled_ss > previous value.
+        # Apply endval override from 3-tuple (persists to subsequent segments).
         if endval_override is not None:
             current_endval = np.asarray(endval_override, dtype=float).ravel()
-        elif compiled_ss is not None and exog_path_i is not None:
-            # Auto-compute terminal steady state from the last row of this
-            # segment's exog_path (the agents' long-run exogenous belief).
-            exog_terminal = np.asarray(exog_path_i, dtype=float)[-1]
-            current_endval = solve_steady_state(
-                compiled_ss, params_dict, exog_ss=exog_terminal,
-                initial_guess=np.asarray(current_endval),
-            )
+            if current_endval.size != n:
+                raise ValueError(
+                    f"endval override at learnt_in={learnt_in} has "
+                    f"{current_endval.size} element(s) but the model has {n} "
+                    f"dynamic variable(s)."
+                )
 
         # Number of periods to keep from this sub-solve's output.
         next_learnt_in = parsed[i + 1][0] if i + 1 < len(parsed) else T + 1
@@ -3060,14 +2965,25 @@ def solve_perfect_foresight_expectation_errors(
                 )
             exog_sub = exog_sub[:T_sub]
 
+        # For the first sub-solve use ss_initial (if provided) to set initval.
+        # For subsequent sub-solves current_initial_state carries stock var
+        # values from the previous solution — use initial_state only.
+        if current_initial_state is not None:
+            _sub_initial_state = current_initial_state
+            _sub_ss_initial = None
+        else:
+            _sub_initial_state = None
+            _sub_ss_initial = ss_initial
+
         sol = solve_perfect_foresight(
-            T_sub, params_dict, ss, model_funcs, vars_dyn, X0_sub,
+            T_sub, params_dict, model_funcs, vars_dyn,
+            endval=current_endval,
+            X0=X0_sub,
             exog_path=exog_sub,
-            initial_state=current_initial_state,
-            ss_initial=ss_initial,
+            initial_state=_sub_initial_state,
+            ss_initial=_sub_ss_initial,
             stock_var_indices=stock_var_indices,
             solver_options=solver_options,
-            endval=current_endval,
         )
         sub_results.append(sol)
 
@@ -3127,12 +3043,11 @@ def solve_perfect_foresight_expectation_errors(
 # ============================================================
 
 def solve_perfect_foresight_homotopy(
-    T, params_dict, ss, model_funcs, vars_dyn, X0=None,
+    T, params_dict, model_funcs, vars_dyn,
     exog_path=None, initial_state=None, ss_initial=None,
     stock_var_indices=None,
     *,
-    endval=None,
-    compiled_ss=None,
+    endval,
     solver_options=None,
     n_steps=10, verbose=False, exog_ss=None,
     method='sparse_newton',
@@ -3147,18 +3062,20 @@ def solve_perfect_foresight_homotopy(
 
     The homotopy scales two sources of perturbation simultaneously:
 
-    * ``initial_state`` deviation from ``ss_initial``
-      (``initial_state_lam = ss_initial + lam * (initial_state - ss_initial)``)
+    * ``initial_state`` deviation from the lam=0 stock baseline, which is
+      ``ss_initial[stock_var_indices]`` when ``ss_initial`` is provided,
+      otherwise ``endval[stock_var_indices]``:
+      (``initial_state_lam = baseline_stock + lam * (initial_state - baseline_stock)``)
     * ``exog_path`` deviation from ``exog_ss``
       (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
 
-    Conceptually, ``lam`` varies from 0 to 1, where ``lam=0`` corresponds to
-    the unshocked configuration implied by ``ss_initial`` and ``exog_ss``,
-    and ``lam=1`` to the fully shocked problem.  The implementation does not
-    explicitly solve a separate ``lam=0`` step; instead it uses the provided
-    steady-state path (``np.tile(ss_initial, (T, 1))``) as the warm start for
-    the first positive ``lam``.  At least one of ``initial_state`` or
-    ``exog_path`` must be provided, otherwise there is nothing to scale.
+    Conceptually, ``lam`` varies from 0 to 1, where ``lam=1`` is the fully
+    shocked problem.  Only ``initial_state`` and ``exog_path`` are scaled with
+    ``lam``; ``endval`` is held fixed at its supplied value throughout all
+    homotopy steps.  The warm start for the first positive ``lam`` is
+    ``np.tile(endval, (T, 1))``.  At least one of ``initial_state`` or
+    ``exog_path`` must be provided (``ss_initial`` is the lam=0 baseline, not
+    a perturbation source).
 
     Parameters
     ----------
@@ -3166,57 +3083,29 @@ def solve_perfect_foresight_homotopy(
         Number of periods.
     params_dict : dict
         Parameter values.
-    ss : ndarray (n_dyn,)
-        Terminal steady-state values.
     model_funcs : dict
         Output of ``process_model()``.
     vars_dyn : list
         Dynamic variable names.
-    X0 : ndarray (T, n_dyn) or None, optional
-        Unused by the homotopy solver (the actual warm start for step 1 is
-        always the steady-state path ``np.tile(ss_initial, (T, 1))``).
-        Accepted for API compatibility; pass None to omit.
     exog_path : ndarray of shape (T, n_exo) or dict {str: array-like}, optional
         Full-shock exogenous path (lam=1 value).  Either a ``(T, n_exo)``
         array or a dict mapping variable names to length-T arrays.
     initial_state : ndarray, optional
-        Pre-period-0 values of the stock variables for the full-shock (lam=1)
-        problem (Dynare convention: ``k_{-1}``).  The expected shape depends on
-        ``stock_var_indices``:
-
-        * If ``stock_var_indices`` is None, stock variables are inferred from
-          the model's lead-lag incidence table, and ``initial_state`` must
-          contain values for those inferred stock variables only.
-        * If ``stock_var_indices`` is provided, ``initial_state`` must contain
-          only the stock variable values at ``t=-1``, with shape ``(n_stock,)``.
-          The BVP solver then determines all period-0 variables simultaneously.
-
-        If None, defaults to steady-state values of the stock variables.
+        Pre-period-0 stock variable values for an off-SS start (lam=1).
+        Mutually exclusive with ``ss_initial``.
     ss_initial : ndarray, optional
-        Initial steady state. Defaults to ``ss``.
+        Full SS vector for an on-SS start.  Stock var values are extracted
+        internally.  Used as the lam=0 baseline for ``initial_state``
+        interpolation.  Mutually exclusive with ``initial_state``.
     stock_var_indices : list of int, optional
         Indices of stock (predetermined) variables in ``vars_dyn``.  Non-stock
         variables are free to jump at t=0.  If None, inferred automatically
         from the lead-lag incidence table in ``model_funcs['incidence']``.
-    endval : array-like (including SteadyState), optional
-        Terminal boundary values (the fixed right boundary row of the augmented
-        path).
-
-        * If **provided**, it is used as the homotopy target and interpolated
-          from ``ss_initial`` at ``lam=0`` to the provided value at ``lam=1``.
-          Use this when you have already computed the terminal steady state.
-        * If **None** and ``compiled_ss`` is provided and ``exog_path`` is not
-          None, the terminal steady state is automatically computed by solving
-          the steady-state equations at ``exog_path[-1]`` (the long-run
-          exogenous level).  The computed ``endval`` is then interpolated across
-          homotopy steps exactly as if it had been provided explicitly.
-        * If **None** and no ``compiled_ss`` is given (or ``exog_path`` is
-          None), defaults to ``ss`` and is held fixed for every homotopy step.
-    compiled_ss : dict, optional
-        Pre-compiled steady-state bundle returned by
-        ``compile_steady_state_funcs(equations, vars_dyn, vars_exo)``.
-        Required for automatic ``endval`` computation from ``exog_path[-1]``.
-        See ``endval`` above and ``compile_steady_state_funcs`` for details.
+    endval : ndarray (required keyword-only)
+        Terminal boundary values — the fixed right boundary row of the augmented
+        path.  Must be a genuine steady state consistent with the terminal
+        exogenous level.  Also used as the lam=0 endval and as the warm-start
+        initial guess (tiled over T periods).
 
     The remaining parameters are **keyword-only** (enforced by ``*`` in
     the signature):
@@ -3257,29 +3146,33 @@ def solve_perfect_foresight_homotopy(
 
     method = _resolve_solver_method(method)
 
+    if initial_state is not None and ss_initial is not None:
+        raise ValueError(
+            "Provide at most one of 'initial_state' or 'ss_initial', not both."
+        )
+
     if initial_state is None and exog_path is None:
         raise ValueError(
             "Homotopy requires at least one of 'initial_state' or 'exog_path' "
-            "to scale. Both are None -- there is nothing to homotopy on."
+            "to scale. Both are None -- there is nothing to homotopy on. "
+            "('ss_initial' is the baseline, not a perturbation source.)"
         )
-
-    if initial_state is not None:
-        initial_state = np.asarray(initial_state, dtype=float).ravel()
-
-    if ss_initial is None:
-        ss_initial = ss
-    ss_initial = np.asarray(ss_initial, dtype=float).ravel()
 
     vars_dyn_eff = model_funcs.get('vars_dyn', vars_dyn)
     vars_exo_eff = model_funcs.get('vars_exo', [])
     n = len(vars_dyn_eff)
     exog_path = _normalize_exog_path(exog_path, vars_exo_eff)
 
-    if len(ss_initial) != n:
-        raise ValueError(
-            f"ss_initial has {len(ss_initial)} elements but the model has "
-            f"{n} dynamic variables."
-        )
+    if ss_initial is not None:
+        ss_initial = np.asarray(ss_initial, dtype=float).ravel()
+        if len(ss_initial) != n:
+            raise ValueError(
+                f"ss_initial has {len(ss_initial)} elements but the model has "
+                f"{n} dynamic variables."
+            )
+
+    if initial_state is not None:
+        initial_state = np.asarray(initial_state, dtype=float).ravel()
 
     # Infer stock_var_indices from the lead-lag incidence table if not provided.
     if stock_var_indices is None:
@@ -3307,25 +3200,35 @@ def solve_perfect_foresight_homotopy(
             )
 
     # Default initial_state to steady-state stock values when not provided.
-    if initial_state is None:
-        initial_state = ss_initial[stock_var_indices]
+    # Resolve initial stock values and the lam=0 baseline for interpolation.
+    endval_arr = np.asarray(endval, dtype=float).ravel()
+    if len(endval_arr) != n:
+        raise ValueError(
+            f"endval has {len(endval_arr)} elements but the model has {n} "
+            f"dynamic variables. endval must be a full state vector."
+        )
+    if ss_initial is not None:
+        _initial_stock_lam1 = ss_initial[stock_var_indices]
+        _ss_initial_stock = ss_initial[stock_var_indices]
+    elif initial_state is not None:
+        _initial_stock_lam1 = initial_state
+        _ss_initial_stock = endval_arr[stock_var_indices]
+    else:
+        _initial_stock_lam1 = endval_arr[stock_var_indices]
+        _ss_initial_stock = endval_arr[stock_var_indices]
 
-    if len(initial_state) != len(stock_var_indices):
+    if initial_state is not None and len(initial_state) != len(stock_var_indices):
         hint = ""
         if len(initial_state) == n and len(stock_var_indices) != n:
             hint = (
                 " It looks like you passed a full period-0 state vector "
-                f"(length {n}). The legacy 'pin X[0]' standard mode has been "
-                "removed; initial_state must now contain only the pre-period-0 "
-                "values k_{-1} for each stock variable."
+                f"(length {n}). Use 'ss_initial' for a full SS vector, or "
+                "pass only the stock variable values in 'initial_state'."
             )
         raise ValueError(
             f"initial_state has {len(initial_state)} element(s) but "
             f"{len(stock_var_indices)} stock variable(s) are expected "
-            f"(stock_var_indices={stock_var_indices}). "
-            "initial_state must contain only the pre-period-0 stock values. "
-            "If stock_var_indices was not passed explicitly, it was inferred "
-            f"from model_funcs['incidence'].{hint}"
+            f"(stock_var_indices={stock_var_indices}).{hint}"
         )
 
     # Validate and coerce exog_path
@@ -3394,88 +3297,39 @@ def solve_perfect_foresight_homotopy(
         else:
             exog_ss = np.zeros_like(exog_path)
 
-    # Validate X0 shape when provided (X0 itself is not used as the warm start
-    # — the steady-state path is — but a shape mismatch usually indicates a
-    # caller error worth flagging immediately).
-    if X0 is not None:
-        X0 = np.asarray(X0, dtype=float)
-        if X0.shape != (T, n):
-            raise ValueError(
-                f"X0 has shape {X0.shape} but expected ({T}, {n}) "
-                f"(T periods × {n} dynamic variables). "
-                f"If process_model fell back to aux_method='dynamic', vars_dyn was "
-                f"extended to include auxiliary variables. "
-                f"Reconstruct X0 and ss using model_funcs['vars_dyn']."
-            )
+    # Warm start for the first step: endval tiled (matches Dynare default).
+    X_warm = np.tile(endval_arr, (T, 1))
 
-    # Warm start for the first step: full steady-state path
-    X_warm = np.tile(ss_initial, (T, 1))
-
-    # Auto-compute endval from the terminal exogenous level when compiled_ss is
-    # provided, endval is omitted, and the caller explicitly supplied exog_path.
-    # Gate on _exog_path_user_provided (not exog_path is not None) so that the
-    # all-zero default path created for models with exo vars does not trigger
-    # auto-computation — the user didn't supply a meaningful terminal exo level.
-    if endval is None and compiled_ss is not None and _exog_path_user_provided:
-        endval = solve_steady_state(
-            compiled_ss, params_dict, exog_ss=np.asarray(exog_path)[-1],
-            initial_guess=np.asarray(ss),
-        )
-
-    # Validate and resolve endval.  Track whether the caller supplied it
-    # explicitly (or it was auto-computed) so we can (a) interpolate only when
-    # meaningful and (b) emit a clearer error message for a wrong-length ss.
-    _endval_user_supplied = endval is not None
-    if endval is None:
-        endval = ss
-    endval = np.asarray(endval, dtype=float).ravel().copy()
-    if len(endval) != n:
-        if _endval_user_supplied:
-            raise ValueError(
-                f"endval has {len(endval)} elements but the model has {n} "
-                f"dynamic variables. endval must be a full state vector."
-            )
-        else:
-            raise ValueError(
-                f"ss has {len(endval)} elements but the model has {n} "
-                f"dynamic variables. endval was not provided so it defaulted "
-                f"to ss; check that ss matches vars_dyn."
-            )
-
-    # Baseline (lam=0) for initial_state interpolation: ss values of stock vars.
-    ss_initial_stock = ss_initial[stock_var_indices]
+    # Freeze endval (already validated above).
+    endval = endval_arr.copy()
 
     lambdas = np.linspace(0.0, 1.0, n_steps + 1)[1:]  # skip lam=0 (trivial)
 
     sol = None
     for step, lam in enumerate(lambdas, start=1):
-        # Scale perturbations
-        initial_state_lam = ss_initial_stock + lam * (initial_state - ss_initial_stock)
+        # Scale stock var perturbation from lam=0 baseline to lam=1 target.
+        initial_state_lam = _ss_initial_stock + lam * (_initial_stock_lam1 - _ss_initial_stock)
         exog_path_lam = (
             exog_ss + lam * (exog_path - exog_ss)
             if exog_path is not None else None
         )
-        # Interpolate endval from ss_initial (lam=0) to the user-supplied
-        # target (lam=1) only when the caller explicitly provided endval.
-        # When endval was not supplied it defaults to ss and is kept fixed
-        # every step, preserving backward-compatible behaviour.
-        if _endval_user_supplied:
-            endval_lam = ss_initial + lam * (endval - ss_initial)
-        else:
-            endval_lam = endval
+        endval_lam = endval
 
         import warnings as _w
         with _w.catch_warnings():
-            # endval_lam is linearly interpolated — not a valid SS for the
-            # scaled exog level at this step. Suppress the consistency check.
-            _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
+            # For intermediate steps exog_path_lam is scaled below its terminal
+            # level, so endval is intentionally inconsistent — suppress the
+            # spurious warning.  At the final step (lam=1) exog_path_lam equals
+            # the full-shock path, so a genuine inconsistency should be surfaced.
+            if step < n_steps:
+                _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
             sol = solve_perfect_foresight(
-                T, params_dict, ss, model_funcs, vars_dyn_eff, X_warm,
+                T, params_dict, model_funcs, vars_dyn_eff,
+                endval=endval_lam,
+                X0=X_warm,
                 exog_path=exog_path_lam,
                 initial_state=initial_state_lam,
-                ss_initial=ss_initial,
                 stock_var_indices=stock_var_indices,
-                endval=endval_lam,
                 solver_options=solver_options,
                 method=method,
                 homotopy_fallback=False,  # prevent infinite recursion
@@ -3735,10 +3589,10 @@ class Model:
         )
 
     def solve(
-        self, T, params, ss,
+        self, T, params, *,
+        endval,
         X0=None, exog_path=None, initial_state=None, ss_initial=None,
         stock_var_indices=None, method='sparse_newton', solver_options=None,
-        *, endval=None, compiled_ss=_UNSET,
         homotopy_fallback=True, homotopy_options=None,
     ):
         """Solve the perfect foresight problem.
@@ -3746,54 +3600,34 @@ class Model:
         Wraps :func:`solve_perfect_foresight`; ``model_funcs`` and
         ``vars_dyn`` are taken from the model automatically.
 
-        The model's compiled steady-state bundle is used by default so that
-        ``endval`` is auto-computed from ``exog_path[-1]`` for permanent
-        shocks.  Pass ``endval=...`` explicitly to override that value, or
-        ``compiled_ss=None`` to disable auto-computation entirely.
-
         Parameters
         ----------
         T : int
             Number of periods.
         params : dict
             Parameter values (SymPy symbol → float).
-        ss : array-like
-            Default steady-state values (fallback for ``ss_initial`` and
-            ``endval`` when not provided separately).
-        X0, exog_path, initial_state, ss_initial, stock_var_indices, method, solver_options, endval, homotopy_fallback, homotopy_options :
+        endval, X0, exog_path, initial_state, ss_initial, stock_var_indices, method, solver_options, homotopy_fallback, homotopy_options :
             Forwarded verbatim to :func:`solve_perfect_foresight`.
-        compiled_ss : dict or None, optional
-            Compiled steady-state bundle.  Defaults to the model's own
-            lazily-built bundle.  Pass ``None`` to opt out of automatic
-            ``endval`` computation.
 
         Returns
         -------
         scipy.optimize.OptimizeResult
         """
-        if compiled_ss is _UNSET:
-            # compiled_ss is only consumed when endval is None AND exog_path is
-            # not None; skip compilation for transitory shocks (no exog_path) or
-            # when the caller already supplies endval.
-            _cs = (self._get_compiled_ss()
-                   if exog_path is not None and endval is None
-                   else None)
-        else:
-            _cs = compiled_ss
         return solve_perfect_foresight(
-            T, params, ss, self._funcs, self.vars_dyn,
+            T, params, self._funcs, self.vars_dyn,
+            endval=endval,
             X0=X0, exog_path=exog_path, initial_state=initial_state,
             ss_initial=ss_initial, stock_var_indices=stock_var_indices,
             method=method, solver_options=solver_options,
-            endval=endval, compiled_ss=_cs,
             homotopy_fallback=homotopy_fallback, homotopy_options=homotopy_options,
         )
 
     def solve_homotopy(
-        self, T, params, ss,
-        X0=None, exog_path=None, initial_state=None, ss_initial=None,
+        self, T, params, *,
+        endval,
+        exog_path=None, initial_state=None, ss_initial=None,
         stock_var_indices=None,
-        *, endval=None, compiled_ss=_UNSET, solver_options=None,
+        solver_options=None,
         n_steps=10, verbose=False, exog_ss=None, method='sparse_newton',
     ):
         """Solve using homotopy (parameter continuation).
@@ -3807,38 +3641,27 @@ class Model:
             Number of periods.
         params : dict
             Parameter values (SymPy symbol → float).
-        ss : array-like
-            Terminal steady-state values.
-        X0, exog_path, initial_state, ss_initial, stock_var_indices, endval, solver_options, n_steps, verbose, exog_ss, method :
+        endval, exog_path, initial_state, ss_initial, stock_var_indices, solver_options, n_steps, verbose, exog_ss, method :
             Forwarded verbatim to :func:`solve_perfect_foresight_homotopy`.
-        compiled_ss : dict or None, optional
-            Compiled steady-state bundle.  Defaults to the model's own
-            lazily-built bundle.  Pass ``None`` to opt out of automatic
-            ``endval`` computation.
 
         Returns
         -------
         scipy.optimize.OptimizeResult
         """
-        if compiled_ss is _UNSET:
-            _cs = (self._get_compiled_ss()
-                   if exog_path is not None and endval is None
-                   else None)
-        else:
-            _cs = compiled_ss
         return solve_perfect_foresight_homotopy(
-            T, params, ss, self._funcs, self.vars_dyn,
-            X0=X0, exog_path=exog_path, initial_state=initial_state,
+            T, params, self._funcs, self.vars_dyn,
+            exog_path=exog_path, initial_state=initial_state,
             ss_initial=ss_initial, stock_var_indices=stock_var_indices,
-            endval=endval, compiled_ss=_cs, solver_options=solver_options,
+            endval=endval, solver_options=solver_options,
             n_steps=n_steps, verbose=verbose, exog_ss=exog_ss, method=method,
         )
 
     def solve_expectation_errors(
-        self, T, params, ss, news_shocks,
+        self, T, params, news_shocks, *,
+        endval,
         X0=None, initial_state=None, ss_initial=None,
         stock_var_indices=None, constant_simulation_length=False,
-        solver_options=None, sub_x0=None, compiled_ss=_UNSET,
+        solver_options=None, sub_x0=None,
     ):
         """Solve with multiple surprise (MIT) shocks.
 
@@ -3852,41 +3675,21 @@ class Model:
             Total simulation length (periods in the stitched output).
         params : dict
             Parameter values (SymPy symbol → float).
-        ss : array-like
-            Default terminal steady-state values.
         news_shocks : list of tuples
             Shock schedule — see
             :func:`solve_perfect_foresight_expectation_errors`.
-        X0, initial_state, ss_initial, stock_var_indices, constant_simulation_length, solver_options, sub_x0 :
+        endval, X0, initial_state, ss_initial, stock_var_indices, constant_simulation_length, solver_options, sub_x0 :
             Forwarded verbatim to :func:`solve_perfect_foresight_expectation_errors`.
-        compiled_ss : dict or None, optional
-            Compiled steady-state bundle.  Defaults to the model's own
-            lazily-built bundle.  Pass ``None`` to opt out of automatic
-            ``endval`` computation.
 
         Returns
         -------
         scipy.optimize.OptimizeResult
         """
-        if compiled_ss is _UNSET:
-            # compiled_ss is only consumed when at least one segment has a
-            # non-None exog_path and no explicit endval override.  Parse each
-            # entry the same way as the functional solver:
-            #   2-tuple -> (learnt_in, exog_path),        endval = None
-            #   3-tuple -> (learnt_in, exog_path, endval), endval = entry[2]
-            # A 3-tuple with endval=None is functionally identical to a 2-tuple
-            # (no override), so treat it the same way.
-            _needs_auto_endval = any(
-                entry[1] is not None and (len(entry) == 2 or entry[2] is None)
-                for entry in news_shocks
-            )
-            _cs = self._get_compiled_ss() if _needs_auto_endval else None
-        else:
-            _cs = compiled_ss
         return solve_perfect_foresight_expectation_errors(
-            T, params, ss, self._funcs, self.vars_dyn, news_shocks,
+            T, params, self._funcs, self.vars_dyn, news_shocks,
+            endval=endval,
             X0=X0, initial_state=initial_state, ss_initial=ss_initial,
             stock_var_indices=stock_var_indices,
             constant_simulation_length=constant_simulation_length,
-            solver_options=solver_options, sub_x0=sub_x0, compiled_ss=_cs,
+            solver_options=solver_options, sub_x0=sub_x0,
         )

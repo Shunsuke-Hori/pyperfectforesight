@@ -61,7 +61,7 @@ def test_invalid_method_raises(model, solver, bad_method):
     k_neg1 = np.array([K_SS * 0.9])
     kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method=bad_method)
     with pytest.raises(ValueError, match="not supported"):
-        solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+        solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
 
 
 @pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
@@ -71,7 +71,7 @@ def test_non_string_method_raises(model, solver, bad_method):
     k_neg1 = np.array([K_SS * 0.9])
     kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method=bad_method)
     with pytest.raises(ValueError, match="must be a string"):
-        solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+        solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
 
 
 @pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
@@ -81,7 +81,7 @@ def test_valid_method_accepted(model, solver):
     kwargs = dict(initial_state=k_neg1, stock_var_indices=[1], method='sparse_newton')
     if solver is solve_perfect_foresight_homotopy:
         kwargs['n_steps'] = 2
-    sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+    sol = solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
     assert sol.success
 
 
@@ -93,7 +93,7 @@ def test_hybr_alias_emits_deprecation_warning(model, solver):
     if solver is solve_perfect_foresight_homotopy:
         kwargs['n_steps'] = 2
     with pytest.warns(DeprecationWarning, match="deprecated alias"):
-        sol = solver(T, PARAMS, SS, model, VARS_DYN, **kwargs)
+        sol = solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
     assert sol.success
 
 
@@ -105,11 +105,13 @@ def test_solve_x0_none_defaults_to_terminal_ss(model):
     """
     k_neg1 = np.array([K_SS * 0.9])
     sol_explicit = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, np.tile(SS, (T, 1)),
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=np.tile(SS, (T, 1)),
         initial_state=k_neg1,
     )
     sol_none = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, None,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=None,
         initial_state=k_neg1,
     )
     assert sol_explicit.success, f"explicit-X0 solve failed: {sol_explicit.message}"
@@ -128,14 +130,14 @@ def test_solve_x0_none_with_custom_endval(model):
     k_neg1 = np.array([K_SS * 0.9])
     ss_shifted = SS * 1.01  # arbitrary non-ss endval
     sol_explicit = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, np.tile(ss_shifted, (T, 1)),
+        T, PARAMS, model, VARS_DYN,
+        endval=ss_shifted, X0=np.tile(ss_shifted, (T, 1)),
         initial_state=k_neg1,
-        endval=ss_shifted,
     )
     sol_none = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, None,
+        T, PARAMS, model, VARS_DYN,
+        endval=ss_shifted, X0=None,
         initial_state=k_neg1,
-        endval=ss_shifted,
     )
     assert sol_explicit.success, f"explicit endval-based X0 solve failed: {sol_explicit.message}"
     assert sol_none.success, f"X0=None with endval solve failed: {sol_none.message}"
@@ -147,48 +149,66 @@ def test_solve_x0_none_with_custom_endval(model):
 def test_solve_stock_var_indices_without_initial_state_defaults_to_ss(model, X0):
     """solve_perfect_foresight works when stock_var_indices is given without initial_state.
 
-    initial_state defaults to ss_initial[stock_var_indices], so the economy
-    starts at the steady state implied by ss_initial.  In this fixture
-    ss_initial == ss, so with no perturbation the solution should remain at ss.
+    When neither initial_state nor ss_initial is provided, initial_state
+    defaults to endval[stock_var_indices].  With no perturbation (endval == SS)
+    the solution path must stay at the steady state.
     """
     sol = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=X0,
         stock_var_indices=[1],
-        # initial_state intentionally omitted → defaults to ss_initial[1] = K_SS
+        # initial_state intentionally omitted → defaults to endval[stock_var_indices]
     )
     assert sol.success
     # Starting at ss with no shock: solution path must stay at ss
     np.testing.assert_allclose(sol.x.reshape(T, -1), np.tile(SS, (T, 1)), atol=1e-8)
 
 
-def test_raises_when_nothing_to_scale(model, X0):
+def test_raises_when_nothing_to_scale(model):
     """Must provide initial_state or exog_path."""
     with pytest.raises(ValueError, match="nothing to homotopy on"):
         solve_perfect_foresight_homotopy(
-            T, PARAMS, SS, model, VARS_DYN, X0
+            T, PARAMS, model, VARS_DYN, endval=SS
         )
 
 
-def test_raises_on_invalid_n_steps(model, X0):
+def test_raises_on_invalid_n_steps(model):
     """n_steps must be a positive integer."""
     k_neg1 = np.array([K_SS * 1.1])
     for bad in (0, -1, 1.5, "10"):
         with pytest.raises(ValueError, match="n_steps"):
             solve_perfect_foresight_homotopy(
-                T, PARAMS, SS, model, VARS_DYN, X0,
+                T, PARAMS, model, VARS_DYN,
+                endval=SS,
                 initial_state=k_neg1, stock_var_indices=[1],
                 n_steps=bad,
             )
 
 
-def test_raises_on_initial_state_length_mismatch(model, X0):
+def test_raises_on_initial_state_length_mismatch(model):
     """initial_state length must match stock_var_indices when provided."""
     wrong_initial_state = np.array([K_SS * 1.1, C_SS])  # 2 elements, but only 1 stock var
     with pytest.raises(ValueError, match=r"initial_state has 2 elements?"):
         solve_perfect_foresight_homotopy(
-            T, PARAMS, SS, model, VARS_DYN, X0,
+            T, PARAMS, model, VARS_DYN,
+            endval=SS,
             initial_state=wrong_initial_state, stock_var_indices=[1],
         )
+
+
+@pytest.mark.parametrize("solver", [solve_perfect_foresight, solve_perfect_foresight_homotopy])
+def test_raises_when_both_initial_state_and_ss_initial_provided(model, solver):
+    """Passing both initial_state and ss_initial must raise ValueError."""
+    k_neg1 = np.array([K_SS * 0.9])
+    kwargs = dict(
+        initial_state=k_neg1,
+        ss_initial=SS,
+        stock_var_indices=[1],
+    )
+    if solver is solve_perfect_foresight_homotopy:
+        kwargs["n_steps"] = 2
+    with pytest.raises(ValueError, match="at most one"):
+        solver(T, PARAMS, model, VARS_DYN, endval=SS, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +216,7 @@ def test_raises_on_initial_state_length_mismatch(model, X0):
 # ---------------------------------------------------------------------------
 
 
-def test_stock_mode_initial_state(model, X0):
+def test_stock_mode_initial_state(model):
     """Homotopy with stock_var_indices and initial_state converges.
 
     initial_state = K_SS * 1.3 means capital was 30% above steady state
@@ -204,7 +224,8 @@ def test_stock_mode_initial_state(model, X0):
     """
     k_neg1 = np.array([K_SS * 1.3])
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1,
         stock_var_indices=[1],
         n_steps=5,
@@ -221,11 +242,13 @@ def test_stock_mode_matches_direct_solve(model, X0):
     k_neg1 = np.array([K_SS * 1.1])
 
     sol_direct = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_hom = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=4,
     )
@@ -240,12 +263,13 @@ def test_stock_mode_matches_direct_solve(model, X0):
     )
 
 
-def test_large_shock_stock_mode(model, X0):
+def test_large_shock_stock_mode(model):
     """Homotopy succeeds for a large shock (150% of ss) that may be hard
     to solve directly from the steady-state initial guess."""
     k_neg1 = np.array([K_SS * 1.5])
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1,
         stock_var_indices=[1],
         n_steps=8,
@@ -259,7 +283,7 @@ def test_large_shock_stock_mode(model, X0):
 # ---------------------------------------------------------------------------
 
 
-def test_exog_path_mode(X0):
+def test_exog_path_mode():
     """Homotopy with an exogenous shock path converges.
 
     k is a stock variable (predetermined at t=-1 via initial_state); c is a
@@ -286,7 +310,8 @@ def test_exog_path_mode(X0):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model_z, VARS_DYN, X0,
+        T, PARAMS, model_z, VARS_DYN,
+        endval=SS,
         exog_path=exog,
         initial_state=k_neg1,
         stock_var_indices=[1],
@@ -301,7 +326,7 @@ def test_exog_path_mode(X0):
 # ---------------------------------------------------------------------------
 
 
-def test_initial_state_and_exog_path_combined(X0):
+def test_initial_state_and_exog_path_combined():
     """Homotopy scales both initial_state and exog_path simultaneously."""
     eq1_z = (
         v("c", 0) ** (-1)
@@ -321,7 +346,8 @@ def test_initial_state_and_exog_path_combined(X0):
     k_neg1 = np.array([K_SS * 1.2])
 
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model_z, VARS_DYN, X0,
+        T, PARAMS, model_z, VARS_DYN,
+        endval=SS,
         exog_path=exog,
         initial_state=k_neg1,
         stock_var_indices=[1],
@@ -331,7 +357,7 @@ def test_initial_state_and_exog_path_combined(X0):
     assert np.linalg.norm(sol.fun) < 1e-6
 
 
-def test_exog_path_only_no_initial_state(X0):
+def test_exog_path_only_no_initial_state():
     """Homotopy with exog_path only and initial_state=None.
 
     stock_var_indices and initial_state are both omitted.  The solver infers
@@ -359,7 +385,8 @@ def test_exog_path_only_no_initial_state(X0):
         exog[t, 0] = rho_z * exog[t - 1, 0]
 
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model_var, VARS_DYN, X0,
+        T, PARAMS, model_var, VARS_DYN,
+        endval=SS,
         exog_path=exog,
         # initial_state and stock_var_indices intentionally omitted:
         # stock_var_indices is inferred as [] (no negative-lag vars),
@@ -384,13 +411,15 @@ def test_one_step_equals_direct_solve(model, X0):
     k_neg1 = np.array([K_SS * 1.05])
 
     sol_hom = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=1,
     )
     # Direct BVP solve from the same warm start (ss path)
     sol_direct = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, np.tile(SS, (T, 1)),
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=np.tile(SS, (T, 1)),
         initial_state=k_neg1, stock_var_indices=[1],
     )
 
@@ -409,11 +438,12 @@ def test_one_step_equals_direct_solve(model, X0):
 # ---------------------------------------------------------------------------
 
 
-def test_verbose_does_not_raise(model, X0, capsys):
+def test_verbose_does_not_raise(model, capsys):
     """verbose=True prints progress without errors."""
     k_neg1 = np.array([K_SS * 1.1])
     solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=3, verbose=True,
     )
@@ -427,7 +457,7 @@ def test_verbose_does_not_raise(model, X0, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_exog_ss_baseline(X0):
+def test_exog_ss_baseline():
     """exog_ss shifts the lam=0 baseline away from zero.
 
     Homotopy scales the exogenous path from exog_ss (1% constant shock)
@@ -447,7 +477,8 @@ def test_exog_ss_baseline(X0):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, PARAMS, SS, model_z, VARS_DYN, X0,
+        T, PARAMS, model_z, VARS_DYN,
+        endval=SS,
         exog_path=exog_target,
         exog_ss=exog_base,
         initial_state=k_neg1,
@@ -458,7 +489,7 @@ def test_exog_ss_baseline(X0):
     assert np.linalg.norm(sol.fun) < 1e-6
 
 
-def test_exog_ss_without_exog_path_warns(X0):
+def test_exog_ss_without_exog_path_warns():
     """Passing exog_ss without exog_path emits a UserWarning.
 
     exog_ss is only meaningful as the lam=0 baseline when scaling toward a
@@ -477,7 +508,8 @@ def test_exog_ss_without_exog_path_warns(X0):
 
     with pytest.warns(UserWarning, match="exog_ss"):
         solve_perfect_foresight_homotopy(
-            T, PARAMS, SS, model_z, VARS_DYN, X0,
+            T, PARAMS, model_z, VARS_DYN,
+            endval=SS,
             exog_ss=exog_base,        # provided without exog_path
             initial_state=k_neg1,
             stock_var_indices=[1],
@@ -499,7 +531,8 @@ def test_fallback_triggered_on_newton_failure(model, X0):
     k_neg1 = np.array([K_SS * 1.5])
     with pytest.warns(UserWarning, match="homotopy_fallback=False"):
         sol = solve_perfect_foresight(
-            T, PARAMS, SS, model, VARS_DYN, X0,
+            T, PARAMS, model, VARS_DYN,
+            endval=SS, X0=X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
             solver_options={'maxiter': 0},
@@ -514,7 +547,8 @@ def test_fallback_disabled(model, X0):
     """When homotopy_fallback=False, a Newton failure is returned as-is."""
     k_neg1 = np.array([K_SS * 1.5])
     sol = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN, X0,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS, X0=X0,
         initial_state=k_neg1,
         stock_var_indices=[1],
         solver_options={'maxiter': 0},
@@ -540,7 +574,8 @@ def test_homotopy_options_forwarded(model, X0, monkeypatch):
     k_neg1 = np.array([K_SS * 1.5])
     with pytest.warns(UserWarning, match="homotopy_fallback=False"):
         sol = solve_perfect_foresight(
-            T, PARAMS, SS, model, VARS_DYN, X0,
+            T, PARAMS, model, VARS_DYN,
+            endval=SS, X0=X0,
             initial_state=k_neg1,
             stock_var_indices=[1],
             solver_options={'maxiter': 0},

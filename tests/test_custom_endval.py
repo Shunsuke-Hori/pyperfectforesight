@@ -60,27 +60,24 @@ def model_z():
 
 
 # ---------------------------------------------------------------------------
-# 1. endval=None defaults to ss (backward compatible)
+# 1. endval=SS (backward compatible pattern)
 # ---------------------------------------------------------------------------
 
-def test_endval_none_defaults_to_ss(model):
-    """Omitting endval is identical to passing endval=ss."""
+def test_endval_ss_produces_valid_solution(model):
+    """Passing endval=SS with an off-SS initial_state produces a valid solution."""
     k_neg1 = np.array([K_SS * 1.1])
     X0 = np.tile(SS, (T, 1))
 
-    sol_default = solve_perfect_foresight(
-        T, {}, SS, model, VARS_DYN, X0,
+    sol = solve_perfect_foresight(
+        T, {}, model, VARS_DYN,
+        endval=SS, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
-    )
-    sol_explicit = solve_perfect_foresight(
-        T, {}, SS, model, VARS_DYN, X0,
-        initial_state=k_neg1, stock_var_indices=[1],
-        endval=SS,
     )
 
-    assert sol_default.success
-    assert sol_explicit.success
-    np.testing.assert_allclose(sol_default.x, sol_explicit.x, atol=1e-10)
+    assert sol.success
+    # Path should converge back toward SS by the end
+    X = sol.x.reshape(T, -1)
+    np.testing.assert_allclose(X[-1], SS, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -94,13 +91,14 @@ def test_custom_endval_changes_solution(model):
     SS_ALT = SS * 1.05   # arbitrary different terminal value
 
     sol_default = solve_perfect_foresight(
-        T, {}, SS, model, VARS_DYN, X0,
+        T, {}, model, VARS_DYN,
+        endval=SS, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
     )
     sol_custom = solve_perfect_foresight(
-        T, {}, SS, model, VARS_DYN, X0,
+        T, {}, model, VARS_DYN,
+        endval=SS_ALT, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
-        endval=SS_ALT,
     )
 
     assert sol_default.success
@@ -125,10 +123,10 @@ def test_permanent_shock_reaches_new_ss(model_z):
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight(
-        T, {}, SS, model_z, VARS_DYN, X0,
+        T, {}, model_z, VARS_DYN,
+        endval=SS_NEW, X0=X0,
         initial_state=k_neg1, stock_var_indices=[1],
         exog_path=exog_path,
-        endval=SS_NEW,
     )
 
     assert sol.success, sol.message
@@ -151,27 +149,28 @@ def test_endval_wrong_shape_raises(model):
 
     with pytest.raises(ValueError, match="endval has"):
         solve_perfect_foresight(
-            T, {}, SS, model, VARS_DYN, X0,
-            initial_state=k_neg1, stock_var_indices=[1],
+            T, {}, model, VARS_DYN,
             endval=np.array([C_SS]),   # only 1 element, needs 2
+            X0=X0,
+            initial_state=k_neg1, stock_var_indices=[1],
         )
 
 
 # ---------------------------------------------------------------------------
-# 5. Homotopy with permanent shock: endval scales from ss_initial to SS_NEW
+# 5. Homotopy with permanent shock: endval fixed at SS_NEW; only
+#    initial_state and exog_path are scaled across homotopy steps
 # ---------------------------------------------------------------------------
 
 def test_homotopy_permanent_shock(model_z):
     """Homotopy converges for a permanent TFP shock with custom endval."""
     exog_path = np.full((T, 1), Z_NEW)
-    X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS])
 
     sol = solve_perfect_foresight_homotopy(
-        T, {}, SS, model_z, VARS_DYN, X0,
+        T, {}, model_z, VARS_DYN,
+        endval=SS_NEW,
         initial_state=k_neg1, stock_var_indices=[1],
         exog_path=exog_path,
-        endval=SS_NEW,
         n_steps=5,
     )
 
@@ -182,28 +181,23 @@ def test_homotopy_permanent_shock(model_z):
 
 
 # ---------------------------------------------------------------------------
-# 6. Homotopy: endval=None defaults to ss (backward compatible)
+# 6. Homotopy: endval=SS (backward compatible pattern)
 # ---------------------------------------------------------------------------
 
-def test_homotopy_endval_none_defaults_to_ss(model):
-    """Omitting endval in homotopy is identical to passing endval=ss."""
+def test_homotopy_endval_ss_produces_valid_solution(model):
+    """Homotopy with endval=SS and off-SS initial_state produces a valid solution."""
     k_neg1 = np.array([K_SS * 1.2])
-    X0 = np.tile(SS, (T, 1))
 
-    sol_default = solve_perfect_foresight_homotopy(
-        T, {}, SS, model, VARS_DYN, X0,
+    sol = solve_perfect_foresight_homotopy(
+        T, {}, model, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, stock_var_indices=[1],
         n_steps=4,
     )
-    sol_explicit = solve_perfect_foresight_homotopy(
-        T, {}, SS, model, VARS_DYN, X0,
-        initial_state=k_neg1, stock_var_indices=[1],
-        endval=SS, n_steps=4,
-    )
 
-    assert sol_default.success
-    assert sol_explicit.success
-    np.testing.assert_allclose(sol_default.x, sol_explicit.x, atol=1e-10)
+    assert sol.success
+    X = sol.x.reshape(T, -1)
+    np.testing.assert_allclose(X[-1], SS, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -212,14 +206,13 @@ def test_homotopy_endval_none_defaults_to_ss(model):
 
 def test_homotopy_endval_wrong_shape_raises(model):
     """endval with wrong shape raises ValueError in homotopy."""
-    X0 = np.tile(SS, (T, 1))
     k_neg1 = np.array([K_SS * 1.1])
 
     with pytest.raises(ValueError, match="endval has"):
         solve_perfect_foresight_homotopy(
-            T, {}, SS, model, VARS_DYN, X0,
-            initial_state=k_neg1, stock_var_indices=[1],
+            T, {}, model, VARS_DYN,
             endval=np.array([C_SS]),
+            initial_state=k_neg1, stock_var_indices=[1],
             n_steps=3,
         )
 
@@ -237,11 +230,13 @@ def test_exog_path_dict_matches_array(model_z):
     k_neg1 = np.array([K_SS])
 
     sol_arr = solve_perfect_foresight(
-        T, {}, SS, model_z, VARS_DYN,
+        T, {}, model_z, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, exog_path=exog_arr,
     )
     sol_dict = solve_perfect_foresight(
-        T, {}, SS, model_z, VARS_DYN,
+        T, {}, model_z, VARS_DYN,
+        endval=SS,
         initial_state=k_neg1, exog_path={"z": exog_arr[:, 0]},
     )
 
@@ -256,12 +251,14 @@ def test_exog_path_dict_homotopy_matches_array(model_z):
     k_neg1 = np.array([K_SS])
 
     sol_arr = solve_perfect_foresight_homotopy(
-        T, {}, SS, model_z, VARS_DYN,
-        initial_state=k_neg1, exog_path=exog_arr, endval=SS_NEW,
+        T, {}, model_z, VARS_DYN,
+        endval=SS_NEW,
+        initial_state=k_neg1, exog_path=exog_arr,
     )
     sol_dict = solve_perfect_foresight_homotopy(
-        T, {}, SS, model_z, VARS_DYN,
-        initial_state=k_neg1, exog_path={"z": exog_arr[:, 0]}, endval=SS_NEW,
+        T, {}, model_z, VARS_DYN,
+        endval=SS_NEW,
+        initial_state=k_neg1, exog_path={"z": exog_arr[:, 0]},
     )
 
     assert sol_arr.success
@@ -273,7 +270,8 @@ def test_exog_path_dict_missing_key_raises(model_z):
     """Dict exog_path missing a required variable raises KeyError."""
     with pytest.raises(KeyError, match="missing key 'z'"):
         solve_perfect_foresight(
-            T, {}, SS, model_z, VARS_DYN,
+            T, {}, model_z, VARS_DYN,
+            endval=SS,
             initial_state=np.array([K_SS]),
             exog_path={},  # empty dict — no extra keys, but 'z' is missing
         )
@@ -283,7 +281,8 @@ def test_exog_path_dict_extra_key_raises(model_z):
     """Dict exog_path with an unexpected key raises ValueError."""
     with pytest.raises(ValueError, match="unexpected key"):
         solve_perfect_foresight(
-            T, {}, SS, model_z, VARS_DYN,
+            T, {}, model_z, VARS_DYN,
+            endval=SS,
             initial_state=np.array([K_SS]),
             exog_path={"z": np.zeros(T), "extra": np.zeros(T)},
         )
@@ -304,7 +303,8 @@ def test_exog_path_dict_inconsistent_lengths_raises(model_zz):
     """Dict exog_path with inconsistent value lengths raises ValueError."""
     with pytest.raises(ValueError, match="inconsistent lengths"):
         solve_perfect_foresight(
-            T, {}, SS, model_zz, VARS_DYN,
+            T, {}, model_zz, VARS_DYN,
+            endval=SS,
             initial_state=np.array([K_SS]),
             exog_path={"z1": np.zeros(T), "z2": np.zeros(T + 5)},
         )
@@ -314,7 +314,8 @@ def test_exog_path_dict_no_exo_model_raises(model):
     """Dict exog_path passed to a model with no exogenous variables raises ValueError."""
     with pytest.raises(ValueError):
         solve_perfect_foresight(
-            T, {}, SS, model, VARS_DYN,
+            T, {}, model, VARS_DYN,
+            endval=SS,
             initial_state=np.array([K_SS]),
             exog_path={"z": np.zeros(T)},
         )
@@ -329,13 +330,15 @@ def test_exog_path_dict_expectation_errors_matches_array(model_z):
     k_neg1 = np.array([K_SS])
 
     sol_arr = solve_perfect_foresight_expectation_errors(
-        T, {}, SS, model_z, VARS_DYN,
+        T, {}, model_z, VARS_DYN,
         news_shocks=[(1, exog_arr)],
+        endval=SS,
         initial_state=k_neg1,
     )
     sol_dict = solve_perfect_foresight_expectation_errors(
-        T, {}, SS, model_z, VARS_DYN,
+        T, {}, model_z, VARS_DYN,
         news_shocks=[(1, {"z": exog_arr[:, 0]})],
+        endval=SS,
         initial_state=k_neg1,
     )
 
@@ -356,10 +359,10 @@ def test_endval_consistency_warning_fires(model_z):
 
     with pytest.warns(EndvalNotSteadyStateWarning, match="endval may not be a valid steady state"):
         solve_perfect_foresight(
-            T, {}, SS, model_z, VARS_DYN,
+            T, {}, model_z, VARS_DYN,
+            endval=SS,  # wrong: pre-shock SS, not post-shock SS
             initial_state=k_neg1, stock_var_indices=[1],
             exog_path=exog_path,
-            endval=SS,  # wrong: pre-shock SS, not post-shock SS
         )
 
 
@@ -377,10 +380,10 @@ def test_endval_consistency_warning_suppressed_in_homotopy(model_z):
     with warnings.catch_warnings():
         warnings.simplefilter("error", EndvalNotSteadyStateWarning)
         sol = solve_perfect_foresight_homotopy(
-            T, {}, SS, model_z, VARS_DYN,
+            T, {}, model_z, VARS_DYN,
+            endval=SS_NEW,
             initial_state=k_neg1, stock_var_indices=[1],
             exog_path=exog_path,
-            endval=SS_NEW,
             n_steps=5,
         )
     assert sol.success

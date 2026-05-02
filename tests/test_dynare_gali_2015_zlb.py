@@ -124,7 +124,8 @@ def model():
 def solution(model):
     initial_state = SS[[3, 4, 5]]   # p, xi_1, xi_2 at pre-period-0 (all zero)
     sol = solve_perfect_foresight(
-        T, PARAMS, SS, model, VARS_DYN,
+        T, PARAMS, model, VARS_DYN,
+        endval=SS,
         exog_path=_exog_path,
         initial_state=initial_state,
     )
