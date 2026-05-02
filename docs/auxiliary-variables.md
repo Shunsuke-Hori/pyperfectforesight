@@ -26,7 +26,7 @@ model_funcs = process_model(
 After the solver returns, auxiliary variable paths are available on `sol.x_aux`:
 
 ```python
-sol = solve_perfect_foresight(T, params, model_funcs, vars_dyn, ..., endval=ss)
+sol = solve_perfect_foresight(T, params, model_funcs, vars_dyn, endval=ss)
 X_dyn = sol.x.reshape(T, -1)   # dynamic variables
 X_aux = sol.x_aux               # auxiliary variables, shape (T, n_aux)
 ```
