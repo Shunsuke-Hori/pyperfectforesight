@@ -93,10 +93,11 @@ def benchmark_python():
         for _ in range(N_REPS):
             t0 = time.perf_counter()
             sol = solve_perfect_foresight(
-                T, {}, SS, model_funcs, VARS_DYN,
+                T, {}, model_funcs, VARS_DYN,
                 exog_path=exog,
                 initial_state=k_neg1,
                 stock_var_indices=[1],  # k is at index 1 in ["c", "k", "zl"]
+                endval=SS,
                 homotopy_fallback=False,
             )
             elapsed = time.perf_counter() - t0

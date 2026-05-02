@@ -26,7 +26,7 @@ model_funcs = process_model(
 After the solver returns, auxiliary variable paths are available on `sol.x_aux`:
 
 ```python
-sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn, ...)
+sol = solve_perfect_foresight(T, params, model_funcs, vars_dyn, ..., endval=ss)
 X_dyn = sol.x.reshape(T, -1)   # dynamic variables
 X_aux = sol.x_aux               # auxiliary variables, shape (T, n_aux)
 ```
@@ -167,8 +167,8 @@ ss = np.array([1.2, 5.4])   # steady state for [c, k]
 T = 100
 exog_path = np.full((T, 1), 0.2)   # constant government spending
 
-sol = solve_perfect_foresight(T, params, ss, model_funcs, vars_dyn,
-                              exog_path=exog_path)
+sol = solve_perfect_foresight(T, params, model_funcs, vars_dyn,
+                              exog_path=exog_path, endval=ss)
 
 # Access results
 X_dyn = sol.x.reshape(T, -1)   # dynamic variables [c, k]

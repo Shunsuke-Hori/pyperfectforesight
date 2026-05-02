@@ -91,9 +91,11 @@ X0 = make_initial_guess(T, ss_initial=ss_perturbed, ss_terminal=ss,
                         method='exponential', decay=0.9)
 
 sol = solve_perfect_foresight(
-    T, {}, ss, model_funcs, vars_dyn, X0,
+    T, {}, model_funcs, vars_dyn,
+    X0=X0,
     initial_state=k_neg1,
     stock_var_indices=[1],
+    endval=ss,
 )
 print(f"Converged: {sol.success}")
 ```

@@ -98,14 +98,14 @@ model = Model(equations, vars_dyn, vars_exo=..., vars_params=...)
 | Method | Description |
 |---|---|
 | `model.steady_state(params, exog_ss=None, initial_guess=None)` | Compute the model steady state numerically |
-| `model.solve(T, params, ss, ...)` | Solve the perfect foresight problem |
-| `model.solve_homotopy(T, params, ss, ...)` | Solve via homotopy continuation |
-| `model.solve_expectation_errors(T, params, ss, news_shocks, ...)` | Solve with surprise MIT shocks |
+| `model.solve(T, params, ..., endval=...)` | Solve the perfect foresight problem |
+| `model.solve_homotopy(T, params, ..., endval=...)` | Solve via homotopy continuation |
+| `model.solve_expectation_errors(T, params, ..., news_shocks, endval=...)` | Solve with surprise MIT shocks |
 
-The model lazily builds a compiled steady-state bundle the first time it
-is needed.  For permanent shocks, `endval` is auto-computed from
-`exog_path[-1]` without any extra setup — pass `endval=...` explicitly
-to override, or `compiled_ss=None` to disable auto-computation.
+`endval` is a required keyword argument: the caller computes the
+terminal steady state (e.g. via `model.steady_state`) and passes it
+explicitly.  Use `ss_initial` to declare the pre-shock steady state
+when the economy starts at a different steady state than `endval`.
 
 ## Minimal RBC example
 
@@ -139,7 +139,7 @@ ss = np.array([C_SS, K_SS])
 T = 100
 k_neg1 = np.array([K_SS * 1.1])   # initial_state = k_{-1} (Dynare convention)
 
-sol = model.solve(T, {}, ss, initial_state=k_neg1, stock_var_indices=[1])
+sol = model.solve(T, {}, initial_state=k_neg1, stock_var_indices=[1], endval=ss)
 print(f"Converged: {sol.success}")
 
 # Unpack solution
@@ -180,18 +180,17 @@ for t in range(1, T):
 
 k_neg1 = np.array([K_SS])   # k_{-1} at steady state
 
-sol = model.solve(T, {}, ss, initial_state=k_neg1, stock_var_indices=[1],
-                  exog_path={"z": exog[:, 0]})   # dict form; array also accepted
+sol = model.solve(T, {}, initial_state=k_neg1, stock_var_indices=[1],
+                  exog_path={"z": exog[:, 0]}, endval=ss)   # dict form; array also accepted
 print(f"Converged: {sol.success}")
 ```
 
-## Permanent shock with auto-computed terminal steady state
+## Permanent shock with explicit terminal steady state
 
 For a **permanent** shock the terminal steady state differs from the
-initial one.  With the `Model` class this is handled automatically:
-`model.solve()` computes `endval` from `exog_path[-1]` using the
-model's lazily-built compiled steady-state bundle — no extra setup
-needed.
+initial one.  Compute both steady states with `model.steady_state` and
+pass the terminal one as `endval`; use `ss_initial` to tell the solver
+where the economy started:
 
 ```python
 import numpy as np
@@ -207,26 +206,22 @@ eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
 model = Model([eq_euler, eq_kacc], ["c", "k"],
               vars_exo=["z"], vars_params=["alpha", "beta"])
 
-# Pre-shock steady state: z = 1.0
-ss_pre = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
+# Steady states before and after the permanent shock
+ss_pre  = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
+ss_post = model.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
 T = 100
-# Permanent TFP increase: z jumps from 1.0 to 1.05 at period 0
-exog_path = np.full((T, 1), 1.05)
+exog_path = np.full((T, 1), 1.05)  # permanent TFP increase
 
-# endval is auto-computed from exog_path[-1] (post-shock SS at z=1.05)
-sol = model.solve(T, PARAMS, ss_pre,
-                  exog_path=exog_path,
-                  initial_state=np.array([ss_pre[1]]))
+sol = model.solve(T, PARAMS,
+                  endval=ss_post,      # terminal boundary (post-shock SS)
+                  ss_initial=ss_pre,   # pre-shock SS for initval row
+                  exog_path=exog_path)
 print(f"Converged: {sol.success}")
 
 X = sol.x.reshape(T, -1)
 c_path, k_path = X[:, 0], X[:, 1]
 ```
-
-Pass `endval=...` explicitly to override the auto-computed terminal
-steady state, or `compiled_ss=None` to disable auto-computation
-entirely.
 
 ## Inequality constraints and the zero lower bound
 

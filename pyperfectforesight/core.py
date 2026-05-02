@@ -2281,8 +2281,9 @@ def solve_perfect_foresight(T, params_dict, model_funcs, vars_dyn, *,
           homotopy step (keys: ``'maxiter'``, ``'ftol'``, ``'xtol'``,
           ``'maxfev'``).
         * ``endval`` (ndarray, optional): terminal boundary override for the
-          homotopy solver; if provided, it is interpolated from ``ss_initial``
-          at lam=0 to this value at lam=1.
+          homotopy solver; if provided, replaces the ``endval`` from the
+          primary solver call.  The value is held fixed at this array
+          throughout all homotopy steps (it is not interpolated).
         * ``method`` (str, optional): solution algorithm forwarded to the
           homotopy solver. ``'sparse_newton'`` is the only fully supported
           value; ``'hybr'`` is accepted as a deprecated alias and emits a
@@ -3062,11 +3063,13 @@ def solve_perfect_foresight_homotopy(
     * ``exog_path`` deviation from ``exog_ss``
       (``exog_path_lam  = exog_ss  + lam * (exog_path  - exog_ss)``)
 
-    Conceptually, ``lam`` varies from 0 to 1, where ``lam=0`` is the unshocked
-    configuration and ``lam=1`` is the fully shocked problem.  The warm start
-    for the first positive ``lam`` is ``np.tile(endval, (T, 1))``.  At least
-    one of ``initial_state`` or ``exog_path`` must be provided (``ss_initial``
-    is the lam=0 baseline, not a perturbation source).
+    Conceptually, ``lam`` varies from 0 to 1, where ``lam=1`` is the fully
+    shocked problem.  Only ``initial_state`` and ``exog_path`` are scaled with
+    ``lam``; ``endval`` is held fixed at its supplied value throughout all
+    homotopy steps.  The warm start for the first positive ``lam`` is
+    ``np.tile(endval, (T, 1))``.  At least one of ``initial_state`` or
+    ``exog_path`` must be provided (``ss_initial`` is the lam=0 baseline, not
+    a perturbation source).
 
     Parameters
     ----------
