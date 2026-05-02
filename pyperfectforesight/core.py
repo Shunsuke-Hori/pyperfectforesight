@@ -2916,6 +2916,12 @@ def solve_perfect_foresight_expectation_errors(
         # Apply endval override from 3-tuple (persists to subsequent segments).
         if endval_override is not None:
             current_endval = np.asarray(endval_override, dtype=float).ravel()
+            if current_endval.size != n:
+                raise ValueError(
+                    f"endval override at learnt_in={learnt_in} has "
+                    f"{current_endval.size} element(s) but the model has {n} "
+                    f"dynamic variable(s)."
+                )
 
         # Number of periods to keep from this sub-solve's output.
         next_learnt_in = parsed[i + 1][0] if i + 1 < len(parsed) else T + 1
@@ -3311,10 +3317,12 @@ def solve_perfect_foresight_homotopy(
 
         import warnings as _w
         with _w.catch_warnings():
-            # exog_path_lam is scaled to an intermediate level (not the terminal
-            # level), so endval is not a valid SS at this step's exogenous level.
-            # Suppress the consistency check to avoid spurious warnings.
-            _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
+            # For intermediate steps exog_path_lam is scaled below its terminal
+            # level, so endval is intentionally inconsistent — suppress the
+            # spurious warning.  At the final step (lam=1) exog_path_lam equals
+            # the full-shock path, so a genuine inconsistency should be surfaced.
+            if step < n_steps:
+                _w.filterwarnings("ignore", category=EndvalNotSteadyStateWarning)
             sol = solve_perfect_foresight(
                 T, params_dict, model_funcs, vars_dyn_eff,
                 endval=endval_lam,

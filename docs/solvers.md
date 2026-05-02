@@ -70,7 +70,7 @@ print(f"Converged: {sol.success}")
 
 ### Additional options
 
-All options from `solve_perfect_foresight` are accepted, plus:
+The following options from `solve_perfect_foresight` are supported: `exog_path`, `initial_state`, `ss_initial`, `stock_var_indices`, `endval`, `solver_options`, `method`. The options `X0`, `homotopy_fallback`, and `homotopy_options` are **not** accepted. Additional homotopy-specific options:
 
 | Parameter | Default | Description |
 |---|---|---|
