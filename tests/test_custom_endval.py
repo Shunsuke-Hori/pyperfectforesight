@@ -157,7 +157,8 @@ def test_endval_wrong_shape_raises(model):
 
 
 # ---------------------------------------------------------------------------
-# 5. Homotopy with permanent shock: endval scales from ss_initial to SS_NEW
+# 5. Homotopy with permanent shock: endval fixed at SS_NEW; only
+#    initial_state and exog_path are scaled across homotopy steps
 # ---------------------------------------------------------------------------
 
 def test_homotopy_permanent_shock(model_z):
