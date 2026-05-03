@@ -9,6 +9,11 @@ from pyperfectforesight.core import (
     # Utilities
     v,
     p,
+    # Declaration DSL
+    endog,
+    exog,
+    params,
+    reset_registry,
 
     # Model processing
     lead_lag_incidence,
@@ -51,6 +56,11 @@ __all__ = [
     # Utilities
     "v",
     "p",
+    # Declaration DSL
+    "endog",
+    "exog",
+    "params",
+    "reset_registry",
     # Model processing
     "lead_lag_incidence",
     "is_static",

@@ -6,6 +6,8 @@ This module provides the core infrastructure for solving perfect foresight
 models. For usage examples, see demo.py.
 """
 
+import sys
+import ctypes
 import sympy as sp
 import numpy as np
 from scipy.sparse import lil_matrix, vstack, csr_matrix
@@ -62,6 +64,164 @@ def p(name):
     sympy.Symbol
     """
     return sp.Symbol(name)
+
+
+# ============================================================
+# Declaration DSL  (endog / exog / params with frame injection)
+# ============================================================
+
+class _Var:
+    """Proxy for a declared model variable supporting bracket lag notation.
+
+    After ``endog("k c")`` or ``exog("z")``, the injected names are ``_Var``
+    instances.  Use ``k[-1]``, ``k[0]``, ``k[1]`` to obtain the corresponding
+    SymPy time-indexed symbols.  A bare ``k`` in arithmetic is treated as
+    ``k[0]`` via ``_sympy_`` and the delegated operator methods.
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        params("alpha beta")
+
+        eq = c[0]**(-1) - beta * alpha * k[0]**(alpha - 1) * c[1]**(-1)
+        eq2 = k[0] - k[-1]**alpha + c[0]
+    """
+
+    __slots__ = ('_name',)
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getitem__(self, lag):
+        return sp.Symbol(f"{self._name}_{lag}")
+
+    # Treat bare `k` as k[0] in SymPy expressions
+    def _sympy_(self):
+        return self[0]
+
+    # Arithmetic — delegate to self[0] so bare `k` works in expressions
+    def __add__(self, other):      return self[0] + other
+    def __radd__(self, other):     return other + self[0]
+    def __sub__(self, other):      return self[0] - other
+    def __rsub__(self, other):     return other - self[0]
+    def __mul__(self, other):      return self[0] * other
+    def __rmul__(self, other):     return other * self[0]
+    def __truediv__(self, other):  return self[0] / other
+    def __rtruediv__(self, other): return other / self[0]
+    def __pow__(self, other):      return self[0] ** other
+    def __rpow__(self, other):     return other ** self[0]
+    def __neg__(self):             return -self[0]
+    def __pos__(self):             return +self[0]
+    def __abs__(self):             return abs(self[0])
+
+    def __repr__(self):
+        return f"_Var('{self._name}')"
+
+    def __str__(self):
+        return self._name
+
+
+# Module-level registry — populated by endog/exog/params, consumed by Model().
+_registry = {'endog': [], 'exo': [], 'params': []}
+
+
+def _inject(names_values, depth=2):
+    """Inject ``{name: value}`` into the local frame ``depth`` levels up."""
+    frame = sys._getframe(depth)
+    frame.f_locals.update(names_values)
+    ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(frame), ctypes.c_int(0))
+
+
+def endog(names):
+    """Declare endogenous variables and inject them as ``_Var`` proxies.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated variable names, e.g. ``"k c"`` or ``"k c inv"``.
+
+    Returns
+    -------
+    list of _Var
+        The created proxies (also injected into the caller's local scope).
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        eq = k[-1]**alpha - c[0]
+    """
+    name_list = names.split()
+    proxies = [_Var(n) for n in name_list]
+    _registry['endog'].extend(name_list)
+    _inject({n: p for n, p in zip(name_list, proxies)})
+    return proxies if len(proxies) > 1 else proxies[0]
+
+
+def exog(names):
+    """Declare exogenous variables and inject them as ``_Var`` proxies.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated variable names, e.g. ``"z"`` or ``"z1 z2"``.
+
+    Returns
+    -------
+    list of _Var or _Var
+        The created proxies (also injected into the caller's local scope).
+    """
+    name_list = names.split()
+    proxies = [_Var(n) for n in name_list]
+    _registry['exo'].extend(name_list)
+    _inject({n: p for n, p in zip(name_list, proxies)})
+    return proxies if len(proxies) > 1 else proxies[0]
+
+
+def params(names):
+    """Declare model parameters and inject them as SymPy symbols.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated parameter names, e.g. ``"alpha beta delta"``.
+
+    Returns
+    -------
+    list of sympy.Symbol or sympy.Symbol
+        The created symbols (also injected into the caller's local scope).
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        params("alpha beta")
+
+        eq_euler = c[0]**(-1) - beta * alpha * k[0]**(alpha - 1) * c[1]**(-1)
+
+        PARAMS = {alpha: 0.36, beta: 0.99}
+    """
+    name_list = names.split()
+    syms = [sp.Symbol(n) for n in name_list]
+    _registry['params'].extend(name_list)
+    _inject({n: s for n, s in zip(name_list, syms)})
+    return syms if len(syms) > 1 else syms[0]
+
+
+def reset_registry():
+    """Clear the global variable/parameter registry.
+
+    Call this between independent model definitions in the same session to
+    prevent earlier declarations from polluting later ``Model()`` calls.
+    """
+    _registry['endog'].clear()
+    _registry['exo'].clear()
+    _registry['params'].clear()
+
 
 def _parse_time_symbol(sym_name):
     """Parse a time-indexed symbol name like 'c_0' or 'k_-1'.
@@ -3470,14 +3630,17 @@ class Model:
     ----------
     equations : list
         List of model equations (same as passed to :func:`process_model`).
-    vars_dyn : list of str
-        Endogenous (dynamic) variable names.
+    vars_dyn : list of str, optional
+        Endogenous (dynamic) variable names.  When omitted, the names
+        declared by the most recent :func:`endog` call(s) are read from
+        the global registry.
     vars_exo : list of str, optional
-        Exogenous variable names.
+        Exogenous variable names.  When omitted and :func:`exog` was called
+        before this constructor, the registry values are used.
     vars_params : list of str, optional
-        Declared parameter names.  Use :func:`p` to create the corresponding
-        SymPy symbols.  Subject to the same naming constraint as
-        :func:`process_model`.
+        Declared parameter names.  When omitted and :func:`params` was
+        called before this constructor, the registry values are used.
+        Subject to the same naming constraint as :func:`process_model`.
     vars_aux : list of str, optional
         Auxiliary variable names.
     aux_method : str, default ``'auto'``
@@ -3501,26 +3664,23 @@ class Model:
 
     Examples
     --------
-    Transitory shock::
+    Explicit variable lists (classic API)::
 
         model = Model([eq_euler, eq_kacc], ["c", "k"])
-        ss    = model.steady_state(params)
-        sol   = model.solve(T, params, ss, initial_state=k_neg1)
-        X     = sol.x.reshape(T, -1)
 
-    Permanent shock — ``endval`` auto-computed from ``exog_path[-1]``::
+    Registry-based (DSL API)::
 
-        model = Model([eq_euler, eq_kacc], ["c", "k"],
-                      vars_exo=["z"], vars_params=["alpha", "beta"])
-        ss_pre = model.steady_state(params, exog_ss=np.array([1.0]))
-        sol    = model.solve(T, params, ss_pre, exog_path=exog_path,
-                             initial_state=np.array([ss_pre[1]]))
+        endog("k c")
+        params("alpha beta")
+        eq_euler = c[0]**(-1) - beta * alpha * k[0]**(alpha-1) * c[1]**(-1)
+        eq_kacc  = k[0] - k[-1]**alpha + c[0]
+        model = Model([eq_euler, eq_kacc])   # vars_dyn inferred from registry
     """
 
     def __init__(
         self,
         equations,
-        vars_dyn,
+        vars_dyn=None,
         vars_exo=None,
         *,
         vars_params=None,
@@ -3529,6 +3689,22 @@ class Model:
         eliminate_static_vars=True,
         compiler='lambdify',
     ):
+        # Fall back to the global registry when vars_dyn is not supplied.
+        # vars_exo and vars_params are also read from the registry only when
+        # vars_dyn itself came from the registry — if vars_dyn is explicit, the
+        # caller is using the classic API and should not see registry side-effects.
+        if vars_dyn is None:
+            if not _registry['endog']:
+                raise ValueError(
+                    "vars_dyn was not supplied and the endog registry is empty. "
+                    "Either pass vars_dyn explicitly or call endog() first."
+                )
+            vars_dyn = list(_registry['endog'])
+            if vars_exo is None and _registry['exo']:
+                vars_exo = list(_registry['exo'])
+            if vars_params is None and _registry['params']:
+                vars_params = list(_registry['params'])
+
         self._funcs = process_model(
             equations, vars_dyn,
             vars_exo=vars_exo,
