@@ -5,6 +5,10 @@ import sympy as sp
 import pytest
 
 from pyperfectforesight import Model, v
+from pyperfectforesight.core import (
+    endog as _endog, exog as _exog, params as _params,
+    reset_registry, _registry,
+)
 
 
 def _rbc_ss(alpha, beta):
@@ -234,3 +238,134 @@ def test_builder_homotopy():
                            endval=ss, n_steps=5)
     assert sol.success
     np.testing.assert_allclose(sol.x.reshape(80, -1)[-1], ss, atol=1e-3)
+
+
+# ===========================================================================
+# 7.  Module-level registry (endog / exog / params / reset_registry)
+# ===========================================================================
+
+@pytest.fixture(autouse=True)
+def _clear_registry():
+    """Ensure the global registry is clean before and after every test."""
+    reset_registry()
+    yield
+    reset_registry()
+
+
+def test_endog_registers_names():
+    _endog("k c")
+    assert _registry['endog'] == ['k', 'c']
+
+
+def test_exog_registers_names():
+    _exog("z")
+    assert _registry['exog'] == ['z']
+
+
+def test_params_registers_names():
+    _params("alpha beta")
+    assert _registry['params'] == ['alpha', 'beta']
+
+
+def test_endog_returns_single_var_for_one_name():
+    from pyperfectforesight.core import _Var
+    result = _endog("k")
+    assert isinstance(result, _Var)
+
+
+def test_endog_returns_list_for_multiple_names():
+    from pyperfectforesight.core import _Var
+    result = _endog("k c")
+    assert isinstance(result, list) and len(result) == 2
+    assert all(isinstance(x, _Var) for x in result)
+
+
+def test_params_returns_sympy_symbol_for_one_name():
+    result = _params("alpha")
+    assert result == sp.Symbol("alpha")
+
+
+def test_endog_duplicate_raises():
+    _endog("k")
+    with pytest.raises(ValueError, match="already declared"):
+        _endog("k")
+
+
+def test_cross_category_clash_raises():
+    _endog("k")
+    with pytest.raises(ValueError, match="already declared"):
+        _exog("k")
+
+
+def test_reset_registry_clears_all():
+    _endog("k")
+    _exog("z")
+    _params("alpha")
+    reset_registry()
+    assert _registry['endog'] == []
+    assert _registry['exog'] == []
+    assert _registry['params'] == []
+
+
+def test_endog_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _endog("")
+
+
+def test_exog_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _exog("   ")
+
+
+def test_params_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _params("")
+
+
+def test_endog_invalid_name_raises():
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _endog("123k")
+
+
+def test_endog_keyword_raises():
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _endog("for")
+
+
+def test_model_classic_reads_registry():
+    """Model(equations) without vars_dyn falls back to the registry."""
+    _endog("k c")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert set(m.vars_dyn) == {"k", "c"}
+
+
+def test_model_classic_reads_exog_from_registry():
+    """vars_exo is also read from the registry when vars_dyn comes from it."""
+    _endog("k c")
+    _exog("z")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert "z" in m.vars_exo
+
+
+def test_model_classic_reads_params_from_registry():
+    """vars_params is also read from the registry when vars_dyn comes from it."""
+    _endog("k c")
+    _params("alpha beta")
+    eq_euler = v("c", 0)**(-1) - sp.Symbol("beta") * sp.Symbol("alpha") * v("k", 0)**(sp.Symbol("alpha")-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**sp.Symbol("alpha") + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert set(m.vars_params) == {"alpha", "beta"}
+
+
+def test_model_explicit_vars_dyn_ignores_registry():
+    """Passing vars_dyn explicitly does not read vars_exo/vars_params from registry."""
+    _endog("k c")
+    _exog("z")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc], ["c", "k"])   # explicit vars_dyn
+    assert m.vars_exo == []                       # registry not consulted

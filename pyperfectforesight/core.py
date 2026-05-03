@@ -191,6 +191,8 @@ def endog(names):
         eq = k[-1]**alpha - c[0]
     """
     name_list = names.split()
+    if not name_list:
+        raise ValueError("endog() requires at least one variable name.")
     for n in name_list:
         _validate_decl_name(n, 'endog')
         _registry_check(n, 'endog')
@@ -214,6 +216,8 @@ def exog(names):
         The created proxies (also injected into the caller's local scope).
     """
     name_list = names.split()
+    if not name_list:
+        raise ValueError("exog() requires at least one variable name.")
     for n in name_list:
         _validate_decl_name(n, 'exog')
         _registry_check(n, 'exog')
@@ -248,6 +252,8 @@ def params(names):
         PARAMS = {alpha: 0.36, beta: 0.99}
     """
     name_list = names.split()
+    if not name_list:
+        raise ValueError("params() requires at least one parameter name.")
     for n in name_list:
         _validate_decl_name(n, 'params')
         _registry_check(n, 'params')
@@ -3713,11 +3719,17 @@ class Model:
     ):
         # Builder mode: no equations supplied yet.
         if equations is _UNSET:
-            if vars_dyn is not _UNSET:
+            _classic_args = {
+                'vars_dyn':    vars_dyn is not _UNSET,
+                'vars_exo':    vars_exo is not None,
+                'vars_params': vars_params is not None,
+            }
+            bad = [k for k, v in _classic_args.items() if v]
+            if bad:
                 raise ValueError(
-                    "vars_dyn is a classic-API argument and cannot be passed to the "
-                    "builder constructor. Use Model() with no arguments and call "
-                    "m.endog(...) to declare endogenous variables."
+                    f"{', '.join(bad)} are classic-API arguments and cannot be passed "
+                    "to the builder constructor. Use Model() with no arguments and "
+                    "call m.endog() / m.exog() / m.params() instead."
                 )
             self._sym_store      = {}
             self._builder_endog  = []
@@ -3777,7 +3789,10 @@ class Model:
             ``self``, for optional method chaining.
         """
         self._assert_builder("endog")
-        for n in names.split():
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("endog() requires at least one variable name.")
+        for n in name_list:
             self._check_builder_name(n)
             self._builder_endog.append(n)
             self._sym_store[n] = _Var(n)
@@ -3797,7 +3812,10 @@ class Model:
             ``self``, for optional method chaining.
         """
         self._assert_builder("exog")
-        for n in names.split():
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("exog() requires at least one variable name.")
+        for n in name_list:
             self._check_builder_name(n)
             self._builder_exo.append(n)
             self._sym_store[n] = _Var(n)
@@ -3817,7 +3835,10 @@ class Model:
             ``self``, for optional method chaining.
         """
         self._assert_builder("params")
-        for n in names.split():
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("params() requires at least one parameter name.")
+        for n in name_list:
             self._check_builder_name(n)
             self._builder_params.append(n)
             self._sym_store[n] = sp.Symbol(n)
