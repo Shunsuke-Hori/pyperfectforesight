@@ -7,6 +7,7 @@ models. For usage examples, see demo.py.
 """
 
 import sys
+import keyword
 import ctypes
 import sympy as sp
 import numpy as np
@@ -128,7 +129,7 @@ class _Var:
 
 
 # Module-level registry — populated by endog/exog/params, consumed by Model().
-_registry = {'endog': [], 'exo': [], 'params': []}
+_registry = {'endog': [], 'exog': [], 'params': []}
 
 
 def _registry_check(name, category):
@@ -137,7 +138,7 @@ def _registry_check(name, category):
         if name in names:
             if cat == category:
                 raise ValueError(
-                    f"Name {name!r} is already declared as {category}. "
+                    f"Name {name!r} is already declared as {category!r}. "
                     "Call reset_registry() to start over."
                 )
             raise ValueError(
@@ -148,6 +149,12 @@ def _registry_check(name, category):
 
 def _inject(names_values, depth=2):
     """Inject ``{name: value}`` into the local frame ``depth`` levels up."""
+    if not (hasattr(ctypes, 'pythonapi') and
+            hasattr(ctypes.pythonapi, 'PyFrame_LocalsToFast')):
+        raise RuntimeError(
+            "Frame injection requires CPython. "
+            "Use the Model builder (m = Model(); m.endog(...)) instead."
+        )
     frame = sys._getframe(depth)
     frame.f_locals.update(names_values)
     ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(frame), ctypes.c_int(0))
@@ -163,8 +170,9 @@ def endog(names):
 
     Returns
     -------
-    list of _Var
+    list of _Var or _Var
         The created proxies (also injected into the caller's local scope).
+        Returns a single ``_Var`` when only one name is given.
 
     Examples
     --------
@@ -197,9 +205,9 @@ def exog(names):
     """
     name_list = names.split()
     for n in name_list:
-        _registry_check(n, 'exo')
+        _registry_check(n, 'exog')
     proxies = [_Var(n) for n in name_list]
-    _registry['exo'].extend(name_list)
+    _registry['exog'].extend(name_list)
     _inject({n: p for n, p in zip(name_list, proxies)})
     return proxies if len(proxies) > 1 else proxies[0]
 
@@ -244,7 +252,7 @@ def reset_registry():
     prevent earlier declarations from polluting later ``Model()`` calls.
     """
     _registry['endog'].clear()
-    _registry['exo'].clear()
+    _registry['exog'].clear()
     _registry['params'].clear()
 
 
@@ -3682,7 +3690,7 @@ class Model:
     def __init__(
         self,
         equations=_UNSET,
-        vars_dyn=None,
+        vars_dyn=_UNSET,
         vars_exo=None,
         *,
         vars_params=None,
@@ -3714,15 +3722,15 @@ class Model:
         # vars_exo and vars_params are also read from the registry only when
         # vars_dyn itself came from the registry — if vars_dyn is explicit, the
         # caller is using the classic API and should not see registry side-effects.
-        if vars_dyn is None:
+        if vars_dyn is _UNSET:
             if not _registry['endog']:
                 raise ValueError(
                     "vars_dyn was not supplied and the endog registry is empty. "
                     "Either pass vars_dyn explicitly or call endog() first."
                 )
             vars_dyn = list(_registry['endog'])
-            if vars_exo is None and _registry['exo']:
-                vars_exo = list(_registry['exo'])
+            if vars_exo is None and _registry['exog']:
+                vars_exo = list(_registry['exog'])
             if vars_params is None and _registry['params']:
                 vars_params = list(_registry['params'])
 
@@ -3844,6 +3852,12 @@ class Model:
         # Only emit the DSL-specific hint when symbols have been declared;
         # on a classic Model (empty _sym_store) use a plain AttributeError.
         if store:
+            built = self.__dict__.get('_built', False)
+            if built:
+                raise AttributeError(
+                    f"'{type(self).__name__}' has no declared symbol '{name}'. "
+                    "The model is already built; create a new Model() to add declarations."
+                )
             raise AttributeError(
                 f"'{type(self).__name__}' has no declared symbol '{name}'. "
                 f"Declare it with m.endog('{name}'), m.exog('{name}'), or m.params('{name}')."
@@ -3858,6 +3872,11 @@ class Model:
             )
 
     def _check_builder_name(self, name):
+        if not name.isidentifier() or name.startswith('_') or keyword.iskeyword(name):
+            raise ValueError(
+                f"Name {name!r} is not a valid Python identifier or is a reserved "
+                "keyword and cannot be used as a variable or parameter declaration."
+            )
         if name in _MODEL_RESERVED:
             raise ValueError(
                 f"Name {name!r} is reserved by Model and cannot be used as a "
