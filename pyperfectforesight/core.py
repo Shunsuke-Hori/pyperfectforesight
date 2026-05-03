@@ -3616,70 +3616,39 @@ _UNSET = object()   # sentinel: caller did not supply the argument
 class Model:
     """Object-oriented interface to the pyperfectforesight solver.
 
-    ``Model`` wraps :func:`process_model` at construction time and exposes
-    :meth:`steady_state`, :meth:`solve`, :meth:`solve_homotopy`, and
-    :meth:`solve_expectation_errors` as methods.  ``model_funcs`` and
-    ``vars_dyn`` never need to be supplied again at solve time.
+    ``Model`` wraps :func:`process_model` and exposes :meth:`steady_state`,
+    :meth:`solve`, :meth:`solve_homotopy`, and :meth:`solve_expectation_errors`
+    as methods.
 
-    A lazily-compiled steady-state bundle is built the first time it is
-    needed and reused for all subsequent calls, so permanent-shock
-    ``endval`` auto-computation (from ``exog_path[-1]``) works without any
-    extra setup.
+    There are two construction styles:
 
-    Parameters
-    ----------
-    equations : list
-        List of model equations (same as passed to :func:`process_model`).
-    vars_dyn : list of str, optional
-        Endogenous (dynamic) variable names.  When omitted, the names
-        declared by the most recent :func:`endog` call(s) are read from
-        the global registry.
-    vars_exo : list of str, optional
-        Exogenous variable names.  When omitted and :func:`exog` was called
-        before this constructor, the registry values are used.
-    vars_params : list of str, optional
-        Declared parameter names.  When omitted and :func:`params` was
-        called before this constructor, the registry values are used.
-        Subject to the same naming constraint as :func:`process_model`.
-    vars_aux : list of str, optional
-        Auxiliary variable names.
-    aux_method : str, default ``'auto'``
-        Auxiliary variable treatment — forwarded to :func:`process_model`.
-    eliminate_static_vars : bool, default ``True``
-        Whether to eliminate non-auxiliary static variables.
-    compiler : str, default ``'lambdify'``
-        Compilation backend — forwarded to :func:`process_model`.
-
-    Attributes
-    ----------
-    vars_dyn : list of str
-        Endogenous variable names after processing (may differ from the
-        constructor argument when static variables are eliminated).
-    vars_exo : list of str
-        Exogenous variable names.
-    vars_aux : list of str
-        Auxiliary variable names.
-    vars_params : list of str
-        Parameter names.
-
-    Examples
-    --------
-    Explicit variable lists (classic API)::
+    **Classic** — pass equations and variable lists directly::
 
         model = Model([eq_euler, eq_kacc], ["c", "k"])
 
-    Registry-based (DSL API)::
+    **Builder** — call ``Model()`` with no arguments, declare variables and
+    parameters as attributes, then finalise with :meth:`build`::
 
-        endog("k c")
-        params("alpha beta")
-        eq_euler = c[0]**(-1) - beta * alpha * k[0]**(alpha-1) * c[1]**(-1)
-        eq_kacc  = k[0] - k[-1]**alpha + c[0]
-        model = Model([eq_euler, eq_kacc])   # vars_dyn inferred from registry
+        m = Model()
+        m.endog("k c")
+        m.params("alpha beta")
+
+        eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha-1) * m.c[1]**(-1)
+        eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+
+        m.build([eq_euler, eq_kacc])
+
+        PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+        ss  = m.steady_state(PARAMS)
+        sol = m.solve(T, PARAMS, endval=ss, ...)
+
+    After :meth:`build`, ``m.k``, ``m.alpha``, etc. remain accessible so that
+    ``PARAMS`` and ``endval`` can reference the same symbol objects.
     """
 
     def __init__(
         self,
-        equations,
+        equations=_UNSET,
         vars_dyn=None,
         vars_exo=None,
         *,
@@ -3689,6 +3658,25 @@ class Model:
         eliminate_static_vars=True,
         compiler='lambdify',
     ):
+        # Builder mode: no equations supplied yet.
+        if equations is _UNSET:
+            self._sym_store      = {}
+            self._builder_endog  = []
+            self._builder_exo    = []
+            self._builder_params = []
+            self._builder_kwargs = dict(
+                vars_aux=vars_aux,
+                aux_method=aux_method,
+                eliminate_static_vars=eliminate_static_vars,
+                compiler=compiler,
+            )
+            self._built = False
+            return
+
+        # Classic mode: finalise immediately.
+        self._sym_store = {}
+        self._built     = True
+
         # Fall back to the global registry when vars_dyn is not supplied.
         # vars_exo and vars_params are also read from the registry only when
         # vars_dyn itself came from the registry — if vars_dyn is explicit, the
@@ -3705,6 +3693,137 @@ class Model:
             if vars_params is None and _registry['params']:
                 vars_params = list(_registry['params'])
 
+        self._finalize(
+            equations, vars_dyn,
+            vars_exo=vars_exo, vars_params=vars_params, vars_aux=vars_aux,
+            aux_method=aux_method, eliminate_static_vars=eliminate_static_vars,
+            compiler=compiler,
+        )
+
+    # ------------------------------------------------------------------
+    # Builder-mode methods
+    # ------------------------------------------------------------------
+
+    def endog(self, names):
+        """Declare endogenous variables (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated variable names, e.g. ``"k c"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("endog")
+        for n in names.split():
+            self._builder_endog.append(n)
+            self._sym_store[n] = _Var(n)
+        return self
+
+    def exog(self, names):
+        """Declare exogenous variables (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated variable names, e.g. ``"z"`` or ``"z1 z2"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("exog")
+        for n in names.split():
+            self._builder_exo.append(n)
+            self._sym_store[n] = _Var(n)
+        return self
+
+    def params(self, names):
+        """Declare model parameters (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated parameter names, e.g. ``"alpha beta delta"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("params")
+        for n in names.split():
+            self._builder_params.append(n)
+            self._sym_store[n] = sp.Symbol(n)
+        return self
+
+    def build(self, equations):
+        """Finalise the model with the given equations (builder mode).
+
+        After this call the model is ready for :meth:`steady_state`,
+        :meth:`solve`, etc.  Declared symbols remain accessible as attributes
+        (``m.k``, ``m.alpha``, …) so they can be used in ``PARAMS`` dicts and
+        ``endval`` arrays.
+
+        Parameters
+        ----------
+        equations : list
+            Model equations — same format as the first argument of the classic
+            ``Model([eqs], vars_dyn)`` constructor.
+
+        Returns
+        -------
+        Model
+            ``self``.
+        """
+        self._assert_builder("build")
+        if not self._builder_endog:
+            raise ValueError(
+                "No endogenous variables declared. Call m.endog('...') before m.build()."
+            )
+        self._built = True
+        self._finalize(
+            equations,
+            self._builder_endog,
+            vars_exo=self._builder_exo or None,
+            vars_params=self._builder_params or None,
+            **self._builder_kwargs,
+        )
+        return self
+
+    def __getattr__(self, name):
+        # Called only when normal attribute lookup fails.
+        # Guard against dunder / private names to avoid infinite recursion.
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        store = self.__dict__.get('_sym_store', {})
+        if name in store:
+            return store[name]
+        raise AttributeError(
+            f"'{type(self).__name__}' has no declared symbol '{name}'. "
+            f"Declare it with m.endog('{name}'), m.exog('{name}'), or m.params('{name}')."
+        )
+
+    def _assert_builder(self, method_name):
+        if self.__dict__.get('_built', True):
+            raise RuntimeError(
+                f"Model.{method_name}() is only available before build(). "
+                "Use the builder pattern: m = Model(); m.endog(...); m.build([...])"
+            )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _finalize(
+        self, equations, vars_dyn, *,
+        vars_exo=None, vars_params=None, vars_aux=None,
+        aux_method='auto', eliminate_static_vars=True, compiler='lambdify',
+    ):
         self._funcs = process_model(
             equations, vars_dyn,
             vars_exo=vars_exo,
@@ -3719,11 +3838,7 @@ class Model:
         self.vars_aux    = self._funcs['vars_aux']
         self.vars_params = self._funcs['vars_params']
         self.aux_method  = self._funcs['aux_method']
-        self._compiled_ss = None   # populated lazily on first use
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+        self._compiled_ss = None
 
     def _get_compiled_ss(self):
         """Return the lazily-compiled steady-state bundle."""
