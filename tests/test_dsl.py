@@ -4,7 +4,7 @@ import numpy as np
 import sympy as sp
 import pytest
 
-from pyperfectforesight import Model, v, p
+from pyperfectforesight import Model, v
 
 
 def _rbc_ss(alpha, beta):

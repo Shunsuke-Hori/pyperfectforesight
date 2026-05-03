@@ -95,7 +95,11 @@ class _Var:
         self._name = name
 
     def __getitem__(self, lag):
-        return sp.Symbol(f"{self._name}_{lag}")
+        if not isinstance(lag, (int, np.integer)):
+            raise TypeError(
+                f"_Var lag index must be an integer; got {type(lag).__name__!r}."
+            )
+        return sp.Symbol(f"{self._name}_{int(lag)}")
 
     # Treat bare `k` as k[0] in SymPy expressions
     def _sympy_(self):
@@ -127,6 +131,21 @@ class _Var:
 _registry = {'endog': [], 'exo': [], 'params': []}
 
 
+def _registry_check(name, category):
+    """Raise ValueError if *name* is already registered in any category."""
+    for cat, names in _registry.items():
+        if name in names:
+            if cat == category:
+                raise ValueError(
+                    f"Name {name!r} is already declared as {category}. "
+                    "Call reset_registry() to start over."
+                )
+            raise ValueError(
+                f"Name {name!r} is already declared as {cat!r}; "
+                f"cannot re-declare as {category!r}."
+            )
+
+
 def _inject(names_values, depth=2):
     """Inject ``{name: value}`` into the local frame ``depth`` levels up."""
     frame = sys._getframe(depth)
@@ -155,6 +174,8 @@ def endog(names):
         eq = k[-1]**alpha - c[0]
     """
     name_list = names.split()
+    for n in name_list:
+        _registry_check(n, 'endog')
     proxies = [_Var(n) for n in name_list]
     _registry['endog'].extend(name_list)
     _inject({n: p for n, p in zip(name_list, proxies)})
@@ -175,6 +196,8 @@ def exog(names):
         The created proxies (also injected into the caller's local scope).
     """
     name_list = names.split()
+    for n in name_list:
+        _registry_check(n, 'exo')
     proxies = [_Var(n) for n in name_list]
     _registry['exo'].extend(name_list)
     _inject({n: p for n, p in zip(name_list, proxies)})
@@ -206,6 +229,8 @@ def params(names):
         PARAMS = {alpha: 0.36, beta: 0.99}
     """
     name_list = names.split()
+    for n in name_list:
+        _registry_check(n, 'params')
     syms = [sp.Symbol(n) for n in name_list]
     _registry['params'].extend(name_list)
     _inject({n: s for n, s in zip(name_list, syms)})
@@ -3608,6 +3633,14 @@ def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
 
 # ============================================================
 # 14. Model class (object-oriented API)
+
+# Names that cannot be used as variable/parameter declarations in builder mode
+# because they shadow public Model attributes or methods.
+_MODEL_RESERVED = frozenset([
+    'endog', 'exog', 'params', 'build',
+    'steady_state', 'solve', 'solve_homotopy', 'solve_expectation_errors',
+    'vars_dyn', 'vars_exo', 'vars_aux', 'vars_params', 'aux_method',
+])
 # ============================================================
 
 _UNSET = object()   # sentinel: caller did not supply the argument
@@ -3719,6 +3752,7 @@ class Model:
         """
         self._assert_builder("endog")
         for n in names.split():
+            self._check_builder_name(n)
             self._builder_endog.append(n)
             self._sym_store[n] = _Var(n)
         return self
@@ -3738,6 +3772,7 @@ class Model:
         """
         self._assert_builder("exog")
         for n in names.split():
+            self._check_builder_name(n)
             self._builder_exo.append(n)
             self._sym_store[n] = _Var(n)
         return self
@@ -3757,6 +3792,7 @@ class Model:
         """
         self._assert_builder("params")
         for n in names.split():
+            self._check_builder_name(n)
             self._builder_params.append(n)
             self._sym_store[n] = sp.Symbol(n)
         return self
@@ -3785,7 +3821,8 @@ class Model:
             raise ValueError(
                 "No endogenous variables declared. Call m.endog('...') before m.build()."
             )
-        self._built = True
+        # Set _built only after _finalize succeeds so that the builder stays
+        # usable if process_model raises (e.g., inconsistent equations).
         self._finalize(
             equations,
             self._builder_endog,
@@ -3793,6 +3830,7 @@ class Model:
             vars_params=self._builder_params or None,
             **self._builder_kwargs,
         )
+        self._built = True
         return self
 
     def __getattr__(self, name):
@@ -3803,10 +3841,14 @@ class Model:
         store = self.__dict__.get('_sym_store', {})
         if name in store:
             return store[name]
-        raise AttributeError(
-            f"'{type(self).__name__}' has no declared symbol '{name}'. "
-            f"Declare it with m.endog('{name}'), m.exog('{name}'), or m.params('{name}')."
-        )
+        # Only emit the DSL-specific hint when symbols have been declared;
+        # on a classic Model (empty _sym_store) use a plain AttributeError.
+        if store:
+            raise AttributeError(
+                f"'{type(self).__name__}' has no declared symbol '{name}'. "
+                f"Declare it with m.endog('{name}'), m.exog('{name}'), or m.params('{name}')."
+            )
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def _assert_builder(self, method_name):
         if self.__dict__.get('_built', True):
@@ -3814,6 +3856,21 @@ class Model:
                 f"Model.{method_name}() is only available before build(). "
                 "Use the builder pattern: m = Model(); m.endog(...); m.build([...])"
             )
+
+    def _check_builder_name(self, name):
+        if name in _MODEL_RESERVED:
+            raise ValueError(
+                f"Name {name!r} is reserved by Model and cannot be used as a "
+                "variable or parameter declaration."
+            )
+        if name in self._sym_store:
+            if name in self._builder_endog:
+                existing = 'endog'
+            elif name in self._builder_exo:
+                existing = 'exog'
+            else:
+                existing = 'params'
+            raise ValueError(f"Name {name!r} is already declared as {existing!r}.")
 
     # ------------------------------------------------------------------
     # Private helpers
