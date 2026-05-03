@@ -132,6 +132,15 @@ class _Var:
 _registry = {'endog': [], 'exog': [], 'params': []}
 
 
+def _validate_decl_name(name, category):
+    """Raise ValueError if *name* is not a usable Python identifier."""
+    if not name.isidentifier() or name.startswith('_') or keyword.iskeyword(name):
+        raise ValueError(
+            f"Name {name!r} is not a valid Python identifier or is a reserved "
+            f"keyword; cannot declare it as {category!r}."
+        )
+
+
 def _registry_check(name, category):
     """Raise ValueError if *name* is already registered in any category."""
     for cat, names in _registry.items():
@@ -183,6 +192,7 @@ def endog(names):
     """
     name_list = names.split()
     for n in name_list:
+        _validate_decl_name(n, 'endog')
         _registry_check(n, 'endog')
     proxies = [_Var(n) for n in name_list]
     _registry['endog'].extend(name_list)
@@ -205,6 +215,7 @@ def exog(names):
     """
     name_list = names.split()
     for n in name_list:
+        _validate_decl_name(n, 'exog')
         _registry_check(n, 'exog')
     proxies = [_Var(n) for n in name_list]
     _registry['exog'].extend(name_list)
@@ -238,6 +249,7 @@ def params(names):
     """
     name_list = names.split()
     for n in name_list:
+        _validate_decl_name(n, 'params')
         _registry_check(n, 'params')
     syms = [sp.Symbol(n) for n in name_list]
     _registry['params'].extend(name_list)
@@ -3701,6 +3713,12 @@ class Model:
     ):
         # Builder mode: no equations supplied yet.
         if equations is _UNSET:
+            if vars_dyn is not _UNSET:
+                raise ValueError(
+                    "vars_dyn is a classic-API argument and cannot be passed to the "
+                    "builder constructor. Use Model() with no arguments and call "
+                    "m.endog(...) to declare endogenous variables."
+                )
             self._sym_store      = {}
             self._builder_endog  = []
             self._builder_exo    = []
@@ -3871,12 +3889,15 @@ class Model:
                 "Use the builder pattern: m = Model(); m.endog(...); m.build([...])"
             )
 
-    def _check_builder_name(self, name):
-        if not name.isidentifier() or name.startswith('_') or keyword.iskeyword(name):
-            raise ValueError(
-                f"Name {name!r} is not a valid Python identifier or is a reserved "
-                "keyword and cannot be used as a variable or parameter declaration."
+    def _assert_built(self, method_name):
+        if not self.__dict__.get('_built', True):
+            raise RuntimeError(
+                f"Model.{method_name}() requires a fully built model. "
+                "Call m.build([equations]) first."
             )
+
+    def _check_builder_name(self, name):
+        _validate_decl_name(name, 'declaration')
         if name in _MODEL_RESERVED:
             raise ValueError(
                 f"Name {name!r} is reserved by Model and cannot be used as a "
@@ -3950,6 +3971,7 @@ class Model:
         SteadyState
             Steady-state values; also usable as a plain numpy array.
         """
+        self._assert_built("steady_state")
         return solve_steady_state(
             self._get_compiled_ss(), params,
             initial_guess=initial_guess, exog_ss=exog_ss,
@@ -3980,6 +4002,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve")
         return solve_perfect_foresight(
             T, params, self._funcs, self.vars_dyn,
             endval=endval,
@@ -4015,6 +4038,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve_homotopy")
         return solve_perfect_foresight_homotopy(
             T, params, self._funcs, self.vars_dyn,
             exog_path=exog_path, initial_state=initial_state,
@@ -4052,6 +4076,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve_expectation_errors")
         return solve_perfect_foresight_expectation_errors(
             T, params, self._funcs, self.vars_dyn, news_shocks,
             endval=endval,
