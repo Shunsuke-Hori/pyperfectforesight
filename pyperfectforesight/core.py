@@ -3688,14 +3688,10 @@ class Model:
     :meth:`solve`, :meth:`solve_homotopy`, and :meth:`solve_expectation_errors`
     as methods.
 
-    There are two construction styles:
+    There are three construction styles:
 
-    **Classic** — pass equations and variable lists directly::
-
-        model = Model([eq_euler, eq_kacc], ["c", "k"])
-
-    **Builder** — call ``Model()`` with no arguments, declare variables and
-    parameters as attributes, then finalise with :meth:`build`::
+    **Builder** (recommended) — call ``Model()`` with no arguments, declare
+    variables and parameters as attributes, then finalise with :meth:`build`::
 
         m = Model()
         m.endog("k c")
@@ -3712,6 +3708,21 @@ class Model:
 
     After :meth:`build`, ``m.k``, ``m.alpha``, etc. remain accessible so that
     ``PARAMS`` and ``endval`` can reference the same symbol objects.
+
+    **Classic** — pass equations and variable lists directly::
+
+        model = Model([eq_euler, eq_kacc], ["c", "k"])
+
+    **Registry-backed** — call the module-level :func:`endog`, :func:`exog`,
+    and :func:`params` helpers first, then pass only the equations.  Variable
+    and parameter lists are read from the global registry automatically::
+
+        endog("k c")
+        params("alpha beta")
+        model = Model([eq_euler, eq_kacc])   # vars_dyn read from registry
+
+    Use :func:`reset_registry` between independent model definitions to avoid
+    stale state from earlier declarations.
     """
 
     def __init__(

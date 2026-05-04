@@ -384,3 +384,28 @@ def test_model_explicit_vars_dyn_ignores_registry():
     eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
     m = Model([eq_euler, eq_kacc], ["c", "k"])   # explicit vars_dyn
     assert m.vars_exo == []                       # registry not consulted
+
+
+def test_module_level_injection():
+    """endog/params inject names into an exec'd module-level namespace."""
+    from pyperfectforesight.core import _Var
+    ns = {
+        'endog':  _endog,
+        'params': _params,
+        'reset_registry': reset_registry,
+    }
+    exec("endog('k c'); params('alpha')", ns)
+    assert isinstance(ns.get('k'), _Var)
+    assert isinstance(ns.get('c'), _Var)
+    assert ns.get('alpha') == sp.Symbol('alpha')
+
+
+def test_builder_reserved_name_raises():
+    """m.endog/exog/params reject names that shadow Model attributes."""
+    m = Model()
+    with pytest.raises(ValueError, match="reserved"):
+        m.endog("solve")
+    with pytest.raises(ValueError, match="reserved"):
+        m.params("vars_dyn")
+    with pytest.raises(ValueError, match="reserved"):
+        m.exog("build")
