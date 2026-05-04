@@ -3908,6 +3908,13 @@ class Model:
         store = self.__dict__.get('_sym_store', {})
         if name in store:
             return store[name]
+        # Reserved names (vars_dyn, solve, …) are only available after build().
+        # Give a targeted error rather than suggesting the user declare them.
+        if name in _MODEL_RESERVED and not self.__dict__.get('_built', True):
+            raise AttributeError(
+                f"'{name}' is not available before build(). "
+                "Call m.build([equations]) first."
+            )
         # Only emit the DSL-specific hint when symbols have been declared;
         # on a classic Model (empty _sym_store) use a plain AttributeError.
         if store:
@@ -3938,7 +3945,7 @@ class Model:
             )
 
     def _check_builder_name(self, name):
-        _validate_decl_name(name, 'declaration')
+        _validate_decl_name(name, 'variable or parameter')
         if name in _MODEL_RESERVED:
             raise ValueError(
                 f"Name {name!r} is reserved by Model and cannot be used as a "
