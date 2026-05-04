@@ -98,7 +98,7 @@ class _Var:
     def __getitem__(self, lag):
         if not isinstance(lag, (int, np.integer)):
             raise TypeError(
-                f"_Var lag index must be an integer; got {type(lag).__name__!r}."
+                f"_Var lag index must be an integer; got {type(lag).__name__}."
             )
         return sp.Symbol(f"{self._name}_{int(lag)}")
 
@@ -136,8 +136,8 @@ def _validate_decl_name(name, category):
     """Raise ValueError if *name* is not a usable Python identifier."""
     if not name.isidentifier() or name.startswith('_') or keyword.iskeyword(name):
         raise ValueError(
-            f"Name {name!r} is not a valid Python identifier or is a reserved "
-            f"keyword; cannot declare it as {category!r}."
+            f"Name {name!r} is not a valid Python identifier, starts with '_', "
+            f"or is a reserved keyword; cannot declare it as {category!r}."
         )
 
 
