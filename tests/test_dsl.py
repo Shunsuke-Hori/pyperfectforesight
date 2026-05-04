@@ -285,6 +285,21 @@ def test_params_returns_sympy_symbol_for_one_name():
     assert result == sp.Symbol("alpha")
 
 
+def test_endog_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _endog("k k")
+
+
+def test_exog_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _exog("z z")
+
+
+def test_params_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _params("alpha alpha")
+
+
 def test_endog_duplicate_raises():
     _endog("k")
     with pytest.raises(ValueError, match="already declared"):
