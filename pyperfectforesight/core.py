@@ -200,8 +200,8 @@ def endog(names):
         _validate_decl_name(n, 'endog')
         _registry_check(n, 'endog')
     proxies = [_Var(n) for n in name_list]
-    _registry['endog'].extend(name_list)
     _inject({n: p for n, p in zip(name_list, proxies)})
+    _registry['endog'].extend(name_list)
     return proxies if len(proxies) > 1 else proxies[0]
 
 
@@ -228,8 +228,8 @@ def exog(names):
         _validate_decl_name(n, 'exog')
         _registry_check(n, 'exog')
     proxies = [_Var(n) for n in name_list]
-    _registry['exog'].extend(name_list)
     _inject({n: p for n, p in zip(name_list, proxies)})
+    _registry['exog'].extend(name_list)
     return proxies if len(proxies) > 1 else proxies[0]
 
 
@@ -267,8 +267,8 @@ def params(names):
         _validate_decl_name(n, 'params')
         _registry_check(n, 'params')
     syms = [sp.Symbol(n) for n in name_list]
-    _registry['params'].extend(name_list)
     _inject({n: s for n, s in zip(name_list, syms)})
+    _registry['params'].extend(name_list)
     return syms if len(syms) > 1 else syms[0]
 
 
