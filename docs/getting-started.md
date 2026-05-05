@@ -77,11 +77,44 @@ The `Model` class is the recommended entry point.  It wraps
 `steady_state()`, `solve()`, `solve_homotopy()`, and
 `solve_expectation_errors()` as methods.
 
+### Builder DSL (recommended)
+
+Call `Model()` with no arguments, declare variables and parameters with
+`m.endog` / `m.exog` / `m.params`, write equations using attribute access
+(`m.k[-1]`, `m.alpha`, …), then call `m.build()`:
+
 ```python
 from pyperfectforesight import Model
 
+m = Model()
+m.endog("k c")       # endogenous variables
+m.exog("z")          # exogenous variables (omit if none)
+m.params("alpha beta")
+
+# Equations use m.<name>[lag] notation
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.beta - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - m.z[0] * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+
+# Symbol keys — m.alpha is sp.Symbol("alpha")
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+ss  = m.steady_state(PARAMS)
+sol = m.solve(T, PARAMS, endval=ss, ...)
+```
+
+Declared symbols remain accessible after `build()` so the same
+`m.alpha`, `m.k` objects can be reused in `PARAMS` dicts and `endval`
+arrays without importing anything else.
+
+### Classic API
+
+Pass equations and variable lists directly to the constructor:
+
+```python
 model = Model(equations, vars_dyn, vars_exo=..., vars_params=...)
 ```
+
+### Attributes and methods
 
 **Attributes** set after construction:
 
@@ -114,32 +147,31 @@ accumulation — solved with a 10% capital shock.
 
 ```python
 import numpy as np
-from pyperfectforesight import v, Model
+from pyperfectforesight import Model
 
-# Parameters baked in numerically
-ALPHA = 0.36
-BETA  = 0.99
+m = Model()
+m.endog("c k")
+m.params("alpha beta")
 
 # Dynare-style equations:
 #   Euler:   1/c_t = beta * alpha * k_t^(alpha-1) / c_{t+1}
 #   Capital: k_t   = k_{t-1}^alpha - c_t
 #
 # k appears at lag -1 in the accumulation equation (Dynare convention).
-eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
 
-model = Model([eq_euler, eq_kacc], ["c", "k"])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
-# Steady state
-K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
-C_SS = K_SS**ALPHA - K_SS
-ss = np.array([C_SS, K_SS])
+# Steady state (computed symbolically from PARAMS)
+ss = m.steady_state(PARAMS)
 
 # Transition path: k_{-1} starts 10% above steady state
 T = 100
-k_neg1 = np.array([K_SS * 1.1])   # initial_state = k_{-1} (Dynare convention)
+k_neg1 = np.array([ss[1] * 1.1])   # initial_state = k_{-1} (Dynare convention)
 
-sol = model.solve(T, {}, initial_state=k_neg1, stock_var_indices=[1], endval=ss)
+sol = m.solve(T, PARAMS, initial_state=k_neg1, endval=ss)
 print(f"Converged: {sol.success}")
 
 # Unpack solution
@@ -150,24 +182,25 @@ k_path = X[:, 1]
 
 ## RBC model with exogenous TFP shock
 
-When the model has exogenous variables, pass `vars_exo` and supply an
-`exog_path` — either a `T × n_exo` array or a `{name: array}` dict:
+When the model has exogenous variables, declare them with `m.exog` and
+supply an `exog_path` — either a `T × n_exo` array or a `{name: array}` dict:
 
 ```python
 import sympy as sp
 import numpy as np
-from pyperfectforesight import v, Model
+from pyperfectforesight import Model
 
-ALPHA, BETA = 0.36, 0.99
+m = Model()
+m.endog("c k")
+m.exog("z")
+m.params("alpha beta")
 
-eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - sp.exp(v("z", 0)) * v("k", -1)**ALPHA + v("c", 0)
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
 
-model = Model([eq_euler, eq_kacc], ["c", "k"], vars_exo=["z"])
-
-K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
-C_SS = K_SS**ALPHA - K_SS
-ss = np.array([C_SS, K_SS])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+ss = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 
 T = 100
 
@@ -178,45 +211,43 @@ exog[0, 0] = 0.01
 for t in range(1, T):
     exog[t, 0] = rho * exog[t-1, 0]
 
-k_neg1 = np.array([K_SS])   # k_{-1} at steady state
-
-sol = model.solve(T, {}, initial_state=k_neg1, stock_var_indices=[1],
-                  exog_path={"z": exog[:, 0]}, endval=ss)   # dict form; array also accepted
+sol = m.solve(T, PARAMS, exog_path={"z": exog[:, 0]}, endval=ss)
 print(f"Converged: {sol.success}")
 ```
 
 ## Permanent shock with explicit terminal steady state
 
 For a **permanent** shock the terminal steady state differs from the
-initial one.  Compute both steady states with `model.steady_state` and
+initial one.  Compute both steady states with `m.steady_state` and
 pass the terminal one as `endval`; use `ss_initial` to tell the solver
 where the economy started:
 
 ```python
 import numpy as np
-from pyperfectforesight import p, v, Model
+from pyperfectforesight import Model
 
-ALPHA = p("alpha")
-BETA  = p("beta")
-PARAMS = {ALPHA: 0.36, BETA: 0.99}
+m = Model()
+m.endog("c k")
+m.exog("z")
+m.params("alpha beta")
 
-eq_euler = 1/v("c", 0) - BETA * ALPHA * v("z", 1) * v("k", 0)**(ALPHA - 1) / v("c", 1)
-eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
+eq_euler = 1/m.c[0] - m.beta * m.alpha * m.z[1] * m.k[0]**(m.alpha - 1) / m.c[1]
+eq_kacc  = m.k[0] - m.z[0] * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
 
-model = Model([eq_euler, eq_kacc], ["c", "k"],
-              vars_exo=["z"], vars_params=["alpha", "beta"])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
 # Steady states before and after the permanent shock
-ss_pre  = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
-ss_post = model.steady_state(PARAMS, exog_ss=np.array([1.05]))
+ss_pre  = m.steady_state(PARAMS, exog_ss=np.array([1.0]))
+ss_post = m.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
 T = 100
 exog_path = np.full((T, 1), 1.05)  # permanent TFP increase
 
-sol = model.solve(T, PARAMS,
-                  endval=ss_post,      # terminal boundary (post-shock SS)
-                  ss_initial=ss_pre,   # pre-shock SS for initval row
-                  exog_path=exog_path)
+sol = m.solve(T, PARAMS,
+              endval=ss_post,      # terminal boundary (post-shock SS)
+              ss_initial=ss_pre,   # pre-shock SS for initval row
+              exog_path=exog_path)
 print(f"Converged: {sol.success}")
 
 X = sol.x.reshape(T, -1)

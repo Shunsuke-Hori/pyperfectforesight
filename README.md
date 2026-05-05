@@ -6,36 +6,37 @@ A minimal Dynare-style perfect foresight solver in Python.
 
 ## Quick Start
 
-Declare the model once with the `Model` class, compute the steady state, solve.
+Use the builder DSL: declare variables and parameters on a `Model` instance, write equations using attribute access, then call `build()`.
 
 ```python
 import numpy as np
-from pyperfectforesight import p, v, Model
+from pyperfectforesight import Model
 
-ALPHA = p("alpha")
-BETA  = p("beta")
-PARAMS = {ALPHA: 0.36, BETA: 0.99}
+m = Model()
+m.endog("k c")
+m.exog("z")
+m.params("alpha beta")
 
-# Dynare lag/lead notation: v("k", -1) = k_{t-1}, v("c", 1) = c_{t+1}, v("z", 1) = z_{t+1}
-eq_euler = 1/v("c", 0) - BETA * ALPHA * v("z", 1) * v("k", 0)**(ALPHA-1) / v("c", 1)
-eq_kacc  = v("k", 0) - v("z", 0) * v("k", -1)**ALPHA + v("c", 0)
+# Dynare lag/lead notation: m.k[-1] = k_{t-1}, m.c[1] = c_{t+1}, m.z[1] = z_{t+1}
+eq_euler = 1/m.c[0] - m.beta * m.alpha * m.z[1] * m.k[0]**(m.alpha - 1) / m.c[1]
+eq_kacc  = m.k[0] - m.z[0] * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
 
-model = Model([eq_euler, eq_kacc], ["c", "k"],
-              vars_exo=["z"], vars_params=["alpha", "beta"])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
 # Steady state at z=1
-ss = model.steady_state(PARAMS, exog_ss=np.array([1.0]))
+ss = m.steady_state(PARAMS, exog_ss=np.array([1.0]))
 
 T = 100
 exog_path = np.full((T, 1), 1.05)   # permanent 5% TFP increase
 
 # Compute terminal steady state at new exogenous level
-ss_terminal = model.steady_state(PARAMS, exog_ss=np.array([1.05]))
+ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
-sol = model.solve(T, PARAMS,
-                  endval=ss_terminal,
-                  ss_initial=ss,          # on-SS start: economy was at ss before shock
-                  exog_path=exog_path)
+sol = m.solve(T, PARAMS,
+              endval=ss_terminal,
+              ss_initial=ss,          # on-SS start: economy was at ss before shock
+              exog_path=exog_path)
 
 print(f"Converged: {sol.success}")
 X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [c, k]
