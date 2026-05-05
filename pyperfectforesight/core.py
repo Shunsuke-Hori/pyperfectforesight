@@ -3814,6 +3814,7 @@ class Model:
             raise ValueError("endog() requires at least one variable name.")
         for n in name_list:
             self._check_builder_name(n)
+        for n in name_list:
             self._builder_endog.append(n)
             self._sym_store[n] = _Var(n)
         return self
@@ -3837,6 +3838,7 @@ class Model:
             raise ValueError("exog() requires at least one variable name.")
         for n in name_list:
             self._check_builder_name(n)
+        for n in name_list:
             self._builder_exo.append(n)
             self._sym_store[n] = _Var(n)
         return self
@@ -3860,6 +3862,7 @@ class Model:
             raise ValueError("params() requires at least one parameter name.")
         for n in name_list:
             self._check_builder_name(n)
+        for n in name_list:
             self._builder_params.append(n)
             self._sym_store[n] = sp.Symbol(n)
         return self
