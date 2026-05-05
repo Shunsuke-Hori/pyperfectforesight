@@ -39,7 +39,7 @@ sol = m.solve(T, PARAMS,
               exog_path=exog_path)
 
 print(f"Converged: {sol.success}")
-X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [c, k]
+X = sol.x.reshape(T, -1)   # shape (T, 2): columns are [k, c]
 ```
 
 For homotopy continuation, expectation-errors (news shocks), the functional API, and full option reference, see the **[documentation](https://shunsuke-hori.github.io/pyperfectforesight/)**.

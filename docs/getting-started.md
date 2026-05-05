@@ -92,7 +92,7 @@ m.exog("z")          # exogenous variables (omit if none)
 m.params("alpha beta")
 
 # Equations use m.<name>[lag] notation
-eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.beta - 1) * m.c[1]**(-1)
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
 eq_kacc  = m.k[0] - m.z[0] * m.k[-1]**m.alpha + m.c[0]
 m.build([eq_euler, eq_kacc])
 
@@ -164,7 +164,7 @@ m.build([eq_euler, eq_kacc])
 
 PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
-# Steady state (computed symbolically from PARAMS)
+# Steady state (solved numerically given PARAMS)
 ss = m.steady_state(PARAMS)
 
 # Transition path: k_{-1} starts 10% above steady state
