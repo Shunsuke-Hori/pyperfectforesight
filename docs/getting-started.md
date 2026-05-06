@@ -19,7 +19,7 @@ m = Model()
 m.endog("k c")
 m.params("alpha beta")
 
-# m.alpha is sp.Symbol("alpha") — use directly in equations and PARAMS dicts
+# m.alpha is a plain SymPy Symbol — use directly in equations and PARAMS dicts
 PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 ```
 

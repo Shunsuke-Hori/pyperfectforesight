@@ -31,19 +31,23 @@ from pyperfectforesight import Model, v
 m = Model(vars_aux=['i'])
 m.endog("c k")
 m.exog("g")
-m.params("alpha")
+m.params("alpha beta delta")
 
 i_0 = v("i", 0)   # aux vars are not part of the builder DSL — use v() to get symbols
-eq_i = m.k[0]**m.alpha - m.c[0] - i_0 - m.g[0]
+
+y_0 = m.k[0]**m.alpha
+eq_euler = 1/m.c[0] - m.beta*(m.alpha*m.k[1]**(m.alpha-1) + (1-m.delta))/m.c[1]
+eq_kacc  = m.k[1] - (1-m.delta)*m.k[0] - y_0 + m.c[0] + m.g[0]
+eq_i     = y_0 - m.c[0] - i_0 - m.g[0]
 m.build([eq_euler, eq_kacc, eq_i])
 ```
 
-After the solver returns, auxiliary variable paths are available on `sol.x_aux`:
+After the solver returns, auxiliary variable paths are available on `sol.x_aux` when `aux_method` is `'analytical'` or `'nested'`. When `aux_method='dynamic'` (or when `'auto'` falls back to `'dynamic'`), auxiliary variables are merged into `vars_dyn` and `sol.x_aux` is empty — their paths are part of `sol.x` instead.
 
 ```python
 sol = model.solve(T, params, endval=ss)
-X_dyn = sol.x.reshape(T, -1)   # dynamic variables
-X_aux = sol.x_aux               # auxiliary variables, shape (T, n_aux)
+X_dyn = sol.x.reshape(T, -1)   # dynamic variables (+ aux vars if method='dynamic')
+X_aux = sol.x_aux               # auxiliary variables, shape (T, n_aux); empty if method='dynamic'
 ```
 
 ---
