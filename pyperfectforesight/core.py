@@ -3812,6 +3812,9 @@ class Model:
         name_list = names.split()
         if not name_list:
             raise ValueError("endog() requires at least one variable name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in endog() call: {dupes}")
         for n in name_list:
             self._check_builder_name(n)
         for n in name_list:
@@ -3836,6 +3839,9 @@ class Model:
         name_list = names.split()
         if not name_list:
             raise ValueError("exog() requires at least one variable name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in exog() call: {dupes}")
         for n in name_list:
             self._check_builder_name(n)
         for n in name_list:
@@ -3860,6 +3866,9 @@ class Model:
         name_list = names.split()
         if not name_list:
             raise ValueError("params() requires at least one parameter name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in params() call: {dupes}")
         for n in name_list:
             self._check_builder_name(n)
         for n in name_list:
