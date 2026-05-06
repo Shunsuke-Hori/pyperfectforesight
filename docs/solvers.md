@@ -4,7 +4,7 @@
 
 ---
 
-## `model.solve`
+## `Model.solve`
 
 The core solver. Given parameters and boundary conditions, it finds the perfect foresight transition path by solving the $T \times n$ BVP system with a sparse Newton method.
 
@@ -49,13 +49,13 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 
 ---
 
-## `model.solve_homotopy`
+## `Model.solve_homotopy`
 
 When direct Newton fails to converge — typically for large shocks far from steady state — homotopy continuation incrementally scales the shock from zero to its full value, using the previous step's solution as a warm start.
 
 ### When to use it
 
-- Direct `m.solve` returns `sol.success = False`
+- Direct `Model.solve` returns `sol.success = False`
 - Initial state is far from steady state (e.g., capital 50% above)
 - Large permanent shocks that dramatically change the terminal steady state
 
@@ -93,7 +93,7 @@ The solver raises `RuntimeError` if any intermediate step fails to converge. In 
 
 ---
 
-## `model.solve_expectation_errors`
+## `Model.solve_expectation_errors`
 
 Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents are surprised at one or more `learnt_in` periods, re-solving from each surprise point. The full path is stitched from the resulting sub-simulations.
 
@@ -204,7 +204,7 @@ sub_x0 = [
     make_initial_guess(T_sub3, ss2_vec, ss1_vec, method='exponential'),  # sub-solve 3: disappointment
 ]
 
-sol = m.solve_expectation_errors(T, params_dict, news_shocks,
+sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
     sub_x0=sub_x0,
     initial_state=k_neg1,
     endval=ss1_vec,

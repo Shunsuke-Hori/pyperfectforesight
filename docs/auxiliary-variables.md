@@ -22,12 +22,19 @@ model = Model(
 )
 ```
 
-In builder mode, pass `vars_aux` to the `Model()` constructor (before calling `m.endog()`):
+In builder mode, pass `vars_aux` to the `Model()` constructor (before calling `m.endog()`).
+Auxiliary variables are not registered in the builder DSL, so reference them using `v("i", 0)`:
 
 ```python
+from pyperfectforesight import Model, v
+
 m = Model(vars_aux=['i'])
 m.endog("c k")
 m.exog("g")
+m.params("alpha")
+
+i_0 = v("i", 0)   # aux vars are not part of the builder DSL — use v() to get symbols
+eq_i = m.k[0]**m.alpha - m.c[0] - i_0 - m.g[0]
 m.build([eq_euler, eq_kacc, eq_i])
 ```
 
@@ -138,18 +145,20 @@ Model(equations, vars_dyn, vars_aux=vars_aux, aux_method='dynamic')
 
 ```python
 import numpy as np
-from pyperfectforesight import Model
+from pyperfectforesight import Model, v
 
 m = Model(vars_aux=['i'])   # declare aux variable at construction time
 m.endog("c k")
 m.exog("g")
 m.params("alpha beta delta")
 
+i_0 = v("i", 0)   # aux vars are not in the builder DSL — use v() for the symbol
+
 y_0 = m.k[0]**m.alpha
 
 eq_euler = 1/m.c[0] - m.beta*(m.alpha*m.k[1]**(m.alpha-1) + (1-m.delta))/m.c[1]
 eq_kacc  = m.k[1] - (1-m.delta)*m.k[0] - y_0 + m.c[0] + m.g[0]
-eq_i     = y_0 - m.c[0] - m.i[0] - m.g[0]   # auxiliary equation
+eq_i     = y_0 - m.c[0] - i_0 - m.g[0]   # auxiliary equation
 
 m.build([eq_euler, eq_kacc, eq_i])
 print(f"Method used: {m.aux_method}")
