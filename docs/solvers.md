@@ -124,10 +124,17 @@ An `endval` supplied in a 3-tuple applies to that sub-solve and remains the term
 
 ```python
 import numpy as np
+import sympy as sp
+from pyperfectforesight import Model
 
-# Using the log-deviation TFP model from Getting Started ("RBC model with exogenous TFP shock"):
-#   eq_kacc = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
-# z=0 is the baseline (no shock); exog values are log deviations.
+# Log-deviation TFP model: z=0 is the no-shock baseline
+m = Model()
+m.endog("c k"); m.exog("z"); m.params("alpha beta")
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * sp.exp(m.z[1]) * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+
 T = 100
 ss = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 k_neg1 = np.array([ss[1]])   # start at steady state
@@ -156,6 +163,7 @@ X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
 When the shock is permanent and shifts the long-run equilibrium, pass the new steady state explicitly in a 3-tuple:
 
 ```python
+# m, PARAMS, T, k_neg1 defined in usage example above
 ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([0.05]))
 
