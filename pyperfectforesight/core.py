@@ -6,6 +6,9 @@ This module provides the core infrastructure for solving perfect foresight
 models. For usage examples, see demo.py.
 """
 
+import sys
+import keyword
+import ctypes
 import sympy as sp
 import numpy as np
 from scipy.sparse import lil_matrix, vstack, csr_matrix
@@ -62,6 +65,223 @@ def p(name):
     sympy.Symbol
     """
     return sp.Symbol(name)
+
+
+# ============================================================
+# Declaration DSL  (endog / exog / params with frame injection)
+# ============================================================
+
+class _Var:
+    """Proxy for a declared model variable supporting bracket lag notation.
+
+    After ``endog("k c")`` or ``exog("z")``, the injected names are ``_Var``
+    instances.  Use ``k[-1]``, ``k[0]``, ``k[1]`` to obtain the corresponding
+    SymPy time-indexed symbols.  A bare ``k`` in arithmetic is treated as
+    ``k[0]`` via ``_sympy_`` and the delegated operator methods.
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        params("alpha beta")
+
+        eq = c[0]**(-1) - beta * alpha * k[0]**(alpha - 1) * c[1]**(-1)
+        eq2 = k[0] - k[-1]**alpha + c[0]
+    """
+
+    __slots__ = ('_name',)
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getitem__(self, lag):
+        if not isinstance(lag, (int, np.integer)):
+            raise TypeError(
+                f"_Var lag index must be an integer; got {type(lag).__name__}."
+            )
+        return sp.Symbol(f"{self._name}_{int(lag)}")
+
+    # Treat bare `k` as k[0] in SymPy expressions
+    def _sympy_(self):
+        return self[0]
+
+    # Arithmetic — delegate to self[0] so bare `k` works in expressions
+    def __add__(self, other):      return self[0] + other
+    def __radd__(self, other):     return other + self[0]
+    def __sub__(self, other):      return self[0] - other
+    def __rsub__(self, other):     return other - self[0]
+    def __mul__(self, other):      return self[0] * other
+    def __rmul__(self, other):     return other * self[0]
+    def __truediv__(self, other):  return self[0] / other
+    def __rtruediv__(self, other): return other / self[0]
+    def __pow__(self, other):      return self[0] ** other
+    def __rpow__(self, other):     return other ** self[0]
+    def __neg__(self):             return -self[0]
+    def __pos__(self):             return +self[0]
+    def __abs__(self):             return abs(self[0])
+
+    def __repr__(self):
+        return f"_Var('{self._name}')"
+
+    def __str__(self):
+        return self._name
+
+
+# Module-level registry — populated by endog/exog/params, consumed by Model().
+_registry = {'endog': [], 'exog': [], 'params': []}
+
+
+def _validate_decl_name(name, category):
+    """Raise ValueError if *name* is not a usable Python identifier."""
+    if not name.isidentifier() or name.startswith('_') or keyword.iskeyword(name):
+        raise ValueError(
+            f"Name {name!r} is not a valid Python identifier, starts with '_', "
+            f"or is a reserved keyword; cannot declare it as {category!r}."
+        )
+
+
+def _registry_check(name, category):
+    """Raise ValueError if *name* is already registered in any category."""
+    for cat, names in _registry.items():
+        if name in names:
+            if cat == category:
+                raise ValueError(
+                    f"Name {name!r} is already declared as {category!r}. "
+                    "Call reset_registry() to start over."
+                )
+            raise ValueError(
+                f"Name {name!r} is already declared as {cat!r}; "
+                f"cannot re-declare as {category!r}."
+            )
+
+
+def _inject(names_values, depth=2):
+    """Inject ``{name: value}`` into the local frame ``depth`` levels up."""
+    if not (hasattr(ctypes, 'pythonapi') and
+            hasattr(ctypes.pythonapi, 'PyFrame_LocalsToFast')):
+        raise RuntimeError(
+            "Frame injection requires CPython. "
+            "Use the Model builder (m = Model(); m.endog(...)) instead."
+        )
+    frame = sys._getframe(depth)
+    frame.f_locals.update(names_values)
+    ctypes.pythonapi.PyFrame_LocalsToFast(ctypes.py_object(frame), ctypes.c_int(0))
+
+
+def endog(names):
+    """Declare endogenous variables and inject them as ``_Var`` proxies.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated variable names, e.g. ``"k c"`` or ``"k c inv"``.
+
+    Returns
+    -------
+    list of _Var or _Var
+        The created proxies (also injected into the caller's local scope).
+        Returns a single ``_Var`` when only one name is given.
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        eq = k[-1]**alpha - c[0]
+    """
+    name_list = names.split()
+    if not name_list:
+        raise ValueError("endog() requires at least one variable name.")
+    if len(name_list) != len(set(name_list)):
+        dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+        raise ValueError(f"Duplicate names in endog() call: {dupes}")
+    for n in name_list:
+        _validate_decl_name(n, 'endog')
+        _registry_check(n, 'endog')
+    proxies = [_Var(n) for n in name_list]
+    _inject({n: p for n, p in zip(name_list, proxies)})
+    _registry['endog'].extend(name_list)
+    return proxies if len(proxies) > 1 else proxies[0]
+
+
+def exog(names):
+    """Declare exogenous variables and inject them as ``_Var`` proxies.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated variable names, e.g. ``"z"`` or ``"z1 z2"``.
+
+    Returns
+    -------
+    list of _Var or _Var
+        The created proxies (also injected into the caller's local scope).
+    """
+    name_list = names.split()
+    if not name_list:
+        raise ValueError("exog() requires at least one variable name.")
+    if len(name_list) != len(set(name_list)):
+        dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+        raise ValueError(f"Duplicate names in exog() call: {dupes}")
+    for n in name_list:
+        _validate_decl_name(n, 'exog')
+        _registry_check(n, 'exog')
+    proxies = [_Var(n) for n in name_list]
+    _inject({n: p for n, p in zip(name_list, proxies)})
+    _registry['exog'].extend(name_list)
+    return proxies if len(proxies) > 1 else proxies[0]
+
+
+def params(names):
+    """Declare model parameters and inject them as SymPy symbols.
+
+    Parameters
+    ----------
+    names : str
+        Space-separated parameter names, e.g. ``"alpha beta delta"``.
+
+    Returns
+    -------
+    list of sympy.Symbol or sympy.Symbol
+        The created symbols (also injected into the caller's local scope).
+
+    Examples
+    --------
+    ::
+
+        endog("k c")
+        params("alpha beta")
+
+        eq_euler = c[0]**(-1) - beta * alpha * k[0]**(alpha - 1) * c[1]**(-1)
+
+        PARAMS = {alpha: 0.36, beta: 0.99}
+    """
+    name_list = names.split()
+    if not name_list:
+        raise ValueError("params() requires at least one parameter name.")
+    if len(name_list) != len(set(name_list)):
+        dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+        raise ValueError(f"Duplicate names in params() call: {dupes}")
+    for n in name_list:
+        _validate_decl_name(n, 'params')
+        _registry_check(n, 'params')
+    syms = [sp.Symbol(n) for n in name_list]
+    _inject({n: s for n, s in zip(name_list, syms)})
+    _registry['params'].extend(name_list)
+    return syms if len(syms) > 1 else syms[0]
+
+
+def reset_registry():
+    """Clear the global variable/parameter registry.
+
+    Call this between independent model definitions in the same session to
+    prevent earlier declarations from polluting later ``Model()`` calls.
+    """
+    _registry['endog'].clear()
+    _registry['exog'].clear()
+    _registry['params'].clear()
+
 
 def _parse_time_symbol(sym_name):
     """Parse a time-indexed symbol name like 'c_0' or 'k_-1'.
@@ -3448,6 +3668,14 @@ def make_initial_guess(T, ss_initial, ss_terminal, method='linear', decay=0.9):
 
 # ============================================================
 # 14. Model class (object-oriented API)
+
+# Names that cannot be used as variable/parameter declarations in builder mode
+# because they shadow public Model attributes or methods.
+_MODEL_RESERVED = frozenset([
+    'endog', 'exog', 'params', 'build',
+    'steady_state', 'solve', 'solve_homotopy', 'solve_expectation_errors',
+    'vars_dyn', 'vars_exo', 'vars_aux', 'vars_params', 'aux_method',
+])
 # ============================================================
 
 _UNSET = object()   # sentinel: caller did not supply the argument
@@ -3456,71 +3684,51 @@ _UNSET = object()   # sentinel: caller did not supply the argument
 class Model:
     """Object-oriented interface to the pyperfectforesight solver.
 
-    ``Model`` wraps :func:`process_model` at construction time and exposes
-    :meth:`steady_state`, :meth:`solve`, :meth:`solve_homotopy`, and
-    :meth:`solve_expectation_errors` as methods.  ``model_funcs`` and
-    ``vars_dyn`` never need to be supplied again at solve time.
+    ``Model`` wraps :func:`process_model` and exposes :meth:`steady_state`,
+    :meth:`solve`, :meth:`solve_homotopy`, and :meth:`solve_expectation_errors`
+    as methods.
 
-    A lazily-compiled steady-state bundle is built the first time it is
-    needed and reused for all subsequent calls, so permanent-shock
-    ``endval`` auto-computation (from ``exog_path[-1]``) works without any
-    extra setup.
+    There are three construction styles:
 
-    Parameters
-    ----------
-    equations : list
-        List of model equations (same as passed to :func:`process_model`).
-    vars_dyn : list of str
-        Endogenous (dynamic) variable names.
-    vars_exo : list of str, optional
-        Exogenous variable names.
-    vars_params : list of str, optional
-        Declared parameter names.  Use :func:`p` to create the corresponding
-        SymPy symbols.  Subject to the same naming constraint as
-        :func:`process_model`.
-    vars_aux : list of str, optional
-        Auxiliary variable names.
-    aux_method : str, default ``'auto'``
-        Auxiliary variable treatment — forwarded to :func:`process_model`.
-    eliminate_static_vars : bool, default ``True``
-        Whether to eliminate non-auxiliary static variables.
-    compiler : str, default ``'lambdify'``
-        Compilation backend — forwarded to :func:`process_model`.
+    **Builder** (recommended) — call ``Model()`` with no arguments, declare
+    variables and parameters as attributes, then finalise with :meth:`build`::
 
-    Attributes
-    ----------
-    vars_dyn : list of str
-        Endogenous variable names after processing (may differ from the
-        constructor argument when static variables are eliminated).
-    vars_exo : list of str
-        Exogenous variable names.
-    vars_aux : list of str
-        Auxiliary variable names.
-    vars_params : list of str
-        Parameter names.
+        m = Model()
+        m.endog("k c")
+        m.params("alpha beta")
 
-    Examples
-    --------
-    Transitory shock::
+        eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha-1) * m.c[1]**(-1)
+        eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+
+        m.build([eq_euler, eq_kacc])
+
+        PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+        ss  = m.steady_state(PARAMS)
+        sol = m.solve(T, PARAMS, endval=ss, ...)
+
+    After :meth:`build`, ``m.k``, ``m.alpha``, etc. remain accessible so that
+    ``PARAMS`` and ``endval`` can reference the same symbol objects.
+
+    **Classic** — pass equations and variable lists directly::
 
         model = Model([eq_euler, eq_kacc], ["c", "k"])
-        ss    = model.steady_state(params)
-        sol   = model.solve(T, params, ss, initial_state=k_neg1)
-        X     = sol.x.reshape(T, -1)
 
-    Permanent shock — ``endval`` auto-computed from ``exog_path[-1]``::
+    **Registry-backed** — call the module-level :func:`endog`, :func:`exog`,
+    and :func:`params` helpers first, then pass only the equations.  Variable
+    and parameter lists are read from the global registry automatically::
 
-        model = Model([eq_euler, eq_kacc], ["c", "k"],
-                      vars_exo=["z"], vars_params=["alpha", "beta"])
-        ss_pre = model.steady_state(params, exog_ss=np.array([1.0]))
-        sol    = model.solve(T, params, ss_pre, exog_path=exog_path,
-                             initial_state=np.array([ss_pre[1]]))
+        endog("k c")
+        params("alpha beta")
+        model = Model([eq_euler, eq_kacc])   # vars_dyn read from registry
+
+    Use :func:`reset_registry` between independent model definitions to avoid
+    stale state from earlier declarations.
     """
 
     def __init__(
         self,
-        equations,
-        vars_dyn,
+        equations=_UNSET,
+        vars_dyn=_UNSET,
         vars_exo=None,
         *,
         vars_params=None,
@@ -3528,6 +3736,250 @@ class Model:
         aux_method='auto',
         eliminate_static_vars=True,
         compiler='lambdify',
+    ):
+        # Builder mode: no equations supplied yet.
+        if equations is _UNSET:
+            _classic_args = {
+                'vars_dyn':    vars_dyn is not _UNSET,
+                'vars_exo':    vars_exo is not None,
+                'vars_params': vars_params is not None,
+            }
+            bad = [k for k, v in _classic_args.items() if v]
+            if bad:
+                raise ValueError(
+                    f"{', '.join(bad)} are classic-API arguments and cannot be passed "
+                    "to the builder constructor. Use Model() with no arguments and "
+                    "call m.endog() / m.exog() / m.params() instead."
+                )
+            self._sym_store      = {}
+            self._builder_endog  = []
+            self._builder_exo    = []
+            self._builder_params = []
+            self._builder_kwargs = dict(
+                vars_aux=vars_aux,
+                aux_method=aux_method,
+                eliminate_static_vars=eliminate_static_vars,
+                compiler=compiler,
+            )
+            self._built = False
+            return
+
+        # Classic mode: finalise immediately.
+        self._sym_store = {}
+        self._built     = True
+
+        # Fall back to the global registry when vars_dyn is not supplied.
+        # vars_exo and vars_params are also read from the registry only when
+        # vars_dyn itself came from the registry — if vars_dyn is explicit, the
+        # caller is using the classic API and should not see registry side-effects.
+        if vars_dyn is _UNSET:
+            if not _registry['endog']:
+                raise ValueError(
+                    "vars_dyn was not supplied and the endog registry is empty. "
+                    "Either pass vars_dyn explicitly or call endog() first."
+                )
+            vars_dyn = list(_registry['endog'])
+            if vars_exo is None and _registry['exog']:
+                vars_exo = list(_registry['exog'])
+            if vars_params is None and _registry['params']:
+                vars_params = list(_registry['params'])
+
+        self._finalize(
+            equations, vars_dyn,
+            vars_exo=vars_exo, vars_params=vars_params, vars_aux=vars_aux,
+            aux_method=aux_method, eliminate_static_vars=eliminate_static_vars,
+            compiler=compiler,
+        )
+
+    # ------------------------------------------------------------------
+    # Builder-mode methods
+    # ------------------------------------------------------------------
+
+    def endog(self, names):
+        """Declare endogenous variables (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated variable names, e.g. ``"k c"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("endog")
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("endog() requires at least one variable name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in endog() call: {dupes}")
+        for n in name_list:
+            self._check_builder_name(n)
+        for n in name_list:
+            self._builder_endog.append(n)
+            self._sym_store[n] = _Var(n)
+        return self
+
+    def exog(self, names):
+        """Declare exogenous variables (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated variable names, e.g. ``"z"`` or ``"z1 z2"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("exog")
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("exog() requires at least one variable name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in exog() call: {dupes}")
+        for n in name_list:
+            self._check_builder_name(n)
+        for n in name_list:
+            self._builder_exo.append(n)
+            self._sym_store[n] = _Var(n)
+        return self
+
+    def params(self, names):
+        """Declare model parameters (builder mode).
+
+        Parameters
+        ----------
+        names : str
+            Space-separated parameter names, e.g. ``"alpha beta delta"``.
+
+        Returns
+        -------
+        Model
+            ``self``, for optional method chaining.
+        """
+        self._assert_builder("params")
+        name_list = names.split()
+        if not name_list:
+            raise ValueError("params() requires at least one parameter name.")
+        if len(name_list) != len(set(name_list)):
+            dupes = sorted({n for n in name_list if name_list.count(n) > 1})
+            raise ValueError(f"Duplicate names in params() call: {dupes}")
+        for n in name_list:
+            self._check_builder_name(n)
+        for n in name_list:
+            self._builder_params.append(n)
+            self._sym_store[n] = sp.Symbol(n)
+        return self
+
+    def build(self, equations):
+        """Finalise the model with the given equations (builder mode).
+
+        After this call the model is ready for :meth:`steady_state`,
+        :meth:`solve`, etc.  Declared symbols remain accessible as attributes
+        (``m.k``, ``m.alpha``, …) so they can be used in ``PARAMS`` dicts and
+        ``endval`` arrays.
+
+        Parameters
+        ----------
+        equations : list
+            Model equations — same format as the first argument of the classic
+            ``Model([eqs], vars_dyn)`` constructor.
+
+        Returns
+        -------
+        Model
+            ``self``.
+        """
+        self._assert_builder("build")
+        if not self._builder_endog:
+            raise ValueError(
+                "No endogenous variables declared. Call m.endog('...') before m.build()."
+            )
+        # Set _built only after _finalize succeeds so that the builder stays
+        # usable if process_model raises (e.g., inconsistent equations).
+        self._finalize(
+            equations,
+            self._builder_endog,
+            vars_exo=self._builder_exo or None,
+            vars_params=self._builder_params or None,
+            **self._builder_kwargs,
+        )
+        self._built = True
+        return self
+
+    def __getattr__(self, name):
+        # Called only when normal attribute lookup fails.
+        # Guard against dunder / private names to avoid infinite recursion.
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        store = self.__dict__.get('_sym_store', {})
+        if name in store:
+            return store[name]
+        # Reserved names (vars_dyn, solve, …) are only available after build().
+        # Give a targeted error rather than suggesting the user declare them.
+        if name in _MODEL_RESERVED and not self.__dict__.get('_built', True):
+            raise AttributeError(
+                f"'{name}' is not available before build(). "
+                "Call m.build([equations]) first."
+            )
+        # Only emit the DSL-specific hint when symbols have been declared;
+        # on a classic Model (empty _sym_store) use a plain AttributeError.
+        if store:
+            built = self.__dict__.get('_built', False)
+            if built:
+                raise AttributeError(
+                    f"'{type(self).__name__}' has no declared symbol '{name}'. "
+                    "The model is already built; create a new Model() to add declarations."
+                )
+            raise AttributeError(
+                f"'{type(self).__name__}' has no declared symbol '{name}'. "
+                f"Declare it with m.endog('{name}'), m.exog('{name}'), or m.params('{name}')."
+            )
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def _assert_builder(self, method_name):
+        if self.__dict__.get('_built', True):
+            raise RuntimeError(
+                f"Model.{method_name}() is only available before build(). "
+                "Use the builder pattern: m = Model(); m.endog(...); m.build([...])"
+            )
+
+    def _assert_built(self, method_name):
+        if not self.__dict__.get('_built', True):
+            raise RuntimeError(
+                f"Model.{method_name}() requires a fully built model. "
+                "Call m.build([equations]) first."
+            )
+
+    def _check_builder_name(self, name):
+        _validate_decl_name(name, 'variable or parameter')
+        if name in _MODEL_RESERVED:
+            raise ValueError(
+                f"Name {name!r} is reserved by Model and cannot be used as a "
+                "variable or parameter declaration."
+            )
+        if name in self._sym_store:
+            if name in self._builder_endog:
+                existing = 'endog'
+            elif name in self._builder_exo:
+                existing = 'exog'
+            else:
+                existing = 'params'
+            raise ValueError(f"Name {name!r} is already declared as {existing!r}.")
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _finalize(
+        self, equations, vars_dyn, *,
+        vars_exo=None, vars_params=None, vars_aux=None,
+        aux_method='auto', eliminate_static_vars=True, compiler='lambdify',
     ):
         self._funcs = process_model(
             equations, vars_dyn,
@@ -3543,11 +3995,7 @@ class Model:
         self.vars_aux    = self._funcs['vars_aux']
         self.vars_params = self._funcs['vars_params']
         self.aux_method  = self._funcs['aux_method']
-        self._compiled_ss = None   # populated lazily on first use
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
+        self._compiled_ss = None
 
     def _get_compiled_ss(self):
         """Return the lazily-compiled steady-state bundle."""
@@ -3583,6 +4031,7 @@ class Model:
         SteadyState
             Steady-state values; also usable as a plain numpy array.
         """
+        self._assert_built("steady_state")
         return solve_steady_state(
             self._get_compiled_ss(), params,
             initial_guess=initial_guess, exog_ss=exog_ss,
@@ -3613,6 +4062,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve")
         return solve_perfect_foresight(
             T, params, self._funcs, self.vars_dyn,
             endval=endval,
@@ -3648,6 +4098,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve_homotopy")
         return solve_perfect_foresight_homotopy(
             T, params, self._funcs, self.vars_dyn,
             exog_path=exog_path, initial_state=initial_state,
@@ -3685,6 +4136,7 @@ class Model:
         -------
         scipy.optimize.OptimizeResult
         """
+        self._assert_built("solve_expectation_errors")
         return solve_perfect_foresight_expectation_errors(
             T, params, self._funcs, self.vars_dyn, news_shocks,
             endval=endval,

@@ -1,0 +1,411 @@
+"""Tests for the Model builder DSL (m.endog / m.exog / m.params / m.build)."""
+
+import numpy as np
+import sympy as sp
+import pytest
+
+from pyperfectforesight import Model, v
+from pyperfectforesight.core import (
+    endog as _endog, exog as _exog, params as _params,
+    reset_registry, _registry,
+)
+
+
+def _rbc_ss(alpha, beta):
+    k = (alpha * beta) ** (1 / (1 - alpha))
+    c = k ** alpha - k
+    return k, c
+
+
+# ===========================================================================
+# 1.  _Var proxy — bracket notation and arithmetic
+# ===========================================================================
+
+def test_var_bracket_notation():
+    m = Model()
+    m.endog("k c")
+    assert m.k[-1] == v("k", -1)
+    assert m.k[0]  == v("k",  0)
+    assert m.k[1]  == v("k",  1)
+    assert m.c[0]  == v("c",  0)
+
+
+def test_var_bare_is_lag0_in_arithmetic():
+    m = Model()
+    m.endog("k")
+    assert m.k + 1  == m.k[0] + 1
+    assert 2 * m.k  == 2 * m.k[0]
+    assert m.k ** 2 == m.k[0] ** 2
+    assert -m.k     == -m.k[0]
+
+
+def test_var_sympy_function_integration():
+    m = Model()
+    m.exog("z")
+    assert sp.exp(m.z[0]) == sp.exp(v("z", 0))
+
+
+def test_params_returns_sympy_symbol():
+    m = Model()
+    m.params("alpha beta")
+    assert m.alpha == sp.Symbol("alpha")
+    assert m.beta  == sp.Symbol("beta")
+
+
+# ===========================================================================
+# 2.  Builder method chaining
+# ===========================================================================
+
+def test_builder_methods_return_self():
+    m = Model()
+    assert m.endog("k c") is m
+    assert m.params("alpha") is m
+    assert m.exog("z") is m
+
+
+def test_build_returns_self():
+    m = Model()
+    m.endog("k c")
+    eq = m.k[0] - m.k[-1]**0.36 + m.c[0]
+    euler = m.c[0]**(-1) - 0.99 * 0.36 * m.k[0]**(0.36-1) * m.c[1]**(-1)
+    result = m.build([euler, eq])
+    assert result is m
+
+
+# ===========================================================================
+# 3.  Builder-mode guards
+# ===========================================================================
+
+def test_builder_methods_raise_after_build():
+    m = Model()
+    m.endog("k c")
+    m.build([m.k[0] - m.k[-1]**0.36 + m.c[0],
+             m.c[0]**(-1) - 0.99 * 0.36 * m.k[0]**(0.36-1) * m.c[1]**(-1)])
+    with pytest.raises(RuntimeError, match="only available before build"):
+        m.endog("x")
+
+
+def test_build_without_endog_raises():
+    m = Model()
+    with pytest.raises(ValueError, match="No endogenous variables"):
+        m.build([v("k", 0)])
+
+
+def test_getattr_unknown_symbol_raises():
+    m = Model()
+    m.endog("k")
+    with pytest.raises(AttributeError, match="no declared symbol"):
+        _ = m.z   # 'z' was never declared
+
+
+# ===========================================================================
+# 4.  vars_dyn / vars_exo / vars_params populated after build
+# ===========================================================================
+
+def test_vars_dyn_after_build():
+    m = Model()
+    m.endog("k c")
+    eq_euler = m.c[0]**(-1) - 0.99 * 0.36 * m.k[0]**(0.36-1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**0.36 + m.c[0]
+    m.build([eq_euler, eq_kacc])
+    assert set(m.vars_dyn) == {"k", "c"}
+
+
+def test_vars_exo_after_build():
+    m = Model()
+    m.endog("k c")
+    m.exog("z")
+    eq_euler = m.c[0]**(-1) - 0.99 * 0.36 * m.k[0]**(0.36-1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**0.36 + m.c[0]
+    m.build([eq_euler, eq_kacc])
+    assert "z" in m.vars_exo
+
+
+def test_vars_params_after_build():
+    m = Model()
+    m.endog("k c")
+    m.params("alpha beta")
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha-1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+    assert set(m.vars_params) == {"alpha", "beta"}
+
+
+def test_symbols_accessible_after_build():
+    """m.alpha etc. remain usable after build() for PARAMS dicts."""
+    m = Model()
+    m.endog("k c")
+    m.params("alpha beta")
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha-1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+    # Symbols are still accessible
+    assert m.alpha == sp.Symbol("alpha")
+    assert m.k[-1] == v("k", -1)
+
+
+# ===========================================================================
+# 5.  Classic API still works
+# ===========================================================================
+
+def test_classic_api_unchanged():
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    model = Model([eq_euler, eq_kacc], ["c", "k"])
+    assert set(model.vars_dyn) == {"c", "k"}
+    assert model.vars_params == []
+
+
+# ===========================================================================
+# 6.  End-to-end: builder → solve
+# ===========================================================================
+
+def test_builder_rbc_solve():
+    m = Model()
+    m.endog("k c")
+    m.params("alpha beta")
+
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+
+    PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+    K_SS, C_SS = _rbc_ss(0.36, 0.99)
+    ss = np.array([K_SS, C_SS])
+
+    T = 80
+    k_neg1 = np.array([K_SS * 1.1])
+    sol = m.solve(T, PARAMS, initial_state=k_neg1, stock_var_indices=[0], endval=ss)
+
+    assert sol.success
+    X = sol.x.reshape(T, -1)
+    np.testing.assert_allclose(X[-1], ss, atol=1e-3)
+
+
+def test_builder_steady_state():
+    m = Model()
+    m.endog("k c")
+    m.params("alpha beta")
+
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+
+    PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+    K_SS, C_SS = _rbc_ss(0.36, 0.99)
+
+    ss_num = m.steady_state(PARAMS, initial_guess=np.array([K_SS * 0.9, C_SS * 0.9]))
+    np.testing.assert_allclose(np.array(ss_num), [K_SS, C_SS], atol=1e-6)
+
+
+def test_builder_with_exog():
+    m = Model()
+    m.endog("k c")
+    m.exog("z")
+    m.params("alpha beta")
+
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * sp.exp(m.z[1]) * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+
+    PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+    K_SS, C_SS = _rbc_ss(0.36, 0.99)
+    ss = np.array([K_SS, C_SS])
+
+    T = 50
+    sol = m.solve(T, PARAMS,
+                  initial_state=np.array([K_SS * 1.05]), stock_var_indices=[0],
+                  exog_path=np.zeros((T, 1)), endval=ss)
+    assert sol.success
+    np.testing.assert_allclose(sol.x.reshape(T, -1)[-1], ss, atol=1e-2)
+
+
+def test_builder_homotopy():
+    m = Model()
+    m.endog("k c")
+    m.params("alpha beta")
+
+    eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+    eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+    m.build([eq_euler, eq_kacc])
+
+    PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+    K_SS, C_SS = _rbc_ss(0.36, 0.99)
+    ss = np.array([K_SS, C_SS])
+
+    sol = m.solve_homotopy(80, PARAMS,
+                           initial_state=np.array([K_SS * 1.5]), stock_var_indices=[0],
+                           endval=ss, n_steps=5)
+    assert sol.success
+    np.testing.assert_allclose(sol.x.reshape(80, -1)[-1], ss, atol=1e-3)
+
+
+# ===========================================================================
+# 7.  Module-level registry (endog / exog / params / reset_registry)
+# ===========================================================================
+
+@pytest.fixture(autouse=True)
+def _clear_registry():
+    """Ensure the global registry is clean before and after every test."""
+    reset_registry()
+    yield
+    reset_registry()
+
+
+def test_endog_registers_names():
+    _endog("k c")
+    assert _registry['endog'] == ['k', 'c']
+
+
+def test_exog_registers_names():
+    _exog("z")
+    assert _registry['exog'] == ['z']
+
+
+def test_params_registers_names():
+    _params("alpha beta")
+    assert _registry['params'] == ['alpha', 'beta']
+
+
+def test_endog_returns_single_var_for_one_name():
+    from pyperfectforesight.core import _Var
+    result = _endog("k")
+    assert isinstance(result, _Var)
+
+
+def test_endog_returns_list_for_multiple_names():
+    from pyperfectforesight.core import _Var
+    result = _endog("k c")
+    assert isinstance(result, list) and len(result) == 2
+    assert all(isinstance(x, _Var) for x in result)
+
+
+def test_params_returns_sympy_symbol_for_one_name():
+    result = _params("alpha")
+    assert result == sp.Symbol("alpha")
+
+
+def test_endog_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _endog("k k")
+
+
+def test_exog_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _exog("z z")
+
+
+def test_params_duplicate_within_call_raises():
+    with pytest.raises(ValueError, match="Duplicate"):
+        _params("alpha alpha")
+
+
+def test_endog_duplicate_raises():
+    _endog("k")
+    with pytest.raises(ValueError, match="already declared"):
+        _endog("k")
+
+
+def test_cross_category_clash_raises():
+    _endog("k")
+    with pytest.raises(ValueError, match="already declared"):
+        _exog("k")
+
+
+def test_reset_registry_clears_all():
+    _endog("k")
+    _exog("z")
+    _params("alpha")
+    reset_registry()
+    assert _registry['endog'] == []
+    assert _registry['exog'] == []
+    assert _registry['params'] == []
+
+
+def test_endog_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _endog("")
+
+
+def test_exog_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _exog("   ")
+
+
+def test_params_empty_string_raises():
+    with pytest.raises(ValueError, match="at least one"):
+        _params("")
+
+
+def test_endog_invalid_name_raises():
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _endog("123k")
+
+
+def test_endog_keyword_raises():
+    with pytest.raises(ValueError, match="not a valid Python identifier"):
+        _endog("for")
+
+
+def test_model_classic_reads_registry():
+    """Model(equations) without vars_dyn falls back to the registry."""
+    _endog("k c")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert set(m.vars_dyn) == {"k", "c"}
+
+
+def test_model_classic_reads_exog_from_registry():
+    """vars_exo is also read from the registry when vars_dyn comes from it."""
+    _endog("k c")
+    _exog("z")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert "z" in m.vars_exo
+
+
+def test_model_classic_reads_params_from_registry():
+    """vars_params is also read from the registry when vars_dyn comes from it."""
+    _endog("k c")
+    _params("alpha beta")
+    eq_euler = v("c", 0)**(-1) - sp.Symbol("beta") * sp.Symbol("alpha") * v("k", 0)**(sp.Symbol("alpha")-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**sp.Symbol("alpha") + v("c", 0)
+    m = Model([eq_euler, eq_kacc])
+    assert set(m.vars_params) == {"alpha", "beta"}
+
+
+def test_model_explicit_vars_dyn_ignores_registry():
+    """Passing vars_dyn explicitly does not read vars_exo/vars_params from registry."""
+    _endog("k c")
+    _exog("z")
+    eq_euler = v("c", 0)**(-1) - 0.99 * 0.36 * v("k", 0)**(0.36-1) * v("c", 1)**(-1)
+    eq_kacc  = v("k", 0) - v("k", -1)**0.36 + v("c", 0)
+    m = Model([eq_euler, eq_kacc], ["c", "k"])   # explicit vars_dyn
+    assert m.vars_exo == []                       # registry not consulted
+
+
+def test_module_level_injection():
+    """endog/params inject names into an exec'd module-level namespace."""
+    from pyperfectforesight.core import _Var
+    ns = {
+        'endog':  _endog,
+        'params': _params,
+        'reset_registry': reset_registry,
+    }
+    exec("endog('k c'); params('alpha')", ns)
+    assert isinstance(ns.get('k'), _Var)
+    assert isinstance(ns.get('c'), _Var)
+    assert ns.get('alpha') == sp.Symbol('alpha')
+
+
+def test_builder_reserved_name_raises():
+    """m.endog/exog/params reject names that shadow Model attributes."""
+    m = Model()
+    with pytest.raises(ValueError, match="reserved"):
+        m.endog("solve")
+    with pytest.raises(ValueError, match="reserved"):
+        m.params("vars_dyn")
+    with pytest.raises(ValueError, match="reserved"):
+        m.exog("build")
