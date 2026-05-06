@@ -131,17 +131,18 @@ ss = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 k_neg1 = np.array([ss[1]])   # start at steady state
 
 # Agents initially expect no shock (period 1).
-# At period 3 they learn of a permanent 1% TFP shock.
-exog_surprise = np.full((T, 1), 0.01)   # permanent shock from period 3 onward
+# At period 3 they learn of a temporary 1% TFP shock (one-period impulse).
+exog_surprise = np.zeros((T, 1))
+exog_surprise[0, 0] = 0.01   # row 0 = period 3; subsequent rows revert to zero
 
 news_shocks = [
     (1, None),               # period 1: baseline, no shock expected
-    (3, exog_surprise),      # period 3: agents learn of permanent TFP shock
+    (3, exog_surprise),      # period 3: agents learn of the impulse shock
 ]
 
 sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
     initial_state=k_neg1,
-    endval=ss,
+    endval=ss,   # terminal SS unchanged — shock is temporary
 )
 print(f"Converged: {sol.success}, message: {sol.message}")
 

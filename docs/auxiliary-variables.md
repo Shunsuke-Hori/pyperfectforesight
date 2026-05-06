@@ -42,12 +42,12 @@ eq_i     = y_0 - m.c[0] - i_0 - m.g[0]
 m.build([eq_euler, eq_kacc, eq_i])
 ```
 
-After the solver returns, auxiliary variable paths are available on `sol.x_aux` when `aux_method` is `'analytical'` or `'nested'`. When `aux_method='dynamic'` (or when `'auto'` falls back to `'dynamic'`), auxiliary variables are merged into `vars_dyn` and `sol.x_aux` is empty — their paths are part of `sol.x` instead.
+After the solver returns, auxiliary variable paths are available on `sol.x_aux` when `aux_method` is `'analytical'` or `'nested'`. When `aux_method='dynamic'` (or when `'auto'` falls back to `'dynamic'`), auxiliary variables are merged into `vars_dyn` and `sol.x_aux` is `None` — their paths are part of `sol.x` instead.
 
 ```python
-sol = model.solve(T, params, endval=ss)
+sol = m.solve(T, PARAMS, endval=ss)
 X_dyn = sol.x.reshape(T, -1)   # dynamic variables (+ aux vars if method='dynamic')
-X_aux = sol.x_aux               # auxiliary variables, shape (T, n_aux); empty if method='dynamic'
+X_aux = sol.x_aux               # ndarray (T, n_aux) for analytical/nested; None for dynamic
 ```
 
 ---
