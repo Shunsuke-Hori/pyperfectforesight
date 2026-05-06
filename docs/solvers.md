@@ -125,7 +125,9 @@ An `endval` supplied in a 3-tuple applies to that sub-solve and remains the term
 ```python
 import numpy as np
 
-# (using the same model m with exogenous TFP z as in Getting Started)
+# Using the log-deviation TFP model from Getting Started ("RBC model with exogenous TFP shock"):
+#   eq_kacc = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
+# z=0 is the baseline (no shock); exog values are log deviations.
 T = 100
 ss = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 k_neg1 = np.array([ss[1]])   # start at steady state
@@ -238,7 +240,7 @@ ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([1.0]))
 ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
 print(ss_terminal)
-# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99}, exog_ss={z: 1.05})
+# SteadyState(values={c: ..., k: ...}, params={alpha: 0.36, beta: 0.99}, exog_ss={z: 1.05})
 
 # Access provenance at any time
 ss_terminal.values    # endogenous values as ndarray
