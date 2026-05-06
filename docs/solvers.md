@@ -1,24 +1,34 @@
 # Solvers
 
-`pyperfectforesight` provides three high-level solver functions, each targeting a different use case.
+`pyperfectforesight` provides three solver methods on the `Model` class, each targeting a different use case.
 
 ---
 
-## `solve_perfect_foresight`
+## `Model.solve`
 
-The core solver. Given a model, parameters, and boundary conditions, it finds the perfect foresight transition path by solving the $T \times n$ BVP system with a sparse Newton method.
+The core solver. Given parameters and boundary conditions, it finds the perfect foresight transition path by solving the $T \times n$ BVP system with a sparse Newton method.
 
 ### Basic usage
 
 ```python
-from pyperfectforesight import solve_perfect_foresight
+import numpy as np
+from pyperfectforesight import Model
 
-sol = solve_perfect_foresight(
-    T, params_dict, model_funcs, vars_dyn,
-    initial_state=k_neg1,
-    stock_var_indices=[1],
-    endval=ss,
-)
+m = Model()
+m.endog("c k")
+m.params("alpha beta")
+
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+ss = m.steady_state(PARAMS)
+
+T = 100
+k_neg1 = np.array([ss[1] * 1.1])   # k_{-1}: 10% above steady state
+
+sol = m.solve(T, PARAMS, initial_state=k_neg1, endval=ss)
 
 if sol.success:
     X = sol.x.reshape(T, -1)  # shape (T, n_endo)
@@ -30,22 +40,25 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 
 | Parameter | Default | Description |
 |---|---|---|
-| `exog_path` | `None` | Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`). Pass `None` or omit when there are no exogenous shocks. |
+| `exog_path` | `None` | Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`). `None` is treated as an all-zero path; this is only correct for models where the exogenous steady-state value is zero (e.g. log-deviation specifications). For level exogenous variables with a nonzero steady state (e.g. `z_ss=1`), always pass an explicit path even when there is no shock. |
 | `initial_state` | `None` | Pre-period-0 values of stock variables ($k_{-1}$ in Dynare notation). Mutually exclusive with `ss_initial`. When neither is provided, defaults to `endval[stock_var_indices]`. |
 | `ss_initial` | `None` | Full initial steady-state vector for the `initval` boundary row. Use this for an on-SS start when `endval` differs from the initial SS. Mutually exclusive with `initial_state`. |
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
 | `endval` | *(required keyword)* | Terminal steady state — the fixed right BVP boundary. Must be a valid steady state consistent with the terminal exogenous level. |
+| `method` | `'sparse_newton'` | Solver backend. `'sparse_newton'` is the supported method; `'hybr'` is accepted as a deprecated alias and emits a `DeprecationWarning`. |
 | `solver_options` | `None` | Dict of sparse Newton solver options: `maxiter`, `ftol`, `xtol`, `maxfev`. |
+| `homotopy_fallback` | `True` | If `True`, automatically retries with homotopy continuation when direct Newton fails. |
+| `homotopy_options` | `None` | Dict of options forwarded to the homotopy fallback: `n_steps`, `verbose`, and other `solve_homotopy` options. |
 
 ---
 
-## `solve_perfect_foresight_homotopy`
+## `Model.solve_homotopy`
 
 When direct Newton fails to converge — typically for large shocks far from steady state — homotopy continuation incrementally scales the shock from zero to its full value, using the previous step's solution as a warm start.
 
 ### When to use it
 
-- Direct `solve_perfect_foresight` returns `sol.success = False`
+- Direct `Model.solve` returns `sol.success = False`
 - Initial state is far from steady state (e.g., capital 50% above)
 - Large permanent shocks that dramatically change the terminal steady state
 
@@ -53,14 +66,13 @@ When direct Newton fails to converge — typically for large shocks far from ste
 
 ```python
 import numpy as np
-from pyperfectforesight import solve_perfect_foresight_homotopy
 
-k_neg1 = np.array([K_SS * 1.5])   # 50% above steady state
+# (using the same model m from the previous example)
 
-sol = solve_perfect_foresight_homotopy(
-    T, {}, model_funcs, vars_dyn,
+k_neg1 = np.array([ss[1] * 1.5])   # 50% above steady state
+
+sol = m.solve_homotopy(T, PARAMS,
     initial_state=k_neg1,
-    stock_var_indices=[1],
     endval=ss,
     n_steps=10,      # number of continuation steps from ss to full shock
     verbose=True,
@@ -84,7 +96,7 @@ The solver raises `RuntimeError` if any intermediate step fails to converge. In 
 
 ---
 
-## `solve_perfect_foresight_expectation_errors`
+## `Model.solve_expectation_errors`
 
 Replicates Dynare's `perfect_foresight_with_expectation_errors_solver`. Agents are surprised at one or more `learnt_in` periods, re-solving from each surprise point. The full path is stitched from the resulting sub-simulations.
 
@@ -112,25 +124,34 @@ An `endval` supplied in a 3-tuple applies to that sub-solve and remains the term
 
 ```python
 import numpy as np
-from pyperfectforesight import solve_perfect_foresight_expectation_errors
+import sympy as sp
+from pyperfectforesight import Model
 
-# Same RBC model with exogenous TFP z as in Getting Started.
+# Log-deviation TFP model: z=0 is the no-shock baseline
+m = Model()
+m.endog("c k"); m.exog("z"); m.params("alpha beta")
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * sp.exp(m.z[1]) * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - sp.exp(m.z[0]) * m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+
 T = 100
+ss = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
+k_neg1 = np.array([ss[1]])   # start at steady state
 
 # Agents initially expect no shock (period 1).
-# At period 3 they learn of a permanent 1% TFP shock.
-exog_surprise = np.full((T, 1), 0.01)   # permanent shock from period 3 onward
+# At period 3 they learn of a temporary 1% TFP shock (one-period impulse).
+exog_surprise = np.zeros((T, 1))
+exog_surprise[0, 0] = 0.01   # row 0 = period 3; subsequent rows revert to zero
 
 news_shocks = [
     (1, None),               # period 1: baseline, no shock expected
-    (3, exog_surprise),      # period 3: agents learn of permanent TFP shock
+    (3, exog_surprise),      # period 3: agents learn of the impulse shock
 ]
 
-sol = solve_perfect_foresight_expectation_errors(
-    T, {}, model_funcs, vars_dyn, news_shocks,
+sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
     initial_state=k_neg1,
-    stock_var_indices=[1],
-    endval=ss,
+    endval=ss,   # terminal SS unchanged — shock is temporary
 )
 print(f"Converged: {sol.success}, message: {sol.message}")
 
@@ -142,11 +163,9 @@ X_full = sol.x.reshape(T, -1)   # (T, n_endo) stitched path
 When the shock is permanent and shifts the long-run equilibrium, pass the new steady state explicitly in a 3-tuple:
 
 ```python
-from pyperfectforesight import compile_steady_state_funcs, solve_steady_state
-
-compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
-ss_initial  = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.0]))
-ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.05]))
+# m, PARAMS, T, k_neg1 defined in usage example above
+ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
+ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([0.05]))
 
 exog_surprise = np.full((T, 1), 0.05)
 
@@ -155,10 +174,8 @@ news_shocks = [
     (3, exog_surprise, ss_terminal),        # period 3: permanent shock; endval changes
 ]
 
-sol = solve_perfect_foresight_expectation_errors(
-    T, params, model_funcs, vars_dyn, news_shocks,
+sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
     initial_state=k_neg1,
-    stock_var_indices=[1],
     endval=ss_initial,       # initial terminal boundary (overridden at learnt_in=3)
 )
 ```
@@ -183,7 +200,7 @@ By default each sub-solve is warm-started from the previous sub-solve's tail sol
 Use `sub_x0` to inject high-quality initial guesses directly:
 
 ```python
-from pyperfectforesight import make_initial_guess, solve_perfect_foresight_expectation_errors
+from pyperfectforesight import make_initial_guess
 
 # news_shocks has three entries; learnt_in values are read from the list.
 news_shocks = [
@@ -201,8 +218,7 @@ sub_x0 = [
     make_initial_guess(T_sub3, ss2_vec, ss1_vec, method='exponential'),  # sub-solve 3: disappointment
 ]
 
-sol = solve_perfect_foresight_expectation_errors(
-    T, params_dict, model_funcs, vars_dyn, news_shocks,
+sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
     sub_x0=sub_x0,
     initial_state=k_neg1,
     endval=ss1_vec,
@@ -213,26 +229,31 @@ sol = solve_perfect_foresight_expectation_errors(
 
 ## Terminal steady state
 
-For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `compile_steady_state_funcs` + `solve_steady_state` compute it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
+For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `m.steady_state(PARAMS, exog_ss=...)` computes it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
 
 ### `SteadyState`
 
 ```python
 import numpy as np
-from pyperfectforesight import compile_steady_state_funcs, solve_steady_state
+from pyperfectforesight import Model
 
-compiled_ss = compile_steady_state_funcs(equations, vars_dyn, vars_exo=['z'])
+m = Model()
+m.endog("c k"); m.exog("z"); m.params("alpha beta")
+eq_euler = 1/m.c[0] - m.beta*m.alpha*m.z[1]*m.k[0]**(m.alpha-1)/m.c[1]
+eq_kacc  = m.k[0] - m.z[0]*m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
-ss_initial  = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.0]))
-ss_terminal = solve_steady_state(compiled_ss, params, exog_ss=np.array([0.05]))
+ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([1.0]))
+ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
 print(ss_terminal)
-# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99, delta: 0.025}, exog_ss={z: 0.05})
+# SteadyState(values={c: ..., k: ...}, params={alpha: 0.36, beta: 0.99}, exog_ss={z: 1.05})
 
 # Access provenance at any time
 ss_terminal.values    # endogenous values as ndarray
 ss_terminal.params    # {'alpha': 0.36, ...}
-ss_terminal.exog_ss   # array([0.05])
+ss_terminal.exog_ss   # array([1.05])
 ss_terminal.vars_exo  # ['z']
 ```
 
@@ -244,10 +265,9 @@ Compute the terminal steady state once and pass it as `endval`:
 
 ```python
 T = 100
-exog_path = np.full((T, 1), 0.05)  # permanent shock
+exog_path = np.full((T, 1), 1.05)  # permanent 5% TFP increase (z as level multiplier)
 
-sol = solve_perfect_foresight(
-    T, params, model_funcs, vars_dyn,
+sol = m.solve(T, PARAMS,
     exog_path=exog_path,
     ss_initial=ss_initial,
     endval=ss_terminal,
@@ -258,8 +278,7 @@ For repeated simulations with the same terminal exogenous level, the same `endva
 
 ```python
 for shock in shock_list:
-    sol = solve_perfect_foresight(
-        T, params, model_funcs, vars_dyn,
+    sol = m.solve(T, PARAMS,
         exog_path=shock,
         ss_initial=ss_initial,
         endval=ss_terminal,   # pre-computed, reused across calls

@@ -2,43 +2,43 @@
 
 ## Key concepts
 
-### Declaring symbols: `v()`, `p()`, and `vars_params`
+### Declaring symbols
 
-Use dedicated constructors for each class of symbol:
+With the builder DSL, declare each class of symbol on a `Model` instance:
 
-| Symbol type | Constructor | Declaration list |
+| Symbol type | Builder call | Attribute access |
 |---|---|---|
-| Endogenous variable at time `t+lag` | `v(name, lag)` | `vars_dyn` |
-| Exogenous variable at time `t` | `v(name, 0)` | `vars_exo` |
-| Parameter (time-invariant) | `p(name)` | `vars_params` |
+| Endogenous variable | `m.endog("k c")` | `m.k[-1]`, `m.k[0]`, `m.c[1]` |
+| Exogenous variable | `m.exog("z")` | `m.z[0]`, `m.z[1]` |
+| Parameter | `m.params("alpha beta")` | `m.alpha`, `m.beta` |
 
 ```python
-from pyperfectforesight import p, v, process_model
+from pyperfectforesight import Model
 
-alpha = p("alpha")   # parameter
-k_m   = v("k", -1)  # k_{t-1}
-k_0   = v("k",  0)  # k_t
+m = Model()
+m.endog("k c")
+m.params("alpha beta")
 
-vars_params = ["alpha", "beta", "delta"]
-model_funcs = process_model(equations, vars_dyn, vars_params=vars_params)
+# m.alpha is a plain SymPy Symbol — use directly in equations and PARAMS dicts
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 ```
 
-**Naming constraint**: a parameter name must not match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable — e.g. `p("rho_1")` would collide with `v("rho", 1)`. `process_model` raises a `ValueError` if such a clash is detected.
+**Naming constraint**: a parameter name must not match the pattern `<var>_<int>` when `<var>` is also a declared endogenous, exogenous, or auxiliary variable — e.g. declaring `rho_1` as a parameter would collide with `m.rho[1]`. `Model.build` raises a `ValueError` if such a clash is detected.
 
 ### Dynare lag notation
 
-Equations are written using the `v(name, lag)` helper, which creates a time-indexed SymPy symbol. The lag argument follows Dynare's convention:
+Equations are written using bracket notation `m.k[lag]`, which follows Dynare's convention:
 
 | Expression | Meaning |
 |---|---|
-| `v("k", -1)` | $k_{t-1}$ — lagged value (one period ago) |
-| `v("k", 0)` | $k_t$ — current-period value |
-| `v("c", 1)` | $c_{t+1}$ — lead value (one period ahead) |
+| `m.k[-1]` | $k_{t-1}$ — lagged value (one period ago) |
+| `m.k[0]` | $k_t$ — current-period value |
+| `m.c[1]` | $c_{t+1}$ — lead value (one period ahead) |
 
 For example, the standard capital accumulation equation $k_t = k_{t-1}^\alpha - c_t$ is written:
 
 ```python
-eq_kacc = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
+eq_kacc = m.k[0] - m.k[-1]**m.alpha + m.c[0]
 ```
 
 Note that `k` appears at lag `-1` — this is Dynare's convention for a stock variable that accumulates from last period.
@@ -53,10 +53,10 @@ Do not confuse `initial_state` with $k_0$ (the period-0 value of capital, which 
 
 A variable is classified as a **stock** (predetermined) variable if it appears at any negative lag in the model equations. A variable that only appears at lag 0 or positive lags is a **jump** variable — it is free to respond at $t=0$ and is not pinned by `initial_state`.
 
-`stock_var_indices` is inferred automatically from the lead-lag incidence table computed during `process_model`. You can always pass it explicitly to override the inference:
+`stock_var_indices` is inferred automatically from the lead-lag incidence table. You can always pass it explicitly to override the inference:
 
 ```python
-sol = solve_perfect_foresight(..., stock_var_indices=[1])  # force k (index 1) as stock
+sol = m.solve(T, PARAMS, stock_var_indices=[1], endval=ss)  # force k (index 1) as stock
 ```
 
 ### BVP (augmented-path) formulation
@@ -265,15 +265,15 @@ rate.  Write it as the **NCP (Fischer-min) condition**:
 
 ```python
 import sympy as sp
-from pyperfectforesight import v
+from pyperfectforesight import Model
 
-i_0    = v("i",    0)
-xi_2_0 = v("xi_2", 0)
-sigma  = 1.0   # or a parameter symbol
+m = Model()
+m.endog("i xi_2")   # ... plus other model variables
+sigma = 1.0         # or m.params("sigma") and use m.sigma
 
 # min(xi_2/σ, i) = 0  encodes:
 #   xi_2/σ ≥ 0,  i ≥ 0,  (xi_2/σ) · i = 0
-eq_zlb = sp.Min(xi_2_0 / sigma, i_0)
+eq_zlb = sp.Min(m.xi_2[0] / sigma, m.i[0])
 ```
 
 This single equation encodes all three complementarity conditions at once.

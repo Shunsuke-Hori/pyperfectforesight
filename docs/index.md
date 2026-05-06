@@ -16,10 +16,10 @@ api-reference
 
 ## Features
 
-- **Dynare lag notation** — write `v("k", -1)` for $k_{t-1}$ and `v("c", 1)` for $c_{t+1}$, matching Dynare's convention exactly
+- **Builder DSL** — declare variables with `m.endog("k c")`, write equations using `m.k[-1]` for $k_{t-1}$ and `m.c[1]` for $c_{t+1}$, matching Dynare's convention exactly
 - **Augmented-path BVP solver** — pre-period-0 `initial_state` (`k_{-1}`) is pinned; all period-0 variables including jump variables are solved simultaneously
 - **Automatic stock-variable inference** — lead-lag incidence detects predetermined variables; no manual classification needed
-- **Homotopy continuation** — `solve_perfect_foresight_homotopy` for large shocks that defeat direct Newton
-- **Expectation-errors solver** — replicates Dynare's `perfect_foresight_with_expectation_errors_solver` for sequences of surprise shocks
+- **Homotopy continuation** — `Model.solve_homotopy` for large shocks that defeat direct Newton
+- **Expectation-errors solver** — `Model.solve_expectation_errors` replicates Dynare's `perfect_foresight_with_expectation_errors_solver` for sequences of surprise shocks
 - **Auxiliary variable support** — four methods (`auto`, `analytical`, `dynamic`, `nested`) to handle static/auxiliary variables
 - **Symbolic processing + automatic differentiation** — models defined via SymPy; sparse Jacobians computed automatically
