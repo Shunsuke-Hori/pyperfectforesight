@@ -62,41 +62,32 @@ X0 = make_initial_guess(
 )
 ```
 
-### Combining with `solve_perfect_foresight`
+### Combining with `Model.solve`
 
 ```python
 import numpy as np
-from pyperfectforesight import (
-    v, process_model, solve_perfect_foresight, make_initial_guess,
-)
+from pyperfectforesight import Model, make_initial_guess
 
-ALPHA, BETA = 0.36, 0.99
+m = Model()
+m.endog("c k")
+m.params("alpha beta")
 
-eq_euler = v("c", 0)**(-1) - BETA * ALPHA * v("k", 0)**(ALPHA-1) * v("c", 1)**(-1)
-eq_kacc  = v("k", 0) - v("k", -1)**ALPHA + v("c", 0)
+eq_euler = m.c[0]**(-1) - m.beta * m.alpha * m.k[0]**(m.alpha - 1) * m.c[1]**(-1)
+eq_kacc  = m.k[0] - m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
 
-vars_dyn = ["c", "k"]
-model_funcs = process_model([eq_euler, eq_kacc], vars_dyn)
-
-K_SS = (ALPHA * BETA) ** (1 / (1 - ALPHA))
-C_SS = K_SS**ALPHA - K_SS
-ss = np.array([C_SS, K_SS])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+ss = m.steady_state(PARAMS)
 
 T = 100
-k_neg1 = np.array([K_SS * 1.1])
+k_neg1 = np.array([ss[1] * 1.1])
 
 # Build initial guess: exponential path from perturbed SS back to SS
-ss_perturbed = np.array([C_SS, K_SS * 1.1])   # approximate period-0 values
+ss_perturbed = np.array([ss[0], ss[1] * 1.1])   # approximate period-0 values
 X0 = make_initial_guess(T, ss_initial=ss_perturbed, ss_terminal=ss,
                         method='exponential', decay=0.9)
 
-sol = solve_perfect_foresight(
-    T, {}, model_funcs, vars_dyn,
-    X0=X0,
-    initial_state=k_neg1,
-    stock_var_indices=[1],
-    endval=ss,
-)
+sol = m.solve(T, PARAMS, X0=X0, initial_state=k_neg1, endval=ss)
 print(f"Converged: {sol.success}")
 ```
 

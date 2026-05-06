@@ -24,14 +24,6 @@ pip install -e ".[dev]"
 
 This installs `pyperfectforesight` as an editable package so that changes to the source are reflected immediately without reinstalling. The `[dev]` extra includes Matplotlib and pytest.
 
-## With pip (when published)
-
-Once the package is published to PyPI, you will be able to install it directly:
-
-```bash
-pip install pyperfectforesight
-```
-
 ## Building the documentation
 
 Install the documentation dependencies and run Sphinx:
