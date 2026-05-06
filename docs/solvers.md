@@ -45,7 +45,7 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 | `ss_initial` | `None` | Full initial steady-state vector for the `initval` boundary row. Use this for an on-SS start when `endval` differs from the initial SS. Mutually exclusive with `initial_state`. |
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
 | `endval` | *(required keyword)* | Terminal steady state — the fixed right BVP boundary. Must be a valid steady state consistent with the terminal exogenous level. |
-| `method` | `'sparse_newton'` | Solver backend. Currently only `'sparse_newton'` is supported. |
+| `method` | `'sparse_newton'` | Solver backend. `'sparse_newton'` is the supported method; `'hybr'` is accepted as a deprecated alias and emits a `DeprecationWarning`. |
 | `solver_options` | `None` | Dict of sparse Newton solver options: `maxiter`, `ftol`, `xtol`, `maxfev`. |
 | `homotopy_fallback` | `True` | If `True`, automatically retries with homotopy continuation when direct Newton fails. |
 | `homotopy_options` | `None` | Dict of options forwarded to the homotopy fallback: `n_steps`, `verbose`, and other `solve_homotopy` options. |
@@ -225,8 +225,15 @@ For permanent shocks that shift the long-run equilibrium, the terminal steady st
 
 ```python
 import numpy as np
+from pyperfectforesight import Model
 
-# (using model m with exogenous TFP z)
+m = Model()
+m.endog("c k"); m.exog("z"); m.params("alpha beta")
+eq_euler = 1/m.c[0] - m.beta*m.alpha*m.z[1]*m.k[0]**(m.alpha-1)/m.c[1]
+eq_kacc  = m.k[0] - m.z[0]*m.k[-1]**m.alpha + m.c[0]
+m.build([eq_euler, eq_kacc])
+PARAMS = {m.alpha: 0.36, m.beta: 0.99}
+
 ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
 ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([0.05]))
 
