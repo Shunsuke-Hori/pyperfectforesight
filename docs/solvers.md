@@ -219,7 +219,7 @@ sol = m.solve_expectation_errors(T, PARAMS, news_shocks,
 
 ## Terminal steady state
 
-For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `m.steady_state(params, exog_ss=...)` computes it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
+For permanent shocks that shift the long-run equilibrium, the terminal steady state must be consistent with the terminal exogenous level.  `m.steady_state(PARAMS, exog_ss=...)` computes it at any exogenous level; the result is a `SteadyState` object that is transparently usable as a numpy array.
 
 ### `SteadyState`
 
@@ -234,16 +234,16 @@ eq_kacc  = m.k[0] - m.z[0]*m.k[-1]**m.alpha + m.c[0]
 m.build([eq_euler, eq_kacc])
 PARAMS = {m.alpha: 0.36, m.beta: 0.99}
 
-ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([0.0]))
-ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([0.05]))
+ss_initial  = m.steady_state(PARAMS, exog_ss=np.array([1.0]))
+ss_terminal = m.steady_state(PARAMS, exog_ss=np.array([1.05]))
 
 print(ss_terminal)
-# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99}, exog_ss={z: 0.05})
+# SteadyState(values={c: 2.972, k: 40.999}, params={alpha: 0.36, beta: 0.99}, exog_ss={z: 1.05})
 
 # Access provenance at any time
 ss_terminal.values    # endogenous values as ndarray
 ss_terminal.params    # {'alpha': 0.36, ...}
-ss_terminal.exog_ss   # array([0.05])
+ss_terminal.exog_ss   # array([1.05])
 ss_terminal.vars_exo  # ['z']
 ```
 
@@ -255,7 +255,7 @@ Compute the terminal steady state once and pass it as `endval`:
 
 ```python
 T = 100
-exog_path = np.full((T, 1), 0.05)  # permanent shock
+exog_path = np.full((T, 1), 1.05)  # permanent 5% TFP increase (z as level multiplier)
 
 sol = m.solve(T, PARAMS,
     exog_path=exog_path,
