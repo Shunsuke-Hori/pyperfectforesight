@@ -40,7 +40,7 @@ The return value is a `scipy.optimize.OptimizeResult`-like object with `.success
 
 | Parameter | Default | Description |
 |---|---|---|
-| `exog_path` | `None` | Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`). Pass `None` or omit when there are no exogenous shocks. |
+| `exog_path` | `None` | Exogenous variable path — either a `(T, n_exo)` array or a `{str: array}` dict mapping variable names to length-T arrays (e.g. `{"z": np.ones(T)}`). `None` is treated as an all-zero path; this is only correct for models where the exogenous steady-state value is zero (e.g. log-deviation specifications). For level exogenous variables with a nonzero steady state (e.g. `z_ss=1`), always pass an explicit path even when there is no shock. |
 | `initial_state` | `None` | Pre-period-0 values of stock variables ($k_{-1}$ in Dynare notation). Mutually exclusive with `ss_initial`. When neither is provided, defaults to `endval[stock_var_indices]`. |
 | `ss_initial` | `None` | Full initial steady-state vector for the `initval` boundary row. Use this for an on-SS start when `endval` differs from the initial SS. Mutually exclusive with `initial_state`. |
 | `stock_var_indices` | `None` | Column indices (into `vars_dyn`) of stock (predetermined) variables. Inferred automatically from the lead-lag incidence table when not provided. |
