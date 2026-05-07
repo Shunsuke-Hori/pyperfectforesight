@@ -58,17 +58,17 @@ For homotopy continuation, expectation-errors (news shocks), the functional API,
 
 ## Performance
 
-pyperfectforesight is **~23–61× faster** than Dynare 6.2 on the same RBC model, measured on the solver step alone (excludes one-time compilation/setup on both sides).
+pyperfectforesight is **~27–81× faster** than Dynare 6.2 on the same RBC model, measured on the solver step alone (excludes one-time compilation/setup on both sides).
 
 ![Benchmark: pyperfectforesight vs Dynare 6.2](docs/benchmark_plot.png)
 
 | Horizon T | Python (ms) | Dynare (ms) | Speedup |
 |----------:|------------:|------------:|--------:|
-|        50 |        0.86 |       19.55 |  22.7×  |
-|       100 |        0.82 |       31.08 |  37.9×  |
-|       200 |        1.06 |       50.95 |  48.1×  |
-|       500 |        2.10 |       99.75 |  47.4×  |
-|      1000 |        3.45 |      211.79 |  61.4×  |
+|        50 |        0.72 |       19.55 |  27.1×  |
+|       100 |        0.78 |       31.08 |  40.0×  |
+|       200 |        0.92 |       50.95 |  55.5×  |
+|       500 |        1.66 |       99.75 |  60.1×  |
+|      1000 |        2.63 |      211.79 |  80.5×  |
 
 *RBC model, 3 variables, one-time TFP shock. Median of 20 runs each. Solver only.*
 
